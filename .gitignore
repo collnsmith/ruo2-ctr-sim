@@ -1,0 +1,4 @@
+settings.ini
+screenshots/
+__pycache__/
+*.pyc

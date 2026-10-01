@@ -1,0 +1,69 @@
+# RuO2 / TiO2(110) CTR simulator
+
+Desktop GUI and notebook for the kinematic crystal truncation rod model of RuO2(110) films on
+TiO2(110), with OH / H2O / O on the RuO2 CUS sites.
+
+There is one copy of the physics (`ctr_engine.py`) and one copy of the plots (`ctr_plots.py`).
+The GUI (`ctr_gui.py`) and the notebook (`ctr_notebook.py`) both use them, so a change made there
+shows up in both. This replaces the old standalone `ruo2_tio2_ctr_sim.py`.
+
+## Run
+
+```
+pip install -r requirements.txt
+python ctr_gui.py
+```
+
+Optional: `pip install xraydb` for exact anomalous scattering factors at any energy.
+Without it a built-in 12 to 21 keV table is used.
+
+## Notebook
+
+Open `ctr_notebook.py` in VS Code and use Run Cell (Jupyter extension), or run it as a script.
+Settings use the same names and units as the GUI. The Settings cell can start from a preset or from
+the GUI's `settings.ini`, so both tools can share configurations. Run it from this folder.
+
+## 3D viewer (for fun)
+
+`python ctr_viewer3d.py` opens a separate window that builds one random real-space version of the
+model (thickness, roughness islands, strain spacings, CUS species drawn from the surface state) and
+ray traces it with CUDA through Numba: shadows, ambient occlusion and progressive anti-aliasing.
+Without a CUDA GPU it falls back to the CPU at lower resolution.
+
+- Settings can come from the defaults, any preset, or the main app's `settings.ini`.
+- Mouse: left drag orbit, right or middle drag pan, wheel zoom, click an atom to identify it.
+- Keys: R reset view, Space turntable, S save image (to `screenshots/`), A ambient occlusion,
+  H hydrogens, W electrolyte water.
+- Island shapes, H orientations and the water are for display only; the layer occupancies and
+  positions come from `ctr_engine.py`.
+- Needs `numba` with CUDA support (newer Numba: `pip install numba numba-cuda`). The first start
+  compiles the kernel, which takes a few seconds.
+
+## Layout
+
+- Left: settings, grouped in collapsible sections. Hover a label for help.
+  Thickness, commensurate thickness, spread and roughness are entered in nm. The film and
+  commensurate thickness are rounded to whole (110) trilayers; the line under each field shows the result.
+- Right: Summary, Structure, Rods, OH vs H2O, Sensitivity map, Ranking, Thickness study, Log.
+- Run with the button, Ctrl+R or F5. The same button stops a run.
+  A yellow note appears when settings changed since the last run.
+- Sensitivity map: hover a rod for its values, click it to open its curves in the Ranking tab.
+- Each plot has a toolbar for zoom and saving. Tables export to CSV.
+- Plots switch between side-by-side and stacked panels as the window changes shape.
+
+## Files (all relative to this folder, so the folder can be moved or copied)
+
+- `settings.ini`: last settings, window layout, and run options. Written after each run and on exit.
+  Delete it to start from defaults.
+- `presets/*.ini`: saved configurations. Use Save as / Load / Delete in the sidebar.
+  Presets are plain text and can be shared or edited.
+- `ctr_engine.py` physics, `ctr_plots.py` plotting, `ctr_params.py` settings list, `ctr_gui.py` window,
+  `ctr_notebook.py` notebook front end, `ctr_viewer3d.py` 3D viewer.
+- `screenshots/`: images saved from the 3D viewer (created when needed).
+
+## Text field formats
+
+- Surface state: `OH=0.5, H2O=0.5` (fractions of CUS sites; the rest is empty). Species: H2O, OH, O.
+- Rods: `0 0; 0 1; 1 0`
+- Study points: `P1: 0 1 1.10; P2: 0 1 2.85` (label: H K L)
+- Extra layers: `O br 3.4 0.5 4.0` (element, site cus / br / f1,f2, height in Å, occupancy, B)

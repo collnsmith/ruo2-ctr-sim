@@ -46,9 +46,11 @@ class FilmCTRModel(CTRModel):
     """CTRModel whose film geometry comes from fit parameters (in trilayers) instead of nm settings.
 
     geometry keys (all optional): mean_tl, spread_tl, rough_tl, coherent_tl, extra_layers (list).
+    anomalous: (f_anom dict, source text) to reuse instead of resolving them again (xraydb is slow).
     """
 
-    def __init__(self, params, geometry=None, min_spread=MIN_SPREAD_TL):
+    def __init__(self, params, geometry=None, min_spread=MIN_SPREAD_TL, anomalous=None):
+        self._anomalous = anomalous
         super().__init__(params)
         g = dict(geometry or {})
         self.min_spread = min_spread
@@ -63,6 +65,11 @@ class FilmCTRModel(CTRModel):
         if "extra_layers" in g:
             self.extra_layers = list(g["extra_layers"])
         self.relaxed = self.relax_001 > 0 and self.n_film > self.n_coherent
+
+    def _resolve_anomalous(self):
+        if self._anomalous is not None:
+            return self._anomalous
+        return super()._resolve_anomalous()
 
     def film_n_weights(self):
         return thickness_weights(self.n_mean, self.film_n_spread, self.min_spread)

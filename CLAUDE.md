@@ -27,7 +27,8 @@ partly relaxed film top. It is growing into a fitting package (`ctrfit/`) by the
 ctrfit/core      physics: sf.py (form factors, anomalous terms, atom-list structure factor),
                  lattice.py, structures.py (trilayer, adsorbates), electrolyte.py,
                  ctrmodel.py (the reference CTRModel), settings.py (GUI settings schema and parsers),
-                 film.py (continuous-mean thickness weights, FilmCTRModel driven by parameters)
+                 film.py (continuous-mean thickness weights, FilmCTRModel driven by parameters),
+                 fast.py (vectorized |F|^2 for many points, cached; must equal CTRModel to 1e-9)
 ctrfit/model     expr.py (safe link expressions), parameters.py (Parameter, ParameterSet),
                  templates.py (rutile110_film: settings <-> parameters), model.py (Model),
                  evaluator.py (fast vectorized |F|)

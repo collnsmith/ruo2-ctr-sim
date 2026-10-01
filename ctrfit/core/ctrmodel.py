@@ -154,44 +154,52 @@ class CTRModel:
         theta = self.check_comp(comp)
         regions = (self._new(), self._new())
         u = self.p["ruo2_u"]
-        BF, BS = self.B_FILM, self.B_SURF
+        BF = self.B_FILM
         for k, z0, d_k, is_top, o, e in zip(*self.film_layers(n_film)):
             if o < 1e-6:
                 continue
             at = regions[int(is_top)]
             on = o - e
-            p_, s = k % 2, 0.5 * (k % 2)
+            p_ = k % 2
             if on > 1e-9:
                 self.add_trilayer(at, "Ru", p_, z0, d_k, u, on, BF["M"], BF["O"], f"L{k}")
             if e <= 1e-9:
                 continue
-            self.add_trilayer(at, "Ru", p_, z0, d_k, u, e, BS["M"], BS["O"], f"L{k}s",
-                              skip=("M_cus",), relax=self.relax_top, B_Olo=BF["O"])
-            f2c = (0.5 + s) % 1.0
-            for sp, frac in comp.items():
-                if frac <= 0:
-                    continue
-                ad = self.adsorbates[sp]
-                zM = z0 + ad["dz_Mcus"]
-                zO = zM + ad["z_O"]
-                self._add(at, "Ru", 0.0, f2c, zM, e * frac, BS["M"], f"L{k}s:M_cus[{sp}]")
-                self._add(at, "O", 0.0, f2c, zO, e * frac, ad["B_O"], f"L{k}s:{sp}_O")
-                if self.include_H:
-                    for dx, dy, dz in ad["H"]:
-                        self._add(at, "H", dx / self.A1, (f2c + dy / self.A2) % 1.0, zO + dz, e * frac,
-                                  ad["B_O"] + self.b_H_extra, f"L{k}s:{sp}_H")
-            if 1 - theta > 1e-9:
-                self._add(at, "Ru", 0.0, f2c, z0 + self.relax_top["M_cus_vacant"], e * (1 - theta),
-                          BS["M"], f"L{k}s:M_cus[vac]")
-            for xl in self.extra_layers:
-                site = xl["site"]
-                f1x, f2x = {"cus": (0.0, 0.5), "br": (0.0, 0.0)}[site] if isinstance(site, str) else site
-                self._add(at, xl["el"], f1x, (f2x + s) % 1.0, z0 + xl["z"], e * xl["occ"], xl["B"],
-                          f"L{k}s:extra")
+            self.add_exposed_layer(at, p_, z0, d_k, e, comp, theta, f"L{k}s")
         bottom, top = self._done(regions[0]), self._done(regions[1])
         if top["B"].size:
             top["B"] = top["B"] + self.b_top_extra
         return bottom, top
+
+    def add_exposed_layer(self, at, p_, z0, d_k, e, comp, theta, tag):
+        """Atoms of an exposed trilayer with occupancy e: lattice without M_cus, top relaxations,
+        CUS species of the composition, empty CUS Ru, and the extra ordered layers."""
+        u = self.p["ruo2_u"]
+        BF, BS = self.B_FILM, self.B_SURF
+        s = 0.5 * p_
+        self.add_trilayer(at, "Ru", p_, z0, d_k, u, e, BS["M"], BS["O"], tag,
+                          skip=("M_cus",), relax=self.relax_top, B_Olo=BF["O"])
+        f2c = (0.5 + s) % 1.0
+        for sp, frac in comp.items():
+            if frac <= 0:
+                continue
+            ad = self.adsorbates[sp]
+            zM = z0 + ad["dz_Mcus"]
+            zO = zM + ad["z_O"]
+            self._add(at, "Ru", 0.0, f2c, zM, e * frac, BS["M"], f"{tag}:M_cus[{sp}]")
+            self._add(at, "O", 0.0, f2c, zO, e * frac, ad["B_O"], f"{tag}:{sp}_O")
+            if self.include_H:
+                for dx, dy, dz in ad["H"]:
+                    self._add(at, "H", dx / self.A1, (f2c + dy / self.A2) % 1.0, zO + dz, e * frac,
+                              ad["B_O"] + self.b_H_extra, f"{tag}:{sp}_H")
+        if 1 - theta > 1e-9:
+            self._add(at, "Ru", 0.0, f2c, z0 + self.relax_top["M_cus_vacant"], e * (1 - theta),
+                      BS["M"], f"{tag}:M_cus[vac]")
+        for xl in self.extra_layers:
+            site = xl["site"]
+            f1x, f2x = {"cus": (0.0, 0.5), "br": (0.0, 0.0)}[site] if isinstance(site, str) else site
+            self._add(at, xl["el"], f1x, (f2x + s) % 1.0, z0 + xl["z"], e * xl["occ"], xl["B"],
+                      f"{tag}:extra")
 
     def build_film(self, comp, n_film=None):
         bottom, top = self.build_film_regions(comp, n_film)

@@ -51,3 +51,26 @@ def test_cuda_kernel_ptx_is_float32_only():
     res = _helper("ptx")
     assert res["target_sm75"]
     assert res["n_f64"] == 0, "\n".join(res["f64"])
+
+
+def test_viewer_window_starts(monkeypatch):
+    pytest.importorskip("numba")
+    pytest.importorskip("PyQt5")
+    import ctr_viewer3d as v
+    from PyQt5 import QtWidgets
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    win = v.ViewerWindow()
+    win.nx.setValue(3)
+    win.ny.setValue(2)
+    win.nsub.setValue(1)
+    win.scale.setCurrentIndex(3)
+    win.resize(400, 300)
+    win.show()
+    app.processEvents()
+    win.first_build()
+    win.timer.stop()
+    win.tick()
+    assert win.scene is not None and win.view.image is not None
+    win.close()
+    app.processEvents()

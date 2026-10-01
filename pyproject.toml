@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctrfit"
+dynamic = ["version"]
+description = "Kinematic CTR simulation and fitting for RuO2(110) films on TiO2(110)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = ["numpy", "scipy", "matplotlib>=3.5"]
+
+[project.optional-dependencies]
+gui = ["PyQt5"]
+viewer = ["PyQt5", "numba"]
+mcmc = ["emcee"]
+anomalous = ["xraydb"]
+test = ["pytest"]
+
+[tool.setuptools.dynamic]
+version = { attr = "ctrfit.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["ctrfit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-m \"not slow\""
+markers = ["slow: long tests, run with  pytest -m slow"]

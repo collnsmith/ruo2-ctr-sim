@@ -15,15 +15,26 @@ partly relaxed film top. It is growing into a fitting package (`ctrfit/`) by the
 - Settings use GUI units (nm, %, Å, keV, Å²). The engine converts them to internal units.
 - Film and commensurate thickness are whole (110) trilayers.
 
-## Rules
+## Layout and rules
 
-- All physics lives in `ctr_engine.py` (after Phase 1: `ctrfit/core`; `ctr_engine.py` is then a
-  thin re-export). All plotting lives in `ctr_plots.py`.
+```
+ctrfit/core      physics: sf.py (form factors, anomalous terms, atom-list structure factor),
+                 lattice.py, structures.py (trilayer, adsorbates), electrolyte.py,
+                 ctrmodel.py (the reference CTRModel), settings.py (GUI settings schema and parsers)
+ctrfit/model     parameters, templates and the fast evaluator
+ctrfit/data      datasets, import/export, synthetic data
+ctrfit/fit       figures of merit, optimizers, uncertainty
+ctrfit/project   results, reports and all plotting (plots.py)
+ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
+ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
+```
+
+- All physics lives in `ctrfit/core`. All plotting lives in `ctrfit/project/plots.py`.
 - `ctr_gui.py`, `ctr_notebook.py` and `ctr_viewer3d.py` only call the engine and the plots. They
   hold no physics of their own.
-- Settings, their units, defaults and the text parsers live in `ctr_params.py`.
-- No Qt imports in the engine, the parameter model, the data layer or the fitting code
-  (only in the GUI, the viewer and a future `ctrfit/app/`).
+- Settings, their units, defaults and the text parsers live in `ctrfit/core/settings.py`
+  (imported as `ctr_params` by the front ends).
+- No Qt imports anywhere in `ctrfit/` except a future `ctrfit/app/` (a test enforces this).
 - Never edit `tests/reference.npz`. If a change is meant to alter the physics, regenerate it with
   `python tests/make_reference.py` and explain why in the commit message.
 - Fixed seeds everywhere (synthetic data, optimizers, the viewer's random scene).
@@ -32,6 +43,7 @@ partly relaxed film top. It is growing into a fitting package (`ctrfit/`) by the
 
 ```
 pip install -r requirements.txt pytest
+pip install -e .               # optional: makes ctrfit importable from anywhere
 python -m pytest              # default suite, about 35 s; skips tests marked slow
 python -m pytest -m slow      # long tests (synthetic recovery, coverage)
 ```

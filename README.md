@@ -3,7 +3,8 @@
 Desktop GUI and notebook for the kinematic crystal truncation rod model of RuO2(110) films on
 TiO2(110), with OH / H2O / O on the RuO2 CUS sites.
 
-There is one copy of the physics (`ctr_engine.py`) and one copy of the plots (`ctr_plots.py`).
+There is one copy of the physics (`ctrfit/core`, also importable as `ctr_engine`) and one copy of
+the plots (`ctrfit/project/plots.py`, also `ctr_plots`).
 The GUI (`ctr_gui.py`) and the notebook (`ctr_notebook.py`) both use them, so a change made there
 shows up in both. This replaces the old standalone `ruo2_tio2_ctr_sim.py`.
 
@@ -11,6 +12,7 @@ shows up in both. This replaces the old standalone `ruo2_tio2_ctr_sim.py`.
 
 ```
 pip install -r requirements.txt
+pip install -e .        # optional: installs the ctrfit package
 python ctr_gui.py
 ```
 
@@ -57,8 +59,12 @@ Without a CUDA GPU it falls back to the CPU at lower resolution.
   Delete it to start from defaults.
 - `presets/*.ini`: saved configurations. Use Save as / Load / Delete in the sidebar.
   Presets are plain text and can be shared or edited.
-- `ctr_engine.py` physics, `ctr_plots.py` plotting, `ctr_params.py` settings list, `ctr_gui.py` window,
-  `ctr_notebook.py` notebook front end, `ctr_viewer3d.py` 3D viewer.
+- `ctrfit/`: the package. `ctrfit/core` physics (form factors, lattice, structures, electrolyte, the
+  reference `CTRModel`, the settings list), `ctrfit/project/plots.py` plotting. See "Fitting" below.
+- `ctr_engine.py`, `ctr_params.py`, `ctr_plots.py`: compatibility names for `ctrfit.core.ctrmodel`,
+  `ctrfit.core.settings` and `ctrfit.project.plots`, so older scripts keep working.
+- `ctr_gui.py` window, `ctr_notebook.py` notebook front end, `ctr_viewer3d.py` 3D viewer.
+- `tests/`: pytest suite (`python -m pytest`; long tests with `python -m pytest -m slow`).
 - `screenshots/`: images saved from the 3D viewer (created when needed).
 
 ## Text field formats

@@ -1,5 +1,17 @@
 # Plan: from CTR simulator to an easy-to-use CTR fitting package
 
+## Status
+
+| Phase | State | Notes |
+|---|---|---|
+| 0 Safety net | done | `tests/`: regression pins in `tests/reference.npz`, physics checks, app smoke tests |
+| 1 Package layout | done | `ctrfit/` with core, model, data, fit, project; `ctr_engine/params/plots.py` are compatibility names; `pyproject.toml` |
+| 2 Parameter model | not started | |
+| 3 Fast evaluator | not started | |
+| 4 Data and fitting core | not started | |
+| 5 Uncertainty | not started | |
+| 6 to 9 | not started | |
+
 Put this file in the repo as `docs/FITTING_PLAN.md` and point to it from `CLAUDE.md`, so every cloud
 session reads it. Work one phase at a time; each phase ends with passing tests and a merged PR.
 

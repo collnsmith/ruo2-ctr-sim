@@ -6,7 +6,7 @@
 |---|---|---|
 | 0 Safety net | done | `tests/`: regression pins in `tests/reference.npz`, physics checks, app smoke tests |
 | 1 Package layout | done | `ctrfit/` with core, model, data, fit, project; `ctr_engine/params/plots.py` are compatibility names; `pyproject.toml` |
-| 2 Parameter model | not started | |
+| 2 Parameter model | done | `ctrfit/model`: Parameter, ParameterSet (safe AST links, scopes, bounds, JSON), template `rutile110_film`, continuous thickness mean (`ctrfit/core/film.py`) |
 | 3 Fast evaluator | not started | |
 | 4 Data and fitting core | not started | |
 | 5 Uncertainty | not started | |

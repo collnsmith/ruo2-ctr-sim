@@ -13,15 +13,24 @@ partly relaxed film top. It is growing into a fitting package (`ctrfit/`) by the
   a1 = c_TiO2, a2 = a3 = sqrt(2) a_TiO2. The TiO2 (110) Bragg peak is (0 0 2).
 - The in-plane film lattice is locked to TiO2; z is in Å above the top TiO2 metal plane.
 - Settings use GUI units (nm, %, Å, keV, Å²). The engine converts them to internal units.
-- Film and commensurate thickness are whole (110) trilayers.
+- In the GUI engine, film and commensurate thickness are whole (110) trilayers. The fitting model
+  uses a continuous mean thickness (`thickness_mean_tl`): Gaussian weights over whole trilayer counts,
+  spread at least 0.3 TL, smooth window (see `ctrfit/core/film.py`). That is the only physics
+  difference between the fitting model and the GUI engine.
+- Fit parameters are in trilayers (TL), Å, Å², % (eps_perp) or dimensionless; data are |F| and
+  F_data = scale * rodscale * |F_model|.
+- Parameter names can be scoped to a dataset (`ds2.oh_z`); links look in their own scope first.
 
 ## Layout and rules
 
 ```
 ctrfit/core      physics: sf.py (form factors, anomalous terms, atom-list structure factor),
                  lattice.py, structures.py (trilayer, adsorbates), electrolyte.py,
-                 ctrmodel.py (the reference CTRModel), settings.py (GUI settings schema and parsers)
-ctrfit/model     parameters, templates and the fast evaluator
+                 ctrmodel.py (the reference CTRModel), settings.py (GUI settings schema and parsers),
+                 film.py (continuous-mean thickness weights, FilmCTRModel driven by parameters)
+ctrfit/model     expr.py (safe link expressions), parameters.py (Parameter, ParameterSet),
+                 templates.py (rutile110_film: settings <-> parameters), model.py (Model),
+                 evaluator.py (fast vectorized |F|)
 ctrfit/data      datasets, import/export, synthetic data
 ctrfit/fit       figures of merit, optimizers, uncertainty
 ctrfit/project   results, reports and all plotting (plots.py)

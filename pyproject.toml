@@ -14,6 +14,7 @@ dependencies = ["numpy", "scipy", "matplotlib>=3.5"]
 gui = ["PyQt5"]
 viewer = ["PyQt5", "numba"]
 mcmc = ["emcee"]
+assistant = ["anthropic"]
 anomalous = ["xraydb"]
 test = ["pytest"]
 

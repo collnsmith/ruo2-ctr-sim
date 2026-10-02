@@ -44,7 +44,8 @@ ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes 
                  project.py (Project: model + datasets + results in one JSON file)
 ctrfit/beamline  psic.py (SPEC psic geometry, UB, HKL <-> angles), indexing.py (Bragg peak indexer),
                  macros.py (SPEC macro maker), xtools.py (critical angle, footprint, ...)
-ctrfit/app       fit_window.py, beamline_window.py (Qt windows; the only Qt code in ctrfit)
+ctrfit/assistant agent.py (Claude fitting assistant: tool-use loop over the fitting API, no Qt)
+ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py (Qt; the only Qt code in ctrfit)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
@@ -63,6 +64,8 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_bea
 - Never edit `tests/reference.npz`. If a change is meant to alter the physics, regenerate it with
   `python tests/make_reference.py` and explain why in the commit message.
 - Fixed seeds everywhere (synthetic data, optimizers, the viewer's random scene).
+- The Claude assistant only calls the tools in `ctrfit/assistant/agent.py` (thin wrappers over ctrfit); it
+  never runs code. Tests use a scripted fake client; there is no live API call in the suite.
 
 ## Tests
 
@@ -104,6 +107,7 @@ What the tests protect:
 | `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
 | `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
 | `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), macros, calculators (Si critical angle), CLI, window offscreen |
+| `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

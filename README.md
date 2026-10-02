@@ -112,6 +112,16 @@ the odd rods, 3. everything together). Tabs: data vs model with residuals per ro
 merit, report with warnings, correlation matrix, per-dataset series for global fits. File menu:
 models, data, project files (`*.ctrproj.json`: model, data and results together) and a report folder.
 
+**Ask Claude** (dock on the right of the fitting window, View menu to show it): type a request ("fit
+the film first, then tell me whether x_OH is determined") or use a quick button. Claude
+(claude-opus-5-5) runs the fit with the same tools the window has (state, set values/bounds/fit
+flags, links, per-dataset copies, guided steps, DE, refine, thickness profile, report, per-rod
+residuals, AIC/BIC model comparison) on a copy of the model, while the rod plot follows its best
+parameters live. When it answers, its result is applied; "Undo Claude's changes" restores the
+previous model. Stop with the Run fit button. The panel shows the token use and an approximate cost;
+the transcript can be saved. Needs `pip install anthropic` and an API key (`ANTHROPIC_API_KEY`, or
+`ant auth login`). Headless: `python -m ctrfit ask model.json data.csv -r "..."`.
+
 Command line (headless; writes result.json, summary.txt and PNG plots per rod):
 
 ```

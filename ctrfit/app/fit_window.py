@@ -378,6 +378,16 @@ class FitWindow(QtWidgets.QMainWindow):
         self.status = QtWidgets.QLabel("Ready")
         self.statusBar().addWidget(self.status, 1)
         self._menus()
+        from .assistant_panel import AssistantPanel
+        self.assistant = AssistantPanel(self)
+        dock = QtWidgets.QDockWidget("Ask Claude", self)
+        dock.setObjectName("assistant")
+        dock.setWidget(self.assistant)
+        dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFloatable
+                         | QtWidgets.QDockWidget.DockWidgetClosable)
+        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+        self.assistant_dock = dock
+        self.menuBar().addMenu("&View").addAction(dock.toggleViewAction())
 
         # ---------------- signals
         b_add.clicked.connect(lambda: self.add_data())

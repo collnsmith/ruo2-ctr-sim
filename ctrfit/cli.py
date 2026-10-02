@@ -34,6 +34,13 @@ def build_parser():
     f.add_argument("--no-plots", action="store_true", help="skip the PNG plots")
     g = sub.add_parser("gui", help="open the fitting window")
     g.add_argument("files", nargs="*", help="data files, a model JSON, or a .ctrproj.json project")
+    ak = sub.add_parser("ask", help="let Claude run the fit (needs anthropic and an API key)")
+    ak.add_argument("model", help="model JSON (Model.save)")
+    ak.add_argument("data", nargs="+", help="data files (.csv, .dat, .json)")
+    ak.add_argument("--request", "-r", default="Fit this data with the guided workflow and report how reliable each "
+                    "value is.", help="what to ask Claude")
+    ak.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh"])
+    ak.add_argument("--out", default="claude_fit", help="output folder: model_fitted.json, transcript.txt")
     b = sub.add_parser("beamline", help="open the beamline helper (indexer, angles, macros, calculators)")
     b.set_defaults()
     ix = sub.add_parser("index", help="best-guess HKL of Bragg peaks from SPEC psic angles")
@@ -96,6 +103,33 @@ def cmd_macro(a):
         print(f"wrote {a.out}: {m.n_points} points, about {macros.duration_text(m.seconds)}")
     else:
         print(text, end="")
+    return 0
+
+
+def cmd_ask(a):
+    from .assistant.agent import FitAgent, transcript_text
+    from .data.dataset import Dataset
+    from .model.model import Model
+
+    def show(kind, data):
+        if kind == "text":
+            print(f"\nClaude: {data}")
+        elif kind == "tool_call":
+            print(f"  -> {data['name']} {data['input'] or ''}")
+        elif kind == "tool_result" and data["error"]:
+            print(f"  <- error: {data['output']}")
+        elif kind == "error":
+            print(f"  note: {data}")
+
+    agent = FitAgent(Model.load(a.model), [Dataset.load(p) for p in a.data], effort=a.effort, on_event=show)
+    agent.ask(a.request)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    agent.model.save(out / "model_fitted.json")
+    (out / "transcript.txt").write_text(transcript_text(agent.log), encoding="utf-8")
+    if agent.result is not None:
+        agent.result.save(out / "result.json")
+    print(f"\nabout ${agent.cost_usd:.2f}; wrote {out}/model_fitted.json, transcript.txt")
     return 0
 
 
@@ -165,7 +199,7 @@ def cmd_fit(a):
 def main(argv=None):
     a = build_parser().parse_args(argv)
     return {"fit": cmd_fit, "gui": cmd_gui, "beamline": cmd_beamline, "index": cmd_index,
-            "macro": cmd_macro}[a.command](a)
+            "macro": cmd_macro, "ask": cmd_ask}[a.command](a)
 
 
 if __name__ == "__main__":

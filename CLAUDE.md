@@ -28,7 +28,8 @@ ctrfit/core      physics: sf.py (form factors, anomalous terms, atom-list struct
                  lattice.py, structures.py (trilayer, adsorbates), electrolyte.py,
                  ctrmodel.py (the reference CTRModel), settings.py (GUI settings schema and parsers),
                  film.py (continuous-mean thickness weights, FilmCTRModel driven by parameters),
-                 fast.py (vectorized |F|^2 for many points, cached; must equal CTRModel to 1e-9)
+                 fast.py (vectorized |F|^2 for many points, cached; must equal CTRModel to 1e-9),
+                 geometry.py (k_in, k_out for a reflection; used by the 3D viewer's beams)
 ctrfit/model     expr.py (safe link expressions), parameters.py (Parameter, ParameterSet),
                  templates.py (rutile110_film: settings <-> parameters), model.py (Model),
                  evaluator.py (fast vectorized |F|)
@@ -98,6 +99,7 @@ What the tests protect:
 | `test_global.py` | per-dataset copies and links; synthetic potential series: trend recovered, shared parameters tighter than one dataset; CLI global fit (slow) |
 | `test_workflow.py` | guided steps recover film and surface; per-dataset copies in steps; cancel keeps the best values; project round trip |
 | `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
+| `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

@@ -35,7 +35,12 @@ Without a CUDA GPU it falls back to the CPU at lower resolution.
 - Settings can come from the defaults, any preset, or the main app's `settings.ini`.
 - Mouse: left drag orbit, right or middle drag pan, wheel zoom, click an atom to identify it.
 - Keys: R reset view, Space turntable, S save image (to `screenshots/`), A ambient occlusion,
-  H hydrogens, W electrolyte water.
+  H hydrogens, W electrolyte water, B X-ray beams.
+- X-ray beam panel: the incident beam (yellow) and the exit beam (cyan) to a reflection: pick H and
+  K, move L with the slider, set the incidence angle. The panel shows 2θ, the incidence and exit
+  angles and the sample azimuth for the current energy; on the specular rod (0 0 L) the incidence
+  angle follows from L. Parts of a beam hidden behind atoms are drawn dashed. The geometry is in
+  `ctrfit/core/geometry.py` (elastic scattering, k_out - k_in = q, fixed incidence angle).
 - Island shapes, H orientations and the water are for display only; the layer occupancies and
   positions come from `ctr_engine.py`.
 - Needs `numba` with CUDA support (newer Numba: `pip install numba numba-cuda`). The first start

@@ -9,7 +9,8 @@ Run:   python ctr_viewer3d.py
 Needs: numpy, scipy, numba (with CUDA), PyQt5. Without a CUDA GPU it falls back to the CPU (slower).
 
 Mouse: left drag = orbit, right or middle drag = pan, wheel = zoom, click an atom = identify it.
-Keys:  R reset view, Space turntable, S screenshot, A ambient occlusion, H hydrogens, W water.
+Keys:  R reset view, Space turntable, S screenshot, A ambient occlusion, H hydrogens, W water,
+       B X-ray beams (incident beam and exit beam to the selected H K and L).
 """
 import math
 import sys
@@ -23,6 +24,7 @@ APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path
 sys.path.insert(0, str(APP_DIR))
 
 from ctr_engine import ADSORBATE_H, CTRModel          # noqa: E402
+from ctrfit.core.geometry import beam_geometry        # noqa: E402
 from ctr_params import DEFAULTS, parse_comp, read_ini  # noqa: E402
 
 try:  # same Qt choice as the main GUI
@@ -516,6 +518,54 @@ class OrbitCamera:
 
 
 # ==============================================================================================
+# X-ray beams (drawn as an overlay on the rendered image)
+# ==============================================================================================
+BEAM_IN = (255, 214, 64)      # incident beam
+BEAM_OUT = (80, 220, 255)     # exit (diffracted) beam
+
+
+def project(cam, pts, W, H):
+    """Pixel coordinates of 3D points for camera vector `cam` (same convention as the shader).
+    Returns (N, 2) array and a mask of points in front of the camera."""
+    pts = np.atleast_2d(np.asarray(pts, float))
+    o, f, r, u = cam[0:3], cam[3:6], cam[6:9], cam[9:12]
+    tan, aspect = cam[12], cam[13]
+    d = pts - o
+    depth = d @ f
+    front = depth > 1e-6
+    depth = np.where(front, depth, 1e-6)
+    sx = (d @ r) / depth / (tan * aspect)
+    sy = (d @ u) / depth / tan
+    return np.column_stack([(sx + 1) / 2 * W, (1 - sy) / 2 * H]), front
+
+
+def visible(cam, pts, centers, radii, margin=0.05):
+    """True for points not hidden behind any sphere as seen from the camera."""
+    o = cam[0:3].astype(float)
+    d = np.asarray(pts, float) - o
+    dist = np.linalg.norm(d, axis=1)
+    u = d / dist[:, None]
+    oc = centers.astype(float) - o
+    b = u @ oc.T                                       # (points, spheres)
+    c = np.einsum("ij,ij->i", oc, oc) - radii.astype(float) ** 2
+    disc = b ** 2 - c[None, :]
+    t = b - np.sqrt(np.clip(disc, 0, None))
+    hidden = (disc > 0) & (t > 1e-3) & (t < dist[:, None] - margin)
+    return ~hidden.any(axis=1)
+
+
+def beam_lines(scene, geo, length=None):
+    """3D end points of the incident and exit beams through the centre of the visible surface:
+    (spot, start of the incident beam, end of the exit beam)."""
+    ex, ey = scene["extent"]
+    spot = np.array([ex / 2, ey / 2, float(scene["surface_z"].max())])
+    length = length or 0.9 * max(ex, ey)
+    kin = geo["k_in"] / np.linalg.norm(geo["k_in"])
+    kout = geo["k_out"] / np.linalg.norm(geo["k_out"])
+    return spot, spot - kin * length, spot + kout * length
+
+
+# ==============================================================================================
 # window
 # ==============================================================================================
 class View(QtWidgets.QWidget):
@@ -536,6 +586,7 @@ class View(QtWidgets.QWidget):
         if self.image is not None:
             p.setRenderHint(QtGui.QPainter.SmoothPixmapTransform, True)
             p.drawImage(self.rect(), self.image)
+        self.owner.draw_beams(p, self.width(), self.height())
         p.end()
 
     def mousePressEvent(self, ev):
@@ -598,6 +649,23 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.chk_w = QtWidgets.QCheckBox("Electrolyte water")
         self.chk_sh = QtWidgets.QCheckBox("Shadows")
         self.chk_ao = QtWidgets.QCheckBox("Ambient occlusion")
+        self.chk_beam = QtWidgets.QCheckBox("X-ray beams (B)")
+        self.chk_beam.setToolTip("Incident beam and the exit beam to the selected reflection (H K L)")
+        self.beam_h = QtWidgets.QSpinBox()
+        self.beam_k = QtWidgets.QSpinBox()
+        for w, tip in ((self.beam_h, "H of the rod (along [001])"), (self.beam_k, "K of the rod (along [1-10])")):
+            w.setRange(-10, 10)
+            w.setToolTip(tip)
+        self.beam_l = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        self.beam_l.setRange(0, 600)
+        self.beam_l.setToolTip("L along the rod (r.l.u.)")
+        self.beam_l_label = QtWidgets.QLabel()
+        self.beam_l_label.setMinimumWidth(42)
+        self.beam_alpha = self._dspin(0.02, 20.0, 0.05, 2, " °", "Incidence angle onto the surface (H, K not both 0); "
+                                      "on the specular rod it follows from L")
+        self.beam_info = QtWidgets.QLabel()
+        self.beam_info.setWordWrap(True)
+        self.beam = None
         self.scale = QtWidgets.QComboBox()
         self.scale.addItems(["100 %", "75 %", "50 %", "35 %"])
         self.scale.setToolTip("Render resolution relative to the window")
@@ -618,8 +686,12 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.ny.setValue(6)
         self.nsub.setValue(4)
         self.size.setValue(1.0)
-        for c in (self.chk_H, self.chk_sh, self.chk_ao):
+        for c in (self.chk_H, self.chk_sh, self.chk_ao, self.chk_beam):
             c.setChecked(True)
+        self.beam_h.setValue(0)
+        self.beam_k.setValue(1)
+        self.beam_l.setValue(150)
+        self.beam_alpha.setValue(0.5)
         self.scale.setCurrentIndex(0 if self.renderer.gpu else 2)
 
         form = QtWidgets.QFormLayout()
@@ -639,6 +711,22 @@ class ViewerWindow(QtWidgets.QMainWindow):
         sl.addLayout(form)
         for w in (self.chk_H, self.chk_w, self.chk_sh, self.chk_ao):
             sl.addWidget(w)
+        beam_box = QtWidgets.QGroupBox("X-ray beam")
+        bl = QtWidgets.QFormLayout(beam_box)
+        bl.addRow(self.chk_beam)
+        hk = QtWidgets.QHBoxLayout()
+        hk.addWidget(QtWidgets.QLabel("H"))
+        hk.addWidget(self.beam_h)
+        hk.addWidget(QtWidgets.QLabel("K"))
+        hk.addWidget(self.beam_k)
+        bl.addRow("Rod", hk)
+        lrow = QtWidgets.QHBoxLayout()
+        lrow.addWidget(self.beam_l, 1)
+        lrow.addWidget(self.beam_l_label)
+        bl.addRow("L", lrow)
+        bl.addRow("Incidence", self.beam_alpha)
+        bl.addRow(self.beam_info)
+        sl.addWidget(beam_box)
         row = QtWidgets.QGridLayout()
         row.addWidget(b_build, 0, 0)
         row.addWidget(b_shuffle, 0, 1)
@@ -671,6 +759,10 @@ class ViewerWindow(QtWidgets.QMainWindow):
         self.scale.currentIndexChanged.connect(self._touch)
         for c in (self.chk_H, self.chk_w):
             c.toggled.connect(lambda *_: self.rebuild())
+        self.chk_beam.toggled.connect(lambda *_: self.update_beam())
+        for w in (self.beam_h, self.beam_k, self.beam_alpha):
+            w.valueChanged.connect(lambda *_: self.update_beam())
+        self.beam_l.valueChanged.connect(lambda *_: self.update_beam())
 
         self.timer = QtCore.QTimer(self, interval=15)
         self.timer.timeout.connect(self.tick)
@@ -771,6 +863,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         rad = np.array([RADIUS[e] for e in sc["el"]], np.float32) * np.float32(self.size.value())
         col = np.array([COLORS[r] for r in sc["role"]], np.float32)
         grid = build_grid(sc["xyz"], rad)
+        self._rad = rad
         self.renderer.set_scene(sc["xyz"], rad, col, *grid)
         m = sc["model"]
         tk = sc["top_k"]
@@ -778,6 +871,88 @@ class ViewerWindow(QtWidgets.QMainWindow):
                           f"({m.n_film * m.D_FILM / 10:.2f} nm), surface trilayers {tk.min()} to {tk.max()}"
                           + ("; relaxed top" if m.relaxed else ""))
         self.dirty = True
+        self.update_beam()
+
+    # ---------------- X-ray beams
+    def beam_hkl(self):
+        return self.beam_h.value(), self.beam_k.value(), self.beam_l.value() / 100.0
+
+    def update_beam(self):
+        H, K, L = self.beam_hkl()
+        self.beam_l_label.setText(f"{L:.2f}")
+        self.beam = None
+        if not self.chk_beam.isChecked() or self.scene is None:
+            self.beam_info.setText("")
+            self.view.update()
+            return
+        m = self.scene["model"]
+        g = beam_geometry(m, H, K, L, self.beam_alpha.value())
+        self.beam_alpha.setEnabled(not (H == 0 and K == 0))
+        if g["k_in"] is None or not g["ok"]:
+            self.beam_info.setText(f"({H} {K} {L:.2f}): {g['reason']}")
+        else:
+            self.beam = g
+            self.beam_info.setText(
+                f"({H} {K} {L:.2f}) at {12.398419843 / g['lam']:.2f} keV: 2θ {g['two_theta']:.2f}°, "
+                f"incidence {g['alpha']:.2f}°, exit {g['beta']:.2f}°, sample azimuth {g['phi']:.1f}°, "
+                f"|q| {np.linalg.norm(g['q']):.3f} 1/Å")
+        self.view.update()
+
+    def draw_beams(self, p, W, H):
+        """Overlay of the incident beam, the exit beam and the reflection label (QPainter p)."""
+        if self.beam is None or self.scene is None:
+            return
+        cam = self.camera.vectors(W / max(H, 1))
+        spot, start, end = beam_lines(self.scene, self.beam)
+        xy, front = project(cam, np.array([start, spot, end]), W, H)
+        if not front.all():
+            return
+        p.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        a, b, c = (QtCore.QPointF(*map(float, v)) for v in xy)
+        n = 60
+        for (p0, p1), col in (((start, spot), BEAM_IN), ((spot, end), BEAM_OUT)):
+            t = np.linspace(0, 1, n + 1)[:, None]
+            pts3 = p0 + t * (p1 - p0)
+            pix, _ = project(cam, pts3, W, H)
+            vis = visible(cam, 0.5 * (pts3[1:] + pts3[:-1]), self.scene["xyz"], self._rad)
+            for shown in (False, True):
+                if shown:
+                    pens = [QtGui.QPen(QtGui.QColor(*col, 70), 9, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap),
+                            QtGui.QPen(QtGui.QColor(*col), 2.5, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap)]
+                else:                                   # behind atoms: dashed and dim
+                    pens = [QtGui.QPen(QtGui.QColor(*col, 150), 1.5, QtCore.Qt.DashLine)]
+                for pen in pens:
+                    p.setPen(pen)
+                    for i in np.flatnonzero(vis == shown):
+                        p.drawLine(QtCore.QPointF(*pix[i]), QtCore.QPointF(*pix[i + 1]))
+            q0, q1 = QtCore.QPointF(*pix[-2]), QtCore.QPointF(*pix[-1])
+            self._arrow_head(p, q0, q1, QtGui.QColor(*col))
+        p.setBrush(QtGui.QColor(255, 255, 255))
+        p.setPen(QtCore.Qt.NoPen)
+        p.drawEllipse(b, 4, 4)
+        Hh, Kk, Ll = self.beam_hkl()
+        p.setPen(QtGui.QColor(*BEAM_OUT))
+        f = p.font()
+        f.setPointSizeF(f.pointSizeF() * 1.2)
+        f.setBold(True)
+        p.setFont(f)
+        p.drawText(c + QtCore.QPointF(8, -6), f"({Hh} {Kk} {Ll:.2f})")
+        p.setPen(QtGui.QColor(*BEAM_IN))
+        p.drawText(a + QtCore.QPointF(8, -6), "incident")
+
+    @staticmethod
+    def _arrow_head(p, p0, p1, col, size=13.0):
+        d = p1 - p0
+        n = math.hypot(d.x(), d.y())
+        if n < 1:
+            return
+        ux, uy = d.x() / n, d.y() / n
+        tip = p1
+        left = QtCore.QPointF(tip.x() - size * ux + 0.5 * size * uy, tip.y() - size * uy - 0.5 * size * ux)
+        right = QtCore.QPointF(tip.x() - size * ux - 0.5 * size * uy, tip.y() - size * uy + 0.5 * size * ux)
+        p.setBrush(col)
+        p.setPen(QtCore.Qt.NoPen)
+        p.drawPolygon(QtGui.QPolygonF([tip, left, right]))
 
     def reset_view(self):
         if self.scene is not None:
@@ -839,6 +1014,8 @@ class ViewerWindow(QtWidgets.QMainWindow):
             self.chk_H.toggle()
         elif k == Qt.Key_W:
             self.chk_w.toggle()
+        elif k == Qt.Key_B:
+            self.chk_beam.toggle()
 
     def screenshot(self):
         if self.view.image is None:
@@ -846,7 +1023,7 @@ class ViewerWindow(QtWidgets.QMainWindow):
         folder = APP_DIR / "screenshots"
         folder.mkdir(exist_ok=True)
         path = folder / time.strftime("film_%Y%m%d_%H%M%S.png")
-        self.view.image.save(str(path))
+        (self.view.grab() if self.beam is not None else self.view.image).save(str(path))
         self.pick_label.setText(f"Saved screenshots/{path.name}")
 
 

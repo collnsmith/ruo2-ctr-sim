@@ -42,14 +42,17 @@ ctrfit/fit       fom.py (chi2, log, R1), fit.py (Fit: DE, least squares, profile
                  workflow.py (guided steps: film on even rods, surface on odd rods, all)
 ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files),
                  project.py (Project: model + datasets + results in one JSON file)
-ctrfit/app       fit_window.py (Qt fitting window; the only Qt code in ctrfit)
+ctrfit/beamline  psic.py (SPEC psic geometry, UB, HKL <-> angles), indexing.py (Bragg peak indexer),
+                 macros.py (SPEC macro maker), xtools.py (critical angle, footprint, ...)
+ctrfit/app       fit_window.py, beamline_window.py (Qt windows; the only Qt code in ctrfit)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
-ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged); ctr_fit_gui.py launches the fitting window
+ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py launch the ctrfit windows
 ```
 
-- All physics lives in `ctrfit/core`. All plotting lives in `ctrfit/project/plots.py`.
+- All physics lives in `ctrfit/core`; diffractometer geometry lives in `ctrfit/beamline`. All plotting
+  lives in `ctrfit/project/plots.py`.
 - `ctr_gui.py`, `ctr_notebook.py` and `ctr_viewer3d.py` only call the engine and the plots. They
   hold no physics of their own.
 - Settings, their units, defaults and the text parsers live in `ctrfit/core/settings.py`
@@ -100,6 +103,7 @@ What the tests protect:
 | `test_workflow.py` | guided steps recover film and surface; per-dataset copies in steps; cancel keeps the best values; project round trip |
 | `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
 | `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
+| `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), macros, calculators (Si critical angle), CLI, window offscreen |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

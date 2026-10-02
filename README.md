@@ -136,3 +136,33 @@ python -m ctrfit fit model.json data.csv --out fit_results
   values against `potential_V`. Command line: `--per-dataset x_OH,z_OH`.
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).
+
+## Beamline helper (SPEC psic)
+
+`python ctr_beamline.py` (or `python -m ctrfit beamline`) opens a helper for the run itself. The
+computation is in `ctrfit/beamline` and works from scripts too.
+
+- **Bragg peak indexer.** Enter the motor angles of the Bragg peaks you find (one per line, SPEC psic
+  order `del eta chi phi nu mu`, or `del=… eta=…`; text after `#` is a label), the energy and the
+  lattice. "Guess HKL" finds the orientation that puts most peaks on allowed reflections, refines it
+  and gives each peak's HKL, its misfit and the UB matrix. Allowed reflections come from the rutile
+  structure factor (K + L even and the rutile extinctions), so a peak on forbidden integers is
+  flagged. With one peak you get the candidates by |Q|. Bragg peaks alone cannot tell K from L in
+  the TiO2(110) surface cell (a2 = a3), nor the sign of H and K: all equivalent indexings are listed,
+  and the surface normal in the phi frame (e.g. `0 0 1` if it is along the phi axis) picks the one
+  with L along it. Command line: `python -m ctrfit index peaks.txt --energy 16 --normal "0 0 1"`.
+- **Angles.** UB from the indexer or from two reflections (like `or0` / `or1`). Angles for an HKL in a
+  surface mode (horizontal or vertical surface, fixed incidence angle or alpha = beta) or four-circle
+  mode, with the SPEC `umv` line; and HKL, alpha and beta from a set of angles.
+- **Macro maker.** SPEC command files for rod scans (Bragg peaks skipped, finer steps near them, count
+  times from the model so weak anti-Bragg points get more time, optional rocking scans), fixed
+  points (e.g. the sensitivity ranking), potential series and energy scans, with a time estimate. The
+  commands (`br`, `ct`, the potentiostat and energy macros, shutters) are editable templates, and
+  the file can be wrapped in a `def`. Command line: `python -m ctrfit macro --rods "0 1; 1 0"`.
+- **Calculators.** Wavelength, |Q|, d and 2theta of a reflection; critical angle and penetration depth
+  of TiO2, RuO2, water, Si and Kapton; footprint and the share of the beam that hits the sample.
+
+Geometry: You, J. Appl. Cryst. 32, 614 (1999), as in SPEC psic: beam along +y, x up; mu and nu turn
+about the vertical axis, eta, delta and phi about the horizontal one. If a motor at your beamline
+turns the other way, set its sign (e.g. `eta=-1`). Check the convention once against a known
+reflection before trusting the indexer at a new beamline.

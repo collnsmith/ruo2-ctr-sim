@@ -8,7 +8,7 @@
 | 1 Package layout | done | `ctrfit/` with core, model, data, fit, project; `ctr_engine/params/plots.py` are compatibility names; `pyproject.toml` |
 | 2 Parameter model | done | `ctrfit/model`: Parameter, ParameterSet (safe AST links, scopes, bounds, JSON), template `rutile110_film`, continuous thickness mean (`ctrfit/core/film.py`) |
 | 3 Fast evaluator | done | `ctrfit/core/fast.py` (vectorized, content-keyed caches) + `ctrfit/model/evaluator.py`; about 2 ms per evaluation for 2000 points with surface parameters free (about 80x legacy); numpy only, numba not needed after profiling |
-| 4 Data and fitting core | not started | |
+| 4 Data and fitting core | done | `ctrfit/data`, `ctrfit/fit`, `python -m ctrfit fit`, `examples/synthetic_ruo2`; recovery tests for surface-only, film-only, combined, degenerate case, and every parameter alone; `Fit.profile` for the thickness minima |
 | 5 Uncertainty | not started | |
 | 6 to 9 | not started | |
 

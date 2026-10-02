@@ -263,3 +263,58 @@ def draw_study(fig, out, points, thick, relax, coherent_nm):
         ax.set_ylabel("A vs B change (%)")
     axs[-1 if wide else 0].legend(fontsize=7, loc="upper left", bbox_to_anchor=(1.02, 1.0), frameon=False)
     fig.suptitle("solid: H = 0 rods, dashed: H ≠ 0 rods, dotted line: commensurate thickness", fontsize=9)
+
+
+# ----------------------------------------------------------------------------------------------
+# fitting
+# ----------------------------------------------------------------------------------------------
+def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None):
+    """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma."""
+    fig.clear()
+    a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
+    a.errorbar(L, F, yerr=sigma, fmt="o", ms=3, color="0.25", ecolor="0.6", elinewidth=0.8, label="data")
+    if L_model is not None:
+        a.plot(L_model, F_model, color="tab:red", lw=1.2, label="model")
+    else:
+        a.plot(L, Fc, color="tab:red", lw=1.2, label="model")
+    a.set_yscale("log")
+    a.set_ylabel("|F| (e)")
+    a.set_title(title, fontsize=10)
+    a.legend(fontsize=8)
+    r = (np.asarray(F) - np.asarray(Fc)) / np.asarray(sigma)
+    b.axhline(0, color="k", lw=0.6)
+    for y in (-2, 2):
+        b.axhline(y, color="0.6", lw=0.6, ls="--")
+    b.plot(L, r, "o", ms=3, color="tab:blue")
+    b.set_ylabel("(F - Fc) / σ")
+    b.set_xlabel("L (r.l.u.)")
+    for ax in (a, b):
+        ax.grid(alpha=0.25)
+
+
+def draw_fom_history(fig, history):
+    """Figure of merit per DE generation and per least-squares evaluation."""
+    fig.clear()
+    ax = fig.add_subplot(111)
+    for stage, col in (("de", "tab:blue"), ("lsq", "tab:orange")):
+        pts = [(h["step"], h["fom"]) for h in history if h["stage"] == stage]
+        if pts:
+            x, y = zip(*pts)
+            ax.semilogy(x, y, marker=".", color=col, label={"de": "differential evolution (best per generation)",
+                                                             "lsq": "least squares (per evaluation)"}[stage])
+    ax.set_xlabel("generation / evaluation")
+    ax.set_ylabel("figure of merit")
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.25)
+
+
+def draw_correlation(fig, names, corr):
+    fig.clear()
+    ax = fig.add_subplot(111)
+    im = ax.imshow(corr, vmin=-1, vmax=1, cmap="coolwarm")
+    ax.set_xticks(range(len(names)), names, rotation=60, ha="right", fontsize=7)
+    ax.set_yticks(range(len(names)), names, fontsize=7)
+    for i in range(len(names)):
+        for j in range(len(names)):
+            ax.text(j, i, f"{corr[i, j]:.2f}", ha="center", va="center", fontsize=6)
+    fig.colorbar(im, ax=ax, shrink=0.8)

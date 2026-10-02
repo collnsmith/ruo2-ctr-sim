@@ -32,9 +32,13 @@ ctrfit/core      physics: sf.py (form factors, anomalous terms, atom-list struct
 ctrfit/model     expr.py (safe link expressions), parameters.py (Parameter, ParameterSet),
                  templates.py (rutile110_film: settings <-> parameters), model.py (Model),
                  evaluator.py (fast vectorized |F|)
-ctrfit/data      datasets, import/export, synthetic data
-ctrfit/fit       figures of merit, optimizers, uncertainty
-ctrfit/project   results, reports and all plotting (plots.py)
+ctrfit/data      dataset.py (Dataset, sigma_eff with the systematic floor), io.py (CSV, .dat,
+                 I -> F), synthetic.py (make_dataset with fixed seeds)
+ctrfit/fit       fom.py (chi2, log, R1), fit.py (Fit: DE, least squares, profile, report;
+                 FitResult), uncertainty.py (covariance, correlations, warnings)
+ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files)
+ctrfit/cli.py    python -m ctrfit fit model.json data.csv
+examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
 ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
 ```
@@ -54,7 +58,7 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
 ```
 pip install -r requirements.txt pytest
 pip install -e .               # optional: makes ctrfit importable from anywhere
-python -m pytest              # default suite, about 35 s; skips tests marked slow
+python -m pytest              # default suite, about 65 s; skips tests marked slow
 python -m pytest -m slow      # long tests (synthetic recovery, coverage)
 ```
 

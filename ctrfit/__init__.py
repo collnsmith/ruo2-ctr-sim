@@ -9,3 +9,7 @@ Layout (docs/FITTING_PLAN.md section 3):
 No Qt imports anywhere in this package (a future app/ folder is the exception).
 """
 __version__ = "0.1.0"
+
+from .data import Dataset, make_dataset  # noqa: E402,F401
+from .fit import Fit, FitResult  # noqa: E402,F401
+from .model import Model, Parameter, ParameterSet  # noqa: E402,F401

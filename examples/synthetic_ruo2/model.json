@@ -1,0 +1,373 @@
+{
+ "template": "rutile110_film",
+ "options": {
+  "water_layer": false,
+  "water_layer_site": "cus"
+ },
+ "settings": {},
+ "parameters": [
+  {
+   "name": "thickness_mean_tl",
+   "value": 18.5,
+   "min": 15,
+   "max": 25,
+   "fit": true,
+   "unit": "TL",
+   "description": "Mean film thickness in (110) trilayers (continuous; Gaussian weights over whole trilayers)",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "thickness_spread_tl",
+   "value": 0.9877219953637472,
+   "min": 0.0,
+   "max": 10.0,
+   "fit": false,
+   "unit": "TL",
+   "description": "rms lateral thickness spread in trilayers (at least 0.3 TL is used, to keep the fit smooth)",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "roughness_tl",
+   "value": 0.9,
+   "min": 0.05,
+   "max": 2.0,
+   "fit": true,
+   "unit": "TL",
+   "description": "rms roughness of the film top in trilayers",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "eps_perp",
+   "value": 1.7,
+   "min": 0.5,
+   "max": 4.0,
+   "fit": true,
+   "unit": "%",
+   "description": "Out-of-plane strain of the commensurate film vs bulk RuO2",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "interface_A",
+   "value": 3.2440072150783665,
+   "min": 1.5,
+   "max": 5.0,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Top TiO2 metal plane to first RuO2 metal plane",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "relax_001",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 1.0,
+   "fit": false,
+   "unit": "",
+   "description": "[001] relaxation of the film above the commensurate part (0 commensurate, 1 bulk)",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "coherent_tl",
+   "value": 12.0,
+   "min": 0.0,
+   "max": 300.0,
+   "fit": false,
+   "unit": "TL",
+   "description": "Commensurate bottom part in trilayers (rounded to a whole number; keep fixed)",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "b_top_extra",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 20.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "Extra B factor of the relaxed part",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "b_film_Ru",
+   "value": 0.4,
+   "min": 0.0,
+   "max": 10.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of buried RuO2 Ru",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "b_film_O",
+   "value": 0.6,
+   "min": 0.0,
+   "max": 10.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of buried RuO2 O",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "b_sub_Ti",
+   "value": 0.35,
+   "min": 0.0,
+   "max": 10.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of TiO2 Ti",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "b_sub_O",
+   "value": 0.55,
+   "min": 0.0,
+   "max": 10.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of TiO2 O",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "b_surf_Ru",
+   "value": 0.6,
+   "min": 0.0,
+   "max": 20.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of Ru in the exposed (top) trilayer",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "b_surf_O",
+   "value": 1.0,
+   "min": 0.0,
+   "max": 20.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of lattice O in the exposed trilayer",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Ru6f",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of top-layer 6-fold Ru",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Obr",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of top-layer bridging O",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Oip",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of top-layer in-plane O",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Rucus_vac",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of an empty CUS Ru",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Rucus_OH",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of a CUS Ru under OH",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Rucus_H2O",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of a CUS Ru under H2O",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Rucus_O",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of a CUS Ru under oxo O",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "theta",
+   "value": 0.95,
+   "min": 0.0,
+   "max": 1.0,
+   "fit": true,
+   "unit": "",
+   "description": "Coverage of the CUS sites (OH + H2O + O)",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "x_OH",
+   "value": 0.35,
+   "min": 0.0,
+   "max": 1.0,
+   "fit": true,
+   "unit": "",
+   "description": "OH share of the OH + H2O species",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "x_O",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 1.0,
+   "fit": false,
+   "unit": "",
+   "description": "Oxo O share of the covered CUS sites",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "z_OH",
+   "value": 1.85,
+   "min": 1.6,
+   "max": 2.5,
+   "fit": true,
+   "unit": "\u00c5",
+   "description": "Height of the OH oxygen above its CUS Ru",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "z_H2O",
+   "value": 2.6,
+   "min": 1.0,
+   "max": 4.0,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Height of the H2O oxygen above its CUS Ru",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "z_O",
+   "value": 1.7,
+   "min": 1.0,
+   "max": 4.0,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Height of the oxo O above its CUS Ru",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "B_OH",
+   "value": 1.5,
+   "min": 0.0,
+   "max": 30.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of the OH oxygen",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "B_H2O",
+   "value": 2.5,
+   "min": 0.0,
+   "max": 30.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of the H2O oxygen",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "B_O",
+   "value": 1.0,
+   "min": 0.0,
+   "max": 30.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of the oxo O",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "el_z0",
+   "value": 3.5,
+   "min": 0.0,
+   "max": 20.0,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Onset of the bulk electrolyte above the top metal plane",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "el_sigma",
+   "value": 1.0,
+   "min": 0.05,
+   "max": 10.0,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Width of the electrolyte onset",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "scale",
+   "value": 1.2,
+   "min": 0.5,
+   "max": 2.0,
+   "fit": true,
+   "unit": "",
+   "description": "Overall scale of |F| (data = scale x model |F|)",
+   "group": "scale",
+   "expr": null
+  }
+ ]
+}

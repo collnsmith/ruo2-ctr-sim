@@ -17,6 +17,9 @@ mcmc = ["emcee"]
 anomalous = ["xraydb"]
 test = ["pytest"]
 
+[project.scripts]
+ctrfit = "ctrfit.cli:main"
+
 [tool.setuptools.dynamic]
 version = { attr = "ctrfit.__version__" }
 

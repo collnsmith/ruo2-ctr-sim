@@ -73,3 +73,45 @@ Without a CUDA GPU it falls back to the CPU at lower resolution.
 - Rods: `0 0; 0 1; 1 0`
 - Study points: `P1: 0 1 1.10; P2: 0 1 2.85` (label: H K L)
 - Extra layers: `O br 3.4 0.5 4.0` (element, site cus / br / f1,f2, height in Å, occupancy, B)
+
+## Fitting (ctrfit, scriptable core)
+
+`ctrfit` fits measured structure factors |F|(H, K, L) with errors to the same model. There is no
+fitting GUI yet; use the Python API or the command line.
+
+```python
+from ctrfit import Dataset, Fit, Model
+from ctrfit.core.settings import DEFAULTS
+
+model = Model.from_settings(DEFAULTS)          # template rutile110_film; parameters from the settings
+print(model.params.table())                    # name, value, bounds, unit, fit flag, description
+model.params.fit_only(["theta", "x_OH", "z_OH", "scale"])
+model.params.link("z_H2O", "z_OH + 0.4")       # links are expressions of other parameters
+data = Dataset.load("data.csv")                # header H,K,L,F,sigma (or .dat: H K L F sigma)
+data.sys_floor = 0.03                          # systematic error floor, added in quadrature
+
+fit = Fit(model, data)
+fit.run("de", maxiter=40, popsize=12, seed=1)  # global search
+fit.refine()                                   # least squares, errors from the Jacobian
+res = fit.report()
+print(res.summary)                             # values, errors, correlations, warnings
+res.save("result.json")
+```
+
+Command line (headless; writes result.json, summary.txt and PNG plots per rod):
+
+```
+python -m ctrfit fit model.json data.csv --out fit_results
+```
+
+- Parameters are in trilayers (TL), Å, Å², % or dimensionless. The film thickness is a continuous
+  mean (`thickness_mean_tl`) of a Gaussian distribution over whole trilayers.
+- CUS composition: O = theta x_O, OH = theta (1 - x_O) x_OH, H2O = theta (1 - x_O) (1 - x_OH).
+- Figures of merit: chi2 (with sigma_eff), a GenX-style log figure of merit, and R1.
+- Every report warns about strongly correlated parameters (|r| > 0.9), values at a bound and
+  relative errors above 100 %. The OH vs H2O ratio with free heights and B factors is the known
+  degenerate case.
+- Thickness fringes give separate chi2 minima about one trilayer apart (traded against eps_perp).
+  Run `fit.profile("thickness_mean_tl", grid)` after the global search to pick the right one.
+- Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
+  rods, then the surface on the odd rods, then everything together).

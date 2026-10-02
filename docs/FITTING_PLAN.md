@@ -9,8 +9,21 @@
 | 2 Parameter model | done | `ctrfit/model`: Parameter, ParameterSet (safe AST links, scopes, bounds, JSON), template `rutile110_film`, continuous thickness mean (`ctrfit/core/film.py`) |
 | 3 Fast evaluator | done | `ctrfit/core/fast.py` (vectorized, content-keyed caches) + `ctrfit/model/evaluator.py`; about 2 ms per evaluation for 2000 points with surface parameters free (about 80x legacy); numpy only, numba not needed after profiling |
 | 4 Data and fitting core | done | `ctrfit/data`, `ctrfit/fit`, `python -m ctrfit fit`, `examples/synthetic_ruo2`; recovery tests for surface-only, film-only, combined, degenerate case, and every parameter alone; `Fit.profile` for the thickness minima |
-| 5 Uncertainty | not started | |
+| 5 Uncertainty | done | `ctrfit/fit/sampling.py`: bootstrap, emcee MCMC, AIC/AICc/BIC, `compare_models`; coverage test over 20 realizations (slow) |
 | 6 to 9 | not started | |
+
+Open issues found while building phases 0 to 5:
+- Film thickness has separate chi2 minima about one trilayer apart (traded against eps_perp).
+  Differential evolution alone found the right one in only about 3 of 5 seeds on the example data, so
+  the film step is DE, then `Fit.profile("thickness_mean_tl", grid)`, then refinement. The guided
+  workflow (Phase 6) should do this automatically.
+- With the thickness spread at its 0.3 TL floor, the mean thickness acts in steps (smooth but
+  flat near whole trilayers). Fit the spread, or keep it at a realistic value (default ~1 TL).
+- MCMC samples exp(-chi2/2); when the model misfits (reduced chi2 >> 1) use
+  `mcmc(..., temper_by_red_chi2=True)` to match the scaled covariance errors.
+- Tests block xraydb so pinned numbers do not depend on the machine; real fits use xraydb if installed.
+- The cloud image needs `pip install nvidia-cuda-runtime-cu12 emcee` for the CUDA-simulator, PTX and
+  MCMC tests to run instead of skipping.
 
 Put this file in the repo as `docs/FITTING_PLAN.md` and point to it from `CLAUDE.md`, so every cloud
 session reads it. Work one phase at a time; each phase ends with passing tests and a merged PR.

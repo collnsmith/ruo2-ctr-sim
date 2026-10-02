@@ -16,6 +16,7 @@ import numpy as np
 from scipy.optimize import differential_evolution, least_squares
 
 from . import fom as F_
+from .sampling import information_criteria
 from .uncertainty import covariance_from_jacobian, correlation, fit_warnings
 
 BAD = 1e300
@@ -224,6 +225,7 @@ class Fit:
         so = np.concatenate([ds.sigma_eff for ds in self.datasets])
         Fcat = np.concatenate(Fc)
         foms = F_.all_foms(Fo, Fcat, so, len(names))
+        foms.update(information_criteria(foms["chi2"], foms["N"], foms["p"]))
         per_ds = {ds.name: F_.all_foms(ds.F, f, ds.sigma_eff, len(names)) for ds, f in zip(self.datasets, Fc)}
         cov, cond = covariance_from_jacobian(self._current_jacobian(names), foms["red_chi2"]) if names else \
             (np.zeros((0, 0)), 1.0)
@@ -272,7 +274,7 @@ class FitResult:
         f = self.fom
         lines = [f"Fit of {', '.join(self.datasets)}: {f['N']} points, {f['p']} free parameters",
                  f"chi2 = {f['chi2']:.4g}, reduced chi2 = {f['red_chi2']:.4g}, log FOM = {f['log']:.4g}, "
-                 f"R1 = {f['R1']:.4g}"]
+                 f"R1 = {f['R1']:.4g}, AIC = {f['aic']:.4g}, BIC = {f['bic']:.4g}"]
         for st in self.stages:
             lines.append(f"  {st['method']}: {st['nfev']} evaluations, {st['seconds']:.1f} s, "
                          f"{st['fom_name']} = {st['fom']:.6g}")

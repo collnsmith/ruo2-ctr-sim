@@ -113,5 +113,8 @@ python -m ctrfit fit model.json data.csv --out fit_results
   degenerate case.
 - Thickness fringes give separate chi2 minima about one trilayer apart (traded against eps_perp).
   Run `fit.profile("thickness_mean_tl", grid)` after the global search to pick the right one.
+- Beyond the covariance errors: `ctrfit.fit.bootstrap(fit, n=100)`, `ctrfit.fit.mcmc(fit)` (needs
+  `emcee`), and `ctrfit.fit.compare_models([res_a, res_b], labels)` for AIC / BIC between surface
+  models (e.g. OH only vs OH + H2O vs an extra water layer).
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).

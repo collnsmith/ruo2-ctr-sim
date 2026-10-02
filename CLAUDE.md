@@ -35,7 +35,8 @@ ctrfit/model     expr.py (safe link expressions), parameters.py (Parameter, Para
 ctrfit/data      dataset.py (Dataset, sigma_eff with the systematic floor), io.py (CSV, .dat,
                  I -> F), synthetic.py (make_dataset with fixed seeds)
 ctrfit/fit       fom.py (chi2, log, R1), fit.py (Fit: DE, least squares, profile, report;
-                 FitResult), uncertainty.py (covariance, correlations, warnings)
+                 FitResult), uncertainty.py (covariance, correlations, warnings),
+                 sampling.py (bootstrap, emcee MCMC, AIC/BIC, compare_models)
 ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
@@ -59,7 +60,7 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
 pip install -r requirements.txt pytest
 pip install -e .               # optional: makes ctrfit importable from anywhere
 python -m pytest              # default suite, about 65 s; skips tests marked slow
-python -m pytest -m slow      # long tests (synthetic recovery, coverage)
+python -m pytest -m slow      # long tests (direct combined fit, example fit, 20-realization coverage), about 2.5 min
 ```
 
 - The cloud environment has no GPU and no display. GUI tests run with `QT_QPA_PLATFORM=offscreen`
@@ -69,7 +70,7 @@ python -m pytest -m slow      # long tests (synthetic recovery, coverage)
 - Viewer tests: the CPU renderer is compared with the CUDA kernel run in Numba's CUDA simulator,
   and the kernel is compiled to PTX for sm_75 (fake device) to check it is float32 only. They skip
   cleanly without `numba` / `numba-cuda`. In the cloud, `numba-cuda` also needs the CUDA runtime
-  library: `pip install nvidia-cuda-runtime-cu12`.
+  library: `pip install nvidia-cuda-runtime-cu12`. MCMC tests skip without `emcee`.
 
 What the tests protect:
 
@@ -82,6 +83,13 @@ What the tests protect:
 | `test_physics.py` electrolyte | the analytic electrolyte term equals a direct numerical integral of the erfc profile |
 | `test_apps.py` | the GUI starts offscreen and finishes one run; the notebook runs as a script |
 | `test_viewer.py` | the 3D scene builds; CPU and CUDA (simulator) renders agree; the kernel PTX has no f64 |
+| `test_package.py` | no Qt in `ctrfit`; `ctr_engine/params/plots` are the `ctrfit` modules |
+| `test_parameters.py`, `test_template.py` | safe links, scopes, bounds, JSON; settings -> parameters -> model equals the reference; every parameter changes the model; continuous thickness weights; composition mapping |
+| `test_evaluator.py` | fast evaluator equals the reference (rtol 1e-9) incl. random parameters; caching; >= 10x benchmark |
+| `test_data.py` | FOMs and I -> F against hand values; CSV / .dat / JSON round trips; CLI |
+| `test_fit.py` | synthetic recovery: surface-only, film-only, combined, degenerate case warns, every parameter alone, rod scales, two datasets |
+| `test_uncertainty.py` | bootstrap and MCMC agree with the covariance; AIC/BIC choose the right model; coverage (slow) |
+| `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)
 

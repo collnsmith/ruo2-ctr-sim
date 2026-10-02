@@ -2,6 +2,8 @@ numpy
 scipy
 matplotlib>=3.5
 PyQt5
+# fitting: MCMC uncertainties (ctrfit.fit.mcmc)
+emcee
 # optional: exact anomalous scattering factors at any energy (otherwise a built-in 12-21 keV table is used)
 # xraydb
 # 3D viewer only: numba with CUDA (newer Numba versions also need the numba-cuda package)

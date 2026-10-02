@@ -1,3 +1,4 @@
+# @app title: CTR simulator | group: Simulate | order: 10 | kind: gui | needs: PyQt5 | desc: Rods, OH vs H2O comparison, sensitivity map and ranking, thickness and relaxation study
 """RuO2/TiO2 CTR simulator: desktop GUI.
 
 Run:  python ctr_gui.py

@@ -1,3 +1,4 @@
+# @app title: Example fit | group: Fit | order: 20 | kind: script | desc: Synthetic RuO2 film: film, then surface, then combined fit, compared with the truth
 """Fit the synthetic example and compare with the truth.
 
     python make_data.py     (once; the files are also in the repository)

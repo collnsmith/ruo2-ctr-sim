@@ -1,3 +1,4 @@
+# @app title: Simulation notebook | group: Simulate | order: 30 | kind: script | desc: Runs the notebook top to bottom (plots open in windows); open it in VS Code to run cell by cell
 # %% [markdown]
 # # CTR simulation notebook: RuO2(110) film on TiO2(110) with CUS OH / H2O
 #

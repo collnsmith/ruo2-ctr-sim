@@ -1,3 +1,4 @@
+# @app title: 3D film viewer | group: Simulate | order: 20 | kind: gui | needs: PyQt5, numba | desc: Ray-traced real-space model with roughness islands, CUS species and the X-ray beams
 """3D viewer for the RuO2(110)/TiO2(110) film model, ray traced on the GPU with Numba CUDA.
 
 Builds one random real-space version of the model in ctr_engine.py: the film thickness, the

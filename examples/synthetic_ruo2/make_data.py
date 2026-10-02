@@ -1,3 +1,4 @@
+# @app title: Make example data | group: Fit | order: 30 | kind: script | desc: Regenerates the synthetic example data and models (fixed seed)
 """Generate the example: synthetic |F| data for a 6.3 nm RuO2(110) film with 60 % OH on the CUS sites.
 
     python make_data.py      writes data.csv, model_true.json and model.json (the starting model)

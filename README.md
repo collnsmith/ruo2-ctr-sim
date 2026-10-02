@@ -13,8 +13,19 @@ shows up in both. This replaces the old standalone `ruo2_tio2_ctr_sim.py`.
 ```
 pip install -r requirements.txt
 pip install -e .        # optional: installs the ctrfit package
-python ctr_gui.py
+python ctr_launcher.py  # a card for every app; or start one directly, e.g. python ctr_gui.py
 ```
+
+The launcher (dark theme) finds the apps by a tag line near the top of each file:
+
+```
+# @app title: Fitting | group: Fit | order: 10 | kind: gui | needs: PyQt5 | desc: What it does
+```
+
+`kind: gui` starts the app in its own window (it keeps running when the launcher closes);
+`kind: script` runs it inside the launcher and prints to its console. Apps whose `needs` are not
+installed are greyed out with the `pip install` hint. Add the tag to a new script and press Rescan
+(F5); Ctrl+F filters.
 
 Optional: `pip install xraydb` for exact anomalous scattering factors at any energy.
 Without it a built-in 12 to 21 keV table is used.

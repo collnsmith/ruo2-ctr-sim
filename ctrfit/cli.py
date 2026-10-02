@@ -41,6 +41,7 @@ def build_parser():
                     "value is.", help="what to ask Claude")
     ak.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh"])
     ak.add_argument("--out", default="claude_fit", help="output folder: model_fitted.json, transcript.txt")
+    sub.add_parser("launcher", help="open the launcher with a button for every app")
     b = sub.add_parser("beamline", help="open the beamline helper (indexer, angles, macros, calculators)")
     b.set_defaults()
     ix = sub.add_parser("index", help="best-guess HKL of Bragg peaks from SPEC psic angles")
@@ -133,6 +134,11 @@ def cmd_ask(a):
     return 0
 
 
+def cmd_launcher(a):
+    from .app.launcher_window import main as launcher_main
+    return launcher_main(["ctrfit"])
+
+
 def cmd_beamline(a):
     from .app.beamline_window import main as bl_main
     return bl_main(["ctrfit"])
@@ -199,7 +205,7 @@ def cmd_fit(a):
 def main(argv=None):
     a = build_parser().parse_args(argv)
     return {"fit": cmd_fit, "gui": cmd_gui, "beamline": cmd_beamline, "index": cmd_index,
-            "macro": cmd_macro, "ask": cmd_ask}[a.command](a)
+            "macro": cmd_macro, "ask": cmd_ask, "launcher": cmd_launcher}[a.command](a)
 
 
 if __name__ == "__main__":

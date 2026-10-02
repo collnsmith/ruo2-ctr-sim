@@ -50,6 +50,7 @@ ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
 ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py launch the ctrfit windows
+ctr_launcher.py  launcher: finds every file with an '# @app' tag (ctrfit/apps.py, ctrfit/app/launcher_window.py)
 ```
 
 - All physics lives in `ctrfit/core`; diffractometer geometry lives in `ctrfit/beamline`. All plotting
@@ -61,6 +62,8 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_bea
 - No Qt imports anywhere in `ctrfit/` except `ctrfit/app/` (a test enforces this). The window only
   calls ctrfit; fitting logic it needs belongs in `ctrfit/fit` (e.g. workflow.py) so it is testable
   without Qt. Parameter-set changes (per-dataset copies) happen on the GUI thread, never in the worker.
+- Every user-facing app or script carries an `# @app title: … | group: … | order: … | kind: gui|script |
+  needs: … | desc: …` line at column 0 near the top, so the launcher shows it (test_launcher pins the list).
 - Never edit `tests/reference.npz`. If a change is meant to alter the physics, regenerate it with
   `python tests/make_reference.py` and explain why in the commit message.
 - Fixed seeds everywhere (synthetic data, optimizers, the viewer's random scene).
@@ -108,6 +111,7 @@ What the tests protect:
 | `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
 | `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), macros, calculators (Si critical angle), CLI, window offscreen |
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
+| `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

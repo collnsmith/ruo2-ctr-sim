@@ -31,6 +31,7 @@ from ..fit import workflow
 from ..fit.fit import Fit, FitResult
 from ..fit.global_fit import series
 from ..model.expr import ExprError
+from ..model.parameters import scoped_view
 from ..model.model import Model
 from ..project import plots
 from ..project.project import Project
@@ -52,6 +53,7 @@ class ParamTable(QtCore.QAbstractTableModel):
         self.params = params
         self.errors, self.flagged = {}, set()
         self.locked = False
+        self.live = {}                 # best values during a running fit (shown instead of the parameters)
 
     def set_params(self, params):
         self.beginResetModel()
@@ -61,6 +63,10 @@ class ParamTable(QtCore.QAbstractTableModel):
     def refresh(self):
         self.beginResetModel()
         self.endResetModel()
+
+    def refresh_values(self):
+        col = self.COLS.index("Value")
+        self.dataChanged.emit(self.index(0, col), self.index(self.rowCount() - 1, col))
 
     def rowCount(self, parent=QtCore.QModelIndex()):
         return 0 if parent.isValid() else len(self.params)
@@ -97,7 +103,8 @@ class ParamTable(QtCore.QAbstractTableModel):
         if col == "Name":
             return p.name
         if col == "Value":
-            return f"{p.value:.6g}" if role == QtCore.Qt.DisplayRole else repr(p.value)
+            v = self.live.get(p.name, p.value) if self.locked else p.value
+            return f"{v:.6g}" if role == QtCore.Qt.DisplayRole else repr(v)
         if col == "Error":
             e = self.errors.get(p.name)
             return "" if e is None else f"{e:.3g}"
@@ -208,6 +215,7 @@ class WorkerSignals(QtCore.QObject):
     done = Signal(object)
     failed = Signal(str)
     progress = Signal(str, int, float)
+    best = Signal(str, int, float, object)
 
 
 class Worker(QtCore.QRunnable):
@@ -217,10 +225,19 @@ class Worker(QtCore.QRunnable):
         self.signals = WorkerSignals()
         self.fit = None
         self._last = 0.0
+        self._last_best = 0.0
 
     def hook(self, fit):
         self.fit = fit
         fit.progress = self.progress
+        fit.on_best = self.best
+
+    def best(self, stage, step, fom, values):
+        """New best values: every DE generation; least squares at most every 0.1 s."""
+        now = time.perf_counter()
+        if stage == "de" or now - self._last_best > 0.1:
+            self._last_best = now
+            self.signals.best.emit(stage, step, fom, values)
 
     def progress(self, stage, step, fom):
         now = time.perf_counter()
@@ -254,6 +271,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.fit = None
         self.history = []
         self.worker = None
+        self._rod_cache = {}
         self.pool = QtCore.QThreadPool()
         self.pool.setMaxThreadCount(1)
 
@@ -564,7 +582,24 @@ class FitWindow(QtWidgets.QMainWindow):
             self.say(f"Wrote {len(files)} files to {folder}")
 
     # ------------------------------------------------------------------ plots
-    def show_rod(self):
+    def _rod_evaluators(self, i, lab):
+        """(data-point evaluator, dense-curve evaluator, L of the dense curve) for one rod, cached.
+        Built on the GUI thread; called with explicit values, so a running fit is never read."""
+        ds = self.datasets[i]
+        scope = ds.scope if len(self.datasets) > 1 else ""
+        key = (id(self.model), id(ds), lab, scope)
+        hit = self._rod_cache.get(key)
+        if hit is None:
+            idx = ds.rods()[lab]
+            H, K = ds.rod_hk(lab)
+            Ld = np.linspace(ds.L[idx].min(), ds.L[idx].max(), 400)
+            hit = (self.model.evaluator(ds.H[idx], ds.K[idx], ds.L[idx], scope=scope),
+                   self.model.evaluator(np.full(Ld.size, H), np.full(Ld.size, K), Ld, scope=scope), Ld, scope)
+            self._rod_cache = {key: hit}
+        return hit
+
+    def show_rod(self, values=None, note=""):
+        """Draw the selected rod. values: all parameter values (e.g. the live best of a running fit)."""
         data = self.rod_pick.currentData()
         if data is None:
             return
@@ -572,16 +607,15 @@ class FitWindow(QtWidgets.QMainWindow):
         ds = self.datasets[i]
         idx = ds.rods()[lab]
         H, K = ds.rod_hk(lab)
-        scope = ds.scope if len(self.datasets) > 1 else ""
         try:
-            Fc = self.model.evaluator(ds.H[idx], ds.K[idx], ds.L[idx], scope=scope)()
-            Ld = np.linspace(ds.L[idx].min(), ds.L[idx].max(), 400)
-            Fd = self.model.evaluator(np.full(Ld.size, H), np.full(Ld.size, K), Ld, scope=scope)()
+            ev_pts, ev_dense, Ld, scope = self._rod_evaluators(i, lab)
+            v = self.model.params.view(scope) if values is None else scoped_view(values, scope)
+            Fc, Fd = ev_pts(v), ev_dense(v)
         except (ValueError, KeyError) as ex:
             self.say(f"Model not evaluated: {ex}", error=True)
             return
-        self.p_rod.draw(plots.draw_fit_rod, ds.L[idx], ds.F[idx], ds.sigma_eff[idx], Fc, f"{ds.name}: ({H} {K} L)",
-                        Ld, Fd)
+        self.p_rod.draw(plots.draw_fit_rod, ds.L[idx], ds.F[idx], ds.sigma_eff[idx], Fc,
+                        f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd)
 
     def show_series(self):
         name = self.series_pick.currentText()
@@ -596,6 +630,13 @@ class FitWindow(QtWidgets.QMainWindow):
         self.status.setText(f"{'differential evolution, generation' if stage == 'de' else 'least squares, evaluation'} "
                             f"{step}: figure of merit {fom:.6g}")
         self.p_fom.draw(plots.draw_fom_history, self.history)
+
+    def _on_best(self, stage, step, fom, values):
+        """Live update during a fit: parameter values and the model curve of the shown rod."""
+        self.table.live = values
+        self.table.refresh_values()
+        what = f"generation {step}" if stage == "de" else f"least squares, evaluation {step}"
+        self.show_rod(values, note=f"[{what}]")
 
     def _show_result(self):
         r = self.result
@@ -691,6 +732,7 @@ class FitWindow(QtWidgets.QMainWindow):
         w = Worker(job)
         self.worker = w
         w.signals.progress.connect(self._on_progress)
+        w.signals.best.connect(self._on_best)
         w.signals.done.connect(lambda out, lab=label: self._done(out, lab))
         w.signals.failed.connect(self._failed)
         self._busy(True)
@@ -699,6 +741,7 @@ class FitWindow(QtWidgets.QMainWindow):
 
     def _done(self, out, label):
         self.worker = None
+        self.table.live = {}
         self._busy(False)
         self.fit, self.result = out
         self.project.results.append(self.result.to_dict())
@@ -711,6 +754,7 @@ class FitWindow(QtWidgets.QMainWindow):
 
     def _failed(self, msg):
         self.worker = None
+        self.table.live = {}
         self._busy(False)
         self.warn("Fit failed", msg)
 

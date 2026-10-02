@@ -127,3 +127,29 @@ def test_global_fit_from_window(win, tmp_path):
     assert win.series_pick.count() >= 1 and win.p_series.figure.axes
     v = [win.result.values[f"ds{i}.x_OH"] for i in (1, 2)]
     np.testing.assert_allclose(v, [0.3, 0.7], atol=0.05)
+
+
+def test_live_update_every_generation(win, monkeypatch):
+    """The model curve and the table follow the best values after every DE generation."""
+    seen = []
+    orig = win._on_best
+
+    def spy(stage, step, fom, values):
+        seen.append((stage, step, fom, dict(values)))
+        orig(stage, step, fom, values)
+        if stage == "de":
+            title = win.p_rod.figure.axes[0].get_title()
+            assert f"generation {step}" in title
+            assert win.table.data(_cell(win, "z_OH", "Value")) == f"{values['z_OH']:.6g}"
+    monkeypatch.setattr(win, "_on_best", spy)
+    win.worker = None
+    win.maxiter.setValue(6)
+    win.method.setCurrentText("DE only")
+    start = win.model.params["z_OH"].value
+    win.run_or_stop()
+    assert win.wait(120)
+    de = [s for s in seen if s[0] == "de"]
+    assert [s[1] for s in de] == list(range(1, len(de) + 1)) and len(de) >= 6
+    assert all(b[2] <= a[2] for a, b in zip(de, de[1:]))                 # best FOM never gets worse
+    assert len({round(s[3]["z_OH"], 6) for s in de} | {round(start, 6)}) > 1   # the values move
+    assert not win.table.live and "generation" not in win.p_rod.figure.axes[0].get_title()

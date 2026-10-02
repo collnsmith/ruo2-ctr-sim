@@ -80,6 +80,17 @@ class Parameter:
         return cls(**d)
 
 
+def scoped_view(vals, scope=""):
+    """From a dict of all values (name -> value), the base names as one dataset scope sees them."""
+    out = {n: v for n, v in vals.items() if "." not in n}
+    if scope:
+        pre = scope + "."
+        for n, v in vals.items():
+            if n.startswith(pre) and "." not in n[len(pre):]:
+                out[n[len(pre):]] = v
+    return out
+
+
 class ParameterSet:
     def __init__(self, params=()):
         self._p = {}
@@ -194,14 +205,7 @@ class ParameterSet:
 
     def view(self, scope=""):
         """Base name -> value as seen by one dataset scope (scoped values override global ones)."""
-        vals = self.values()
-        out = {n: v for n, v in vals.items() if "." not in n}
-        if scope:
-            pre = scope + "."
-            for n, v in vals.items():
-                if n.startswith(pre) and "." not in n[len(pre):]:
-                    out[n[len(pre):]] = v
-        return out
+        return scoped_view(self.values(), scope)
 
     def update(self, values):
         for n, v in values.items():

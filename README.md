@@ -106,7 +106,8 @@ res.save("result.json")
 Fitting window: `python ctr_fit_gui.py [data.csv] [model.json]` (or `python -m ctrfit gui`). Left:
 datasets (with the systematic error floor) and the parameter table (tick Fit, edit value, bounds and
 links; errors appear after a fit, parameters named in warnings are highlighted). Right: fit settings,
-Run / Stop, and the guided workflow (1. film on the even rods with a thickness scan, 2. surface on
+Run / Stop (during a fit the model curve of the shown rod and the Value column follow the best
+parameters after every differential-evolution generation and as least squares improves), and the guided workflow (1. film on the even rods with a thickness scan, 2. surface on
 the odd rods, 3. everything together). Tabs: data vs model with residuals per rod, live figure of
 merit, report with warnings, correlation matrix, per-dataset series for global fits. File menu:
 models, data, project files (`*.ctrproj.json`: model, data and results together) and a report folder.

@@ -50,6 +50,8 @@ class Fit:
         self._n_eval = 0
         self.cancelled = False
         self.progress = None          # optional callable(stage, step, fom), e.g. for a live plot
+        self.on_best = None           # optional callable(stage, step, fom, values): new best values, once per
+                                      # DE generation and whenever least squares improves (live model curves)
 
     def cancel(self):
         """Stop the running optimizer at its next evaluation; the best values so far are kept."""
@@ -58,6 +60,11 @@ class Fit:
     def _notify(self, stage, step, fom):
         if self.progress is not None:
             self.progress(stage, step, fom)
+
+    def _notify_best(self, stage, step, fom, x, names):
+        """Pass the values of parameter vector x (all parameters, links evaluated) to on_best."""
+        if self.on_best is not None:
+            self.on_best(stage, step, fom, dict(self.model.params.set_vector(x, names)))
 
     # ------------------------------------------------------------------ evaluation
     @property
@@ -144,6 +151,7 @@ class Fit:
             gen[0] += 1
             self.history.append(dict(stage="de", step=gen[0], fom=float(best["f"]), fom_name=fom))
             self._notify("de", gen[0], float(best["f"]))
+            self._notify_best("de", gen[0], float(best["f"]), best["x"], names)
 
         t0 = time.perf_counter()
         n0 = self._n_eval
@@ -179,10 +187,13 @@ class Fit:
             r = np.full(n_res, 1e10) if r is None or not np.all(np.isfinite(r)) else r
             step[0] += 1
             f = float(np.sum(r ** 2))
-            if f < best["f"]:
+            improved = f < best["f"]
+            if improved:
                 best["f"], best["x"] = f, np.array(x, float)
             self.history.append(dict(stage="lsq", step=step[0], fom=f, fom_name="chi2"))
             self._notify("lsq", step[0], f)
+            if improved:
+                self._notify_best("lsq", step[0], f, x, names)
             return r
 
         t0 = time.perf_counter()

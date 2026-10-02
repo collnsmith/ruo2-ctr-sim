@@ -116,5 +116,9 @@ python -m ctrfit fit model.json data.csv --out fit_results
 - Beyond the covariance errors: `ctrfit.fit.bootstrap(fit, n=100)`, `ctrfit.fit.mcmc(fit)` (needs
   `emcee`), and `ctrfit.fit.compare_models([res_a, res_b], labels)` for AIC / BIC between surface
   models (e.g. OH only vs OH + H2O vs an extra water layer).
+- Global fits across potentials or thicknesses: `global_fit(model, datasets, per_dataset=["x_OH",
+  "z_OH"])` (from `ctrfit.fit.global_fit`) shares all other free parameters (the film) and gives each
+  dataset its own copy of the listed ones and its own scale; `series(result, "x_OH")` returns the
+  values against `potential_V`. Command line: `--per-dataset x_OH,z_OH`.
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).

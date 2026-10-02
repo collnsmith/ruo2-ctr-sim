@@ -36,7 +36,8 @@ ctrfit/data      dataset.py (Dataset, sigma_eff with the systematic floor), io.p
                  I -> F), synthetic.py (make_dataset with fixed seeds)
 ctrfit/fit       fom.py (chi2, log, R1), fit.py (Fit: DE, least squares, profile, report;
                  FitResult), uncertainty.py (covariance, correlations, warnings),
-                 sampling.py (bootstrap, emcee MCMC, AIC/BIC, compare_models)
+                 sampling.py (bootstrap, emcee MCMC, AIC/BIC, compare_models),
+                 global_fit.py (shared vs per-dataset parameters, series)
 ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
@@ -59,7 +60,7 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
 ```
 pip install -r requirements.txt pytest
 pip install -e .               # optional: makes ctrfit importable from anywhere
-python -m pytest              # default suite, about 65 s; skips tests marked slow
+python -m pytest              # default suite, about 1.5 min; skips tests marked slow
 python -m pytest -m slow      # long tests (direct combined fit, example fit, 20-realization coverage), about 2.5 min
 ```
 
@@ -89,6 +90,7 @@ What the tests protect:
 | `test_data.py` | FOMs and I -> F against hand values; CSV / .dat / JSON round trips; CLI |
 | `test_fit.py` | synthetic recovery: surface-only, film-only, combined, degenerate case warns, every parameter alone, rod scales, two datasets |
 | `test_uncertainty.py` | bootstrap and MCMC agree with the covariance; AIC/BIC choose the right model; coverage (slow) |
+| `test_global.py` | per-dataset copies and links; synthetic potential series: trend recovered, shared parameters tighter than one dataset; CLI global fit (slow) |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

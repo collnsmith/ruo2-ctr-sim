@@ -10,13 +10,19 @@
 | 3 Fast evaluator | done | `ctrfit/core/fast.py` (vectorized, content-keyed caches) + `ctrfit/model/evaluator.py`; about 2 ms per evaluation for 2000 points with surface parameters free (about 80x legacy); numpy only, numba not needed after profiling |
 | 4 Data and fitting core | done | `ctrfit/data`, `ctrfit/fit`, `python -m ctrfit fit`, `examples/synthetic_ruo2`; recovery tests for surface-only, film-only, combined, degenerate case, and every parameter alone; `Fit.profile` for the thickness minima |
 | 5 Uncertainty | done | `ctrfit/fit/sampling.py`: bootstrap, emcee MCMC, AIC/AICc/BIC, `compare_models`; coverage test over 20 realizations (slow) |
-| 6 to 9 | not started | |
+| 6 Fitting GUI | not started | |
+| 7 Global fits | done | `ctrfit/fit/global_fit.py`: per-dataset scoped copies (`ds2.x_OH`), shared film, per-dataset scales, cross-dataset links, `series()` and series plots, CLI `--per-dataset`; synthetic potential series test (trend recovered, shared errors about 2x tighter with 4 datasets) |
+| 8, 9 | not started | |
 
 Open issues found while building phases 0 to 5:
 - Film thickness has separate chi2 minima about one trilayer apart (traded against eps_perp).
   Differential evolution alone found the right one in only about 3 of 5 seeds on the example data, so
-  the film step is DE, then `Fit.profile("thickness_mean_tl", grid)`, then refinement. The guided
-  workflow (Phase 6) should do this automatically.
+  the film step is DE, then `Fit.profile("thickness_mean_tl", grid)`, then refinement. The
+  profile also re-refines its best few grid points with the thickness free (`polish=3`), because
+  a coarse grid point next to the narrow true minimum can score worse than one in a wrong basin.
+  The guided workflow (Phase 6) should do this automatically.
+- Global fits share the fixed settings (energy, lattice, anomalous terms) across datasets; only
+  parameters can differ per dataset. Datasets at different energies need per-dataset settings.
 - With the thickness spread at its 0.3 TL floor, the mean thickness acts in steps (smooth but
   flat near whole trilayers). Fit the spread, or keep it at a realistic value (default ~1 TL).
 - MCMC samples exp(-chi2/2); when the model misfits (reduced chi2 >> 1) use

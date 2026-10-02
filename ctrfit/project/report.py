@@ -46,4 +46,27 @@ def write_report(fit, result, out_dir, dense_step=0.01):
         plots.draw_correlation(fig, result.names, result.correlation)
         fig.savefig(out / "correlation.png", dpi=110)
         files.append(out / "correlation.png")
+    files += write_series(result, out)
+    return files
+
+
+def per_dataset_names(result):
+    """Base names of parameters fitted separately per dataset (scoped and free)."""
+    scopes = {m["scope"] for m in result.dataset_meta if m.get("scope")}
+    return sorted({n.split(".", 1)[1] for n in result.names if "." in n and n.split(".", 1)[0] in scopes})
+
+
+def write_series(result, out_dir, key="potential_V"):
+    """One PNG per per-dataset parameter against the dataset metadata `key` (potential)."""
+    from ..fit.global_fit import series
+    out, files = Path(out_dir), []
+    has_key = all(key in m for m in result.dataset_meta)
+    for name in per_dataset_names(result):
+        x, v, e = series(result, name, key)
+        fig = _fig(6, 4)
+        plots.draw_series(fig, x, v, e, name, xlabel="potential (V)" if has_key else "dataset",
+                          title=f"{name} across datasets")
+        p = out / f"series_{name}.png"
+        fig.savefig(p, dpi=110)
+        files.append(p)
     return files

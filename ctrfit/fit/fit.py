@@ -22,6 +22,10 @@ from .uncertainty import covariance_from_jacobian, correlation, fit_warnings
 BAD = 1e300
 
 
+class FitCancelled(Exception):
+    """Raised inside the objective when fit.cancel() was called (e.g. a Stop button)."""
+
+
 class Fit:
     def __init__(self, model, datasets, fom="chi2", rod_scale_penalty=0.05):
         self.model = model
@@ -44,6 +48,16 @@ class Fit:
         self.stages = []
         self._jac = None
         self._n_eval = 0
+        self.cancelled = False
+        self.progress = None          # optional callable(stage, step, fom), e.g. for a live plot
+
+    def cancel(self):
+        """Stop the running optimizer at its next evaluation; the best values so far are kept."""
+        self.cancelled = True
+
+    def _notify(self, stage, step, fom):
+        if self.progress is not None:
+            self.progress(stage, step, fom)
 
     # ------------------------------------------------------------------ evaluation
     @property
@@ -116,6 +130,8 @@ class Fit:
         safe = self._safe(lambda x: self.fom(x, fom, names))
 
         def objective(x):
+            if self.cancelled:
+                raise FitCancelled()
             f = safe(x)
             f = BAD if f is None or not np.isfinite(f) else f
             if f < best["f"]:
@@ -127,15 +143,22 @@ class Fit:
         def callback(xk, convergence=None):
             gen[0] += 1
             self.history.append(dict(stage="de", step=gen[0], fom=float(best["f"]), fom_name=fom))
+            self._notify("de", gen[0], float(best["f"]))
 
         t0 = time.perf_counter()
-        res = differential_evolution(objective, list(zip(lo, hi)), maxiter=maxiter, popsize=popsize, seed=seed, tol=tol,
-                                     mutation=mutation, recombination=recombination, init=init, polish=False,
-                                     x0=x0 if include_start else None, updating="immediate", callback=callback)
-        x = best["x"] if best["f"] <= res.fun else res.x
+        n0 = self._n_eval
+        try:
+            res = differential_evolution(objective, list(zip(lo, hi)), maxiter=maxiter, popsize=popsize, seed=seed,
+                                         tol=tol, mutation=mutation, recombination=recombination, init=init,
+                                         polish=False, x0=x0 if include_start else None, updating="immediate",
+                                         callback=callback)
+            x, f_best, msg, nit = (best["x"] if best["f"] <= res.fun else res.x), min(best["f"], res.fun), \
+                str(res.message), int(res.nit)
+        except FitCancelled:
+            x, f_best, msg, nit = best["x"], best["f"], "stopped by user", gen[0]
         self.set_x(x, names)
-        self.stages.append(dict(method="de", nfev=int(res.nfev), nit=int(res.nit), fom=float(min(best["f"], res.fun)),
-                                fom_name=fom, seconds=time.perf_counter() - t0, message=str(res.message)))
+        self.stages.append(dict(method="de", nfev=int(self._n_eval - n0), nit=nit, fom=float(f_best),
+                                fom_name=fom, seconds=time.perf_counter() - t0, message=msg))
         self._jac = None
         return self.stages[-1]
 
@@ -147,49 +170,80 @@ class Fit:
         n_res = len(self.residuals(x0, names))
         safe = self._safe(lambda x: self.residuals(x, names))
         step = [0]
+        best = dict(f=np.inf, x=x0.copy())
 
         def resid(x):
+            if self.cancelled:
+                raise FitCancelled()
             r = safe(x)
             r = np.full(n_res, 1e10) if r is None or not np.all(np.isfinite(r)) else r
             step[0] += 1
-            self.history.append(dict(stage="lsq", step=step[0], fom=float(np.sum(r ** 2)), fom_name="chi2"))
+            f = float(np.sum(r ** 2))
+            if f < best["f"]:
+                best["f"], best["x"] = f, np.array(x, float)
+            self.history.append(dict(stage="lsq", step=step[0], fom=f, fom_name="chi2"))
+            self._notify("lsq", step[0], f)
             return r
 
         t0 = time.perf_counter()
-        res = least_squares(resid, x0, bounds=(lo, hi), method="trf", x_scale="jac", ftol=ftol, xtol=xtol, gtol=gtol,
-                            max_nfev=max_nfev)
+        try:
+            res = least_squares(resid, x0, bounds=(lo, hi), method="trf", x_scale="jac", ftol=ftol, xtol=xtol,
+                                gtol=gtol, max_nfev=max_nfev)
+        except FitCancelled:
+            self.set_x(best["x"], names)
+            self._jac = None
+            self.stages.append(dict(method="lsq", nfev=step[0], fom=float(best["f"]), fom_name="chi2",
+                                    seconds=time.perf_counter() - t0, message="stopped by user", status=-2))
+            return self.stages[-1]
         self.set_x(res.x, names)
         self._jac = (names, res.x.copy(), np.array(res.jac, float))
         self.stages.append(dict(method="lsq", nfev=int(res.nfev), fom=float(2 * res.cost), fom_name="chi2",
                                 seconds=time.perf_counter() - t0, message=str(res.message), status=int(res.status)))
         return self.stages[-1]
 
-    def profile(self, name, grid, refine=True, best=True):
+    def profile(self, name, grid, refine=True, best=True, polish=3):
         """chi2 profile: fix `name` at each grid value and refine the other free parameters.
 
         Shows separate minima (thickness fringes give minima about one trilayer apart, traded
-        against eps_perp). With best=True the parameters end at the best grid point (not refined
-        in `name`). Returns a list of dicts value, chi2, values.
+        against eps_perp). With best=True the parameters end at the best point found: the `polish`
+        lowest grid points are refined again with `name` free too (a grid point next to the true
+        minimum can score worse than one in a wrong basin when the minimum is narrow), and the
+        lowest chi2 wins. Returns the grid as a list of dicts value, chi2, values.
         """
-        p = self.model.params[name]
-        was_fit, start = p.fit, self.model.params.values()
+        params = self.model.params
+        p = params[name]
+        was_fit, start = p.fit, params.values()
+        settable = [n for n in params.names if not params[n].linked]
+
+        def restore(vals):
+            params.update({n: vals[n] for n in settable})
+
+        def chi2_now():
+            return float(np.sum(self.residuals() ** 2))
+
         others = [n for n in self.names if n != name]
         p.fit = False
         out = []
         for g in grid:
-            self.model.params.update({n: start[n] for n in self.names if n != name and not
-                                      self.model.params[n].linked})
+            if self.cancelled:
+                break
+            restore(start)
             p.value = float(g)
             if refine and others:
                 self.refine()
-            out.append(dict(value=float(g), chi2=float(np.sum(self.residuals() ** 2)), values=self.model.params.values()))
+            out.append(dict(value=float(g), chi2=chi2_now(), values=params.values()))
         p.fit = was_fit
-        if best and out:
-            win = min(out, key=lambda d: d["chi2"])
-            self.model.params.update({n: win["values"][n] for n in self.model.params.names
-                                      if not self.model.params[n].linked})
-        else:
-            self.model.params.update({n: start[n] for n in self.model.params.names if not self.model.params[n].linked})
+        if not (best and out):
+            restore(start)
+            self._jac = None
+            return out
+        candidates = [dict(chi2=d["chi2"], values=d["values"]) for d in out]
+        if was_fit and polish:
+            for d in sorted(out, key=lambda d: d["chi2"])[:polish]:
+                restore(d["values"])
+                self.refine()
+                candidates.append(dict(chi2=chi2_now(), values=params.values()))
+        restore(min(candidates, key=lambda d: d["chi2"])["values"])
         self._jac = None
         return out
 
@@ -236,7 +290,8 @@ class Fit:
         warn = fit_warnings(self.model.params, names, values, errors, corr, cond)
         return FitResult(names=names, values=values, errors=errors, correlation=corr, cov=cov, fom=foms,
                          fom_per_dataset=per_ds, warnings=warn, history=list(self.history), stages=list(self.stages),
-                         model=self.model.to_dict(), datasets=[ds.name for ds in self.datasets], condition=cond)
+                         model=self.model.to_dict(), datasets=[ds.name for ds in self.datasets], condition=cond,
+                         dataset_meta=[dict(name=ds.name, scope=ds.scope, **ds.meta) for ds in self.datasets])
 
     def _linked_errors(self, names, x, cov):
         linked = [p.name for p in self.model.params if p.linked]
@@ -259,8 +314,9 @@ class Fit:
 
 class FitResult:
     def __init__(self, names, values, errors, correlation, cov, fom, fom_per_dataset, warnings, history, stages,
-                 model, datasets, condition=1.0):
+                 model, datasets, condition=1.0, dataset_meta=None):
         self.names, self.values, self.errors = list(names), dict(values), dict(errors)
+        self.dataset_meta = list(dataset_meta or [dict(name=n, scope="") for n in datasets])
         self.correlation, self.cov = np.asarray(correlation), np.asarray(cov)
         self.fom, self.fom_per_dataset = fom, fom_per_dataset
         self.warnings, self.history, self.stages = list(warnings), list(history), list(stages)
@@ -301,6 +357,7 @@ class FitResult:
                     correlation=self.correlation.tolist(), cov=self.cov.tolist(), fom=self.fom,
                     fom_per_dataset=self.fom_per_dataset, warnings=self.warnings, history=self.history,
                     stages=self.stages, model=self.model, datasets=self.datasets, condition=self.condition,
+                    dataset_meta=self.dataset_meta,
                     summary=self.summary)
 
     def save(self, path):

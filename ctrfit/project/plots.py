@@ -318,3 +318,17 @@ def draw_correlation(fig, names, corr):
         for j in range(len(names)):
             ax.text(j, i, f"{corr[i, j]:.2f}", ha="center", va="center", fontsize=6)
     fig.colorbar(im, ax=ax, shrink=0.8)
+
+
+def draw_series(fig, x, values, errors, ylabel, xlabel="potential (V)", truth=None, title=""):
+    """A per-dataset parameter across a series (e.g. x_OH vs potential) with 1 sigma error bars."""
+    fig.clear()
+    ax = fig.add_subplot(111)
+    ax.errorbar(x, values, yerr=errors, fmt="o-", color="tab:blue", capsize=3, label="fit")
+    if truth is not None:
+        ax.plot(x, truth, "s--", color="0.5", mfc="none", label="true")
+        ax.legend(fontsize=8)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=10)
+    ax.grid(alpha=0.25)

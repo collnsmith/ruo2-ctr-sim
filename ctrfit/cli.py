@@ -27,8 +27,19 @@ def build_parser():
     f.add_argument("--floor", type=float, default=None, help="systematic error floor (relative) for all data")
     f.add_argument("--intensities", action="store_true", help="data files hold I and sigma_I, not F")
     f.add_argument("--rods", default=None, help="only these rods, e.g. '0 1; 1 0'")
+    f.add_argument("--per-dataset", default="", help="global fit of several data files: parameters fitted "
+                   "separately per dataset, e.g. 'x_OH,z_OH' (all other free parameters are shared)")
+    f.add_argument("--profile", default=None, help="after DE, scan a parameter on a grid and keep the best "
+                   "minimum, e.g. 'thickness_mean_tl:15:25:0.5'")
     f.add_argument("--no-plots", action="store_true", help="skip the PNG plots")
+    g = sub.add_parser("gui", help="open the fitting window")
+    g.add_argument("files", nargs="*", help="data files, a model JSON, or a .ctrproj.json project")
     return ap
+
+
+def cmd_gui(a):
+    from .app.fit_window import main as gui_main
+    return gui_main(["ctrfit"] + list(a.files))
 
 
 def cmd_fit(a):
@@ -50,12 +61,22 @@ def cmd_fit(a):
         if a.rods:
             ds = ds.select_rods(parse_rods(a.rods))
         datasets.append(ds)
-    fit = Fit(model, datasets, fom=a.fom)
+    per = [n.strip() for n in a.per_dataset.split(",") if n.strip()]
+    if per:
+        from .fit.global_fit import global_fit
+        fit = global_fit(model, datasets, per_dataset=per, fom=a.fom)
+    else:
+        fit = Fit(model, datasets, fom=a.fom)
     print(f"{len(fit.names)} free parameters: {', '.join(fit.names)}")
     print(f"{fit.n_data} data points in {len(datasets)} dataset(s)")
     if "de" in a.method:
         st = fit.run("de", maxiter=a.maxiter, popsize=a.popsize, seed=a.seed)
         print(f"DE: {st['nfev']} evaluations in {st['seconds']:.1f} s, {st['fom_name']} = {st['fom']:.6g}")
+    if a.profile:
+        import numpy as np
+        name, lo, hi, step = a.profile.split(":")
+        prof = fit.profile(name, np.arange(float(lo), float(hi) + 1e-9, float(step)))
+        print(f"profile of {name}: best grid point {min(prof, key=lambda d: d['chi2'])['value']:g}")
     if "lsq" in a.method:
         st = fit.refine()
         print(f"least squares: {st['nfev']} evaluations, chi2 = {st['fom']:.6g}")
@@ -76,7 +97,7 @@ def cmd_fit(a):
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
-    return {"fit": cmd_fit}[a.command](a)
+    return {"fit": cmd_fit, "gui": cmd_gui}[a.command](a)
 
 
 if __name__ == "__main__":

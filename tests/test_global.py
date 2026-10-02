@@ -62,6 +62,7 @@ def test_per_dataset_parameter_changes_only_its_dataset():
     assert np.max(np.abs(F1[1] / F0[1] - 1)) > 1e-3
 
 
+@pytest.mark.slow
 def test_potential_series_trend_recovered_and_shared_parameters_tighter(tmp_path):
     data = potential_series()
     res = film_then_refine(global_fit(start(), data, per_dataset=["x_OH"]))

@@ -37,12 +37,15 @@ ctrfit/data      dataset.py (Dataset, sigma_eff with the systematic floor), io.p
 ctrfit/fit       fom.py (chi2, log, R1), fit.py (Fit: DE, least squares, profile, report;
                  FitResult), uncertainty.py (covariance, correlations, warnings),
                  sampling.py (bootstrap, emcee MCMC, AIC/BIC, compare_models),
-                 global_fit.py (shared vs per-dataset parameters, series)
-ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files)
-ctrfit/cli.py    python -m ctrfit fit model.json data.csv
+                 global_fit.py (shared vs per-dataset parameters, series),
+                 workflow.py (guided steps: film on even rods, surface on odd rods, all)
+ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files),
+                 project.py (Project: model + datasets + results in one JSON file)
+ctrfit/app       fit_window.py (Qt fitting window; the only Qt code in ctrfit)
+ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
-ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
+ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged); ctr_fit_gui.py launches the fitting window
 ```
 
 - All physics lives in `ctrfit/core`. All plotting lives in `ctrfit/project/plots.py`.
@@ -50,7 +53,9 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
   hold no physics of their own.
 - Settings, their units, defaults and the text parsers live in `ctrfit/core/settings.py`
   (imported as `ctr_params` by the front ends).
-- No Qt imports anywhere in `ctrfit/` except a future `ctrfit/app/` (a test enforces this).
+- No Qt imports anywhere in `ctrfit/` except `ctrfit/app/` (a test enforces this). The window only
+  calls ctrfit; fitting logic it needs belongs in `ctrfit/fit` (e.g. workflow.py) so it is testable
+  without Qt. Parameter-set changes (per-dataset copies) happen on the GUI thread, never in the worker.
 - Never edit `tests/reference.npz`. If a change is meant to alter the physics, regenerate it with
   `python tests/make_reference.py` and explain why in the commit message.
 - Fixed seeds everywhere (synthetic data, optimizers, the viewer's random scene).
@@ -60,8 +65,8 @@ ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends (unchanged)
 ```
 pip install -r requirements.txt pytest
 pip install -e .               # optional: makes ctrfit importable from anywhere
-python -m pytest              # default suite, about 1.5 min; skips tests marked slow
-python -m pytest -m slow      # long tests (direct combined fit, example fit, 20-realization coverage), about 2.5 min
+python -m pytest              # default suite, about 2 min; skips tests marked slow
+python -m pytest -m slow      # long tests (direct combined fit, example fit, potential series, GUI end to end, coverage), about 3.5 min
 ```
 
 - The cloud environment has no GPU and no display. GUI tests run with `QT_QPA_PLATFORM=offscreen`
@@ -91,6 +96,8 @@ What the tests protect:
 | `test_fit.py` | synthetic recovery: surface-only, film-only, combined, degenerate case warns, every parameter alone, rod scales, two datasets |
 | `test_uncertainty.py` | bootstrap and MCMC agree with the covariance; AIC/BIC choose the right model; coverage (slow) |
 | `test_global.py` | per-dataset copies and links; synthetic potential series: trend recovered, shared parameters tighter than one dataset; CLI global fit (slow) |
+| `test_workflow.py` | guided steps recover film and surface; per-dataset copies in steps; cancel keeps the best values; project round trip |
+| `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

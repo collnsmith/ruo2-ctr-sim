@@ -10,7 +10,7 @@
 | 3 Fast evaluator | done | `ctrfit/core/fast.py` (vectorized, content-keyed caches) + `ctrfit/model/evaluator.py`; about 2 ms per evaluation for 2000 points with surface parameters free (about 80x legacy); numpy only, numba not needed after profiling |
 | 4 Data and fitting core | done | `ctrfit/data`, `ctrfit/fit`, `python -m ctrfit fit`, `examples/synthetic_ruo2`; recovery tests for surface-only, film-only, combined, degenerate case, and every parameter alone; `Fit.profile` for the thickness minima |
 | 5 Uncertainty | done | `ctrfit/fit/sampling.py`: bootstrap, emcee MCMC, AIC/AICc/BIC, `compare_models`; coverage test over 20 realizations (slow) |
-| 6 Fitting GUI | not started | |
+| 6 Fitting GUI | done (cloud-tested offscreen; look and feel still to check locally) | `ctrfit/app/fit_window.py` (`python ctr_fit_gui.py` or `python -m ctrfit gui`): datasets with error floor, parameter table (fit, value, bounds, links, errors, warnings highlighted, group filter), guided steps (`ctrfit/fit/workflow.py`), run/stop with live figure of merit, report, correlations, series, project files (`ctrfit/project/project.py`). The simulator stays in `ctr_gui.py` |
 | 7 Global fits | done | `ctrfit/fit/global_fit.py`: per-dataset scoped copies (`ds2.x_OH`), shared film, per-dataset scales, cross-dataset links, `series()` and series plots, CLI `--per-dataset`; synthetic potential series test (trend recovered, shared errors about 2x tighter with 4 datasets) |
 | 8, 9 | not started | |
 

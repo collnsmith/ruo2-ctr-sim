@@ -10,6 +10,8 @@ import pytest
 from ctrfit.beamline import macros as mac
 from ctrfit.beamline import xtools
 from ctrfit.beamline.indexing import allowed_tio2_surface, candidate_reflections, index_peaks
+from ctrfit.beamline.refine import (Reflection, ReflectionList, lattice_from_ub, parse_reflection_lines,
+                                    refine_ub)
 from ctrfit.beamline.psic import (MODES, MOTORS, Lattice, Psic, angles_for_hkl, as_angles, energy_to_wavelength,
                                   mode_with_alpha, parse_angle_lines, rotation_from_vector, tio2_surface_lattice,
                                   ub_from_two_reflections)
@@ -172,6 +174,106 @@ def test_parse_angle_lines():
         parse_angle_lines("1 2 3")
 
 
+# ---------------------------------------------------------------------------- UB refinement (reflex)
+STRAINED = Lattice(LAT.a * 1.002, LAT.b * 0.999, LAT.c * 1.003, name="strained")
+REFLEX_HKL = [(0, 0, 2), (1, 1, 1), (1, 0, 2), (0, 2, 2), (1, 1, 3), (2, 0, 2), (0, 2, 4)]
+
+
+def reflex_list(lattice=STRAINED, noise_deg=0.003, del_offset=0.0, seed=8):
+    """Reflections of a known UB at two energies and spread phi, with read-out noise and a delta zero error
+    (reading = true - offset)."""
+    rng = np.random.default_rng(seed)
+    UB = rotation_from_vector([0.01, -0.02, 0.3]) @ lattice.B
+    mode, fixed = MODES["four-circle vertical (del, eta, chi)"]
+    rl = ReflectionList()
+    for i, h in enumerate(REFLEX_HKL):
+        e = 16.0 if i % 2 else 18.0
+        s = angles_for_hkl(h, UB, energy_to_wavelength(e), mode, fixed=dict(fixed, phi=10.0 * i))[0]
+        a = {m: s[m] + (noise_deg * rng.standard_normal() if m in ("del", "eta", "chi") else 0.0) for m in MOTORS}
+        a["del"] -= del_offset
+        rl.add(h, a, e, label=f"r{i}")
+    return rl, UB
+
+
+def test_refine_orientation_exact_and_two_reflections():
+    rl, UB = reflex_list(lattice=LAT, noise_deg=0.0)
+    res = refine_ub(rl, LAT)
+    np.testing.assert_allclose(res.UB, UB, atol=1e-9)
+    assert res.rms_angle < 1e-6 and not res.warnings
+    two = refine_ub(rl.items[:2], LAT)                          # like or0 / or1, but least squares
+    np.testing.assert_allclose(two.UB, UB, atol=1e-8)
+    with pytest.raises(ValueError):
+        refine_ub(rl.items[:1], LAT)
+
+
+@pytest.mark.parametrize("free", ["abc", "all", "ub"])
+def test_refine_recovers_strained_lattice(free):
+    rl, UB = reflex_list()
+    fixed = refine_ub(rl, LAT)                                  # nominal lattice: misfits
+    res = refine_ub(rl, LAT, free)
+    assert res.rms_angle < 0.2 * fixed.rms_angle
+    for n in "abc":
+        v, e = getattr(res.lattice, n), res.lattice_err[n]
+        assert abs(v - getattr(STRAINED, n)) < max(4 * e, 2e-4), (n, v, e)
+    np.testing.assert_allclose(res.UB, UB, atol=2e-3)
+    if free != "abc":
+        for n in ("alpha", "beta", "gamma"):
+            assert abs(getattr(res.lattice, n) - 90) < 0.05
+
+
+def test_refine_scale_and_motor_offset():
+    iso = Lattice(LAT.a * 1.004, LAT.b * 1.004, LAT.c * 1.004)
+    rl, _ = reflex_list(lattice=iso)
+    res = refine_ub(rl, LAT, "scale")
+    assert res.lattice.a / LAT.a == pytest.approx(1.004, abs=1e-4)
+    assert res.lattice.b / res.lattice.a == pytest.approx(LAT.b / LAT.a)
+    rl, _ = reflex_list(del_offset=0.05)
+    plain = refine_ub(rl, LAT, "abc")
+    res = refine_ub(rl, LAT, "abc", offsets=["del"])
+    assert res.offsets["del"] == pytest.approx(0.05, abs=4 * res.offsets_err["del"] + 1e-3)
+    assert res.rms_angle < 0.2 * plain.rms_angle
+    assert "Offset del" in res.summary
+    with pytest.raises(ValueError):
+        refine_ub(rl, LAT, "abc", offsets=["tth"])
+
+
+def test_refine_flags_wrong_hkl_and_free_ub_needs_3d():
+    rl, _ = reflex_list(lattice=LAT)
+    rl.items[3].hkl = (0, 2, 3)                                 # mislabelled reflection
+    res = refine_ub(rl, LAT)
+    assert [f.outlier for f in res.fits].count(True) == 1 and res.fits[3].outlier and res.warnings
+    rl.items[3].use = False                                     # switched off: fits again
+    res = refine_ub(rl, LAT)
+    assert res.n_used == 6 and res.rms_angle < 0.02 and not any(f.outlier for f in res.fits)
+    assert [f.index for f in res.fits] == [0, 1, 2, 4, 5, 6]
+    flat = ReflectionList([r for r in reflex_list(lattice=LAT)[0] if r.hkl[0] == 0])     # all in the 0KL plane
+    with pytest.raises(ValueError):
+        refine_ub(flat, LAT, "ub")
+
+
+def test_reflection_list_io_and_hkl_guess(tmp_path):
+    rl, UB = reflex_list(lattice=LAT, noise_deg=0.0)
+    rl.items[2].use = False
+    back = ReflectionList.load(rl.save(tmp_path / "r.json"))
+    assert [r.to_dict() for r in back] == [r.to_dict() for r in rl]
+    (tmp_path / "r.txt").write_text(rl.text())
+    txt = ReflectionList.load(tmp_path / "r.txt")
+    assert len(txt) == 6 and txt[0].hkl == (0, 0, 2) and txt[0].label == "r0"          # '#off' line skipped
+    a = rl[4].angles
+    new = rl.add(None, a, rl[4].energy_kev, UB=UB)
+    assert new.hkl == (1, 1, 3)
+    with pytest.raises(ValueError):
+        ReflectionList().add(None, a, 16.0)
+    rows = parse_reflection_lines("0 0 2  20 10 0 0 0 0  # or0\n20 10 0 0 0 0 17.5\n", 16.0)
+    assert rows[0]["hkl"] == [0, 0, 2] and rows[0]["energy_kev"] == 16.0 and rows[0]["label"] == "or0"
+    assert rows[1]["hkl"] is None and rows[1]["energy_kev"] == 17.5
+    with pytest.raises(ValueError):
+        parse_reflection_lines("1 2 3 4", 16.0)
+    lat = lattice_from_ub(rotation_from_vector([0.3, 0.1, -0.2]) @ Lattice(3.0, 4.0, 5.0, 85, 95, 100).B)
+    assert (lat.a, lat.b, lat.c, lat.alpha, lat.beta, lat.gamma) == pytest.approx((3, 4, 5, 85, 95, 100))
+    assert isinstance(rl[0], Reflection)
+
+
 # ---------------------------------------------------------------------------- macros
 def test_rod_points_skip_bragg_and_refine_near_it():
     L = mac.rod_L_points(0.3, 4.0, 0.1, bragg=[2.0], exclude=0.05, fine_step=0.02, fine_window=0.3)
@@ -238,6 +340,12 @@ def test_cli_index_and_macro(tmp_path):
                         "--save-ub", str(tmp_path / "ub.json")], capture_output=True, text=True, env=env, timeout=120)
     assert r.returncode == 0, r.stderr
     assert "6 of 6 peaks indexed" in r.stdout and (tmp_path / "ub.json").exists()
+    rl, _ = reflex_list()
+    (tmp_path / "reflex.txt").write_text(rl.text())
+    r = subprocess.run([sys.executable, "-c", code, "refine", str(tmp_path / "reflex.txt"), "--free", "abc",
+                        "--save-ub", str(tmp_path / "ub2.json")], capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode == 0, r.stderr
+    assert "Refined lattice a b c on 7 reflections" in r.stdout and (tmp_path / "ub2.json").exists()
     r = subprocess.run([sys.executable, "-c", code, "macro", "--rods", "0 1", "--lmax", "2", "--step", "0.1",
                         "--out", str(tmp_path / "r.mac")], capture_output=True, text=True, env=env, timeout=120)
     assert r.returncode == 0, r.stderr
@@ -246,7 +354,7 @@ def test_cli_index_and_macro(tmp_path):
 
 def test_beamline_window(monkeypatch, tmp_path):
     pytest.importorskip("PyQt5")
-    from PyQt5 import QtWidgets
+    from PyQt5 import QtCore, QtWidgets
     from ctrfit.app.beamline_window import BeamlineWindow
     msgs = []
     monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: msgs.append(a[2])))
@@ -262,7 +370,7 @@ def test_beamline_window(monkeypatch, tmp_path):
     assert not msgs, msgs
     assert "6 of 6 peaks indexed" in w.index_out.toPlainText()
     w.use_index_ub()
-    assert w.UB is not None and w.tabs.currentIndex() == 1
+    assert w.UB is not None and w.tabs.currentWidget() is w.angles_page
     w.mode.setCurrentText("vertical surface, fixed alpha")
     w.alpha.setValue(0.4)
     w.hkl_in.setText("0 1 1.5")
@@ -278,9 +386,39 @@ def test_beamline_window(monkeypatch, tmp_path):
     assert "potset" in w.mac_out.toPlainText()
     w.save_macro(str(tmp_path / "x.mac"))
     assert (tmp_path / "x.mac").exists()
-    w.tabs.setCurrentIndex(3)
+    w.tabs.setCurrentIndex(4)
     w.update_calc()
     assert "critical angle" in w.calc_out.toPlainText()
+    # UB refinement tab: add reflections one by one (the third without HKL), refine, use the UB
+    w.energy.setValue(16.0)
+    rl, UB = reflex_list(lattice=LAT, noise_deg=0.002)
+    w.rx_free.setCurrentIndex(w.rx_free.findData("orientation"))
+    for i, r in enumerate(rl.items[:4]):
+        w.rx_hkl.setText("" if i == 3 else " ".join(f"{x:g}" for x in r.hkl))
+        w.rx_ang.setText(" ".join(f"{r.angles[m]:.4f}" for m in MOTORS))
+        w.energy.setValue(r.energy_kev)
+        w.add_reflection()
+    assert not msgs, msgs
+    assert len(w.reflex) == 4 and w.reflex[3].hkl == rl[3].hkl and w.refine_result is not None
+    assert w.rx_table.rowCount() == 4 and w.rx_table.item(0, 13).text()
+    w.rx_bulk.setPlainText("\n".join(r.line() for r in rl.items[4:]))
+    w.add_reflection_lines()
+    w.rx_free.setCurrentIndex(w.rx_free.findData("all"))       # refines on change
+    assert not msgs, msgs
+    assert w.refine_result.n_used == 7 and "Refined lattice" in w.rx_out.toPlainText()
+    w.rx_table.item(1, 0).setCheckState(QtCore.Qt.Unchecked)   # leave one out
+    assert w.refine_result.n_used == 6
+    w.use_refined_ub()
+    assert w.tabs.currentWidget() is w.angles_page and np.allclose(w.UB, w.refine_result.UB)
+    w.use_refined_lattice()
+    assert w.lattice.currentData() == "custom" and w.current_lattice().a == pytest.approx(w.refine_result.lattice.a,
+                                                                                         abs=1e-5)
+    w.save_reflections(str(tmp_path / "reflex.json"))
+    w.clear_reflections()
+    w.load_reflections(str(tmp_path / "reflex.json"))
+    assert len(w.reflex) == 7 and not w.reflex[1].use
+    w.import_indexed()
+    assert len(w.reflex) == 13 and not msgs, msgs
     w.peaks_in.setPlainText("1 2 3")
     w.run_index()
     assert msgs                                                   # bad input reported, window alive

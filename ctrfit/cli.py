@@ -42,7 +42,7 @@ def build_parser():
     ak.add_argument("--effort", default="high", choices=["low", "medium", "high", "xhigh"])
     ak.add_argument("--out", default="claude_fit", help="output folder: model_fitted.json, transcript.txt")
     sub.add_parser("launcher", help="open the launcher with a button for every app")
-    b = sub.add_parser("beamline", help="open the beamline helper (indexer, angles, macros, calculators)")
+    b = sub.add_parser("beamline", help="open the beamline helper (indexer, UB refinement, angles, macros, calculators)")
     b.set_defaults()
     ix = sub.add_parser("index", help="best-guess HKL of Bragg peaks from SPEC psic angles")
     ix.add_argument("peaks", help="text file, one peak per line: del eta chi phi nu mu (or name=value)")
@@ -53,6 +53,14 @@ def build_parser():
     ix.add_argument("--normal", default=None, help="surface normal in the phi frame, e.g. '0 0 1'")
     ix.add_argument("--tol-q", type=float, default=0.01, help="relative |Q| tolerance")
     ix.add_argument("--save-ub", default=None, help="write the UB matrix to this JSON file")
+    rf = sub.add_parser("refine", help="refine UB (and lattice, motor offsets) from a list of reflections")
+    rf.add_argument("reflections", help="text file, one per line: H K L del eta chi phi nu mu [energy] (or reflex JSON)")
+    rf.add_argument("--energy", type=float, default=None, help="photon energy (keV) for lines without one")
+    rf.add_argument("--lattice", default="tio2_surface", help="tio2_surface, tio2, ruo2_surface, or 'a b c al be ga'")
+    rf.add_argument("--free", default="orientation", choices=["orientation", "scale", "abc", "all", "ub"],
+                    help="what to refine besides the orientation")
+    rf.add_argument("--offsets", default="", help="motor zero offsets to refine, e.g. 'del eta'")
+    rf.add_argument("--save-ub", default=None, help="write UB, lattice and residuals to this JSON file")
     mc = sub.add_parser("macro", help="SPEC macro for rod scans (see the beamline helper for more kinds)")
     mc.add_argument("--rods", required=True, help="e.g. '0 1; 1 0'")
     mc.add_argument("--lmin", type=float, default=0.3)
@@ -87,6 +95,34 @@ def cmd_index(a):
     print(res.summary)
     if a.save_ub and res.UB is not None:
         Path(a.save_ub).write_text(json.dumps(dict(UB=res.UB.tolist(), energy_kev=a.energy), indent=1))
+        print(f"wrote {a.save_ub}")
+    return 0
+
+
+def cmd_refine(a):
+    import json
+    from .beamline.refine import ReflectionList, parse_reflection_lines, refine_ub
+    path = Path(a.reflections)
+    text = path.read_text(encoding="utf-8")
+    if text.lstrip().startswith("{"):
+        refl = ReflectionList.load(path)
+    else:
+        refl = ReflectionList()
+        try:
+            rows = parse_reflection_lines(text, a.energy)
+        except ValueError as ex:
+            raise SystemExit(f"{ex} (give --energy for lines without an energy)")
+        for row in rows:
+            if row["hkl"] is None:
+                raise SystemExit("every line needs H K L in the file (guessing HKL needs the window)")
+            refl.add(row["hkl"], row["angles"], row["energy_kev"], row["label"])
+    try:
+        res = refine_ub(refl, _lattice(a.lattice), a.free, a.offsets.replace(",", " ").split())
+    except ValueError as ex:
+        raise SystemExit(str(ex))
+    print(res.summary)
+    if a.save_ub:
+        Path(a.save_ub).write_text(json.dumps(dict(res.to_dict(), **refl.to_dict()), indent=1))
         print(f"wrote {a.save_ub}")
     return 0
 
@@ -204,7 +240,7 @@ def cmd_fit(a):
 
 def main(argv=None):
     a = build_parser().parse_args(argv)
-    return {"fit": cmd_fit, "gui": cmd_gui, "beamline": cmd_beamline, "index": cmd_index,
+    return {"fit": cmd_fit, "gui": cmd_gui, "beamline": cmd_beamline, "index": cmd_index, "refine": cmd_refine,
             "macro": cmd_macro, "ask": cmd_ask, "launcher": cmd_launcher}[a.command](a)
 
 

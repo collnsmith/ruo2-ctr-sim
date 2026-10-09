@@ -1,4 +1,4 @@
-# @app title: Beamline helper | group: Beamline | order: 10 | kind: gui | needs: PyQt5 | desc: Bragg peak indexer (SPEC psic), HKL to angles, SPEC macro maker, calculators
+# @app title: Beamline helper | group: Beamline | order: 10 | kind: gui | needs: PyQt5 | desc: Bragg peak indexer (SPEC psic), UB refinement (reflex), HKL to angles, SPEC macro maker, calculators
 """Beamline helper for SXRD runs (SPEC psic): Bragg peak indexer, angle calculator, macro maker,
 calculators. Run:  python ctr_beamline.py
 """

@@ -43,6 +43,7 @@ ctrfit/fit       fom.py (chi2, log, R1), fit.py (Fit: DE, least squares, profile
 ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes result files),
                  project.py (Project: model + datasets + results in one JSON file)
 ctrfit/beamline  psic.py (SPEC psic geometry, UB, HKL <-> angles), indexing.py (Bragg peak indexer),
+                 refine.py (reflection list and least-squares UB / lattice / motor offset refinement),
                  macros.py (SPEC macro maker), xtools.py (critical angle, footprint, ...)
 ctrfit/assistant agent.py (Claude fitting assistant: tool-use loop over the fitting API, no Qt)
 ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py (Qt; the only Qt code in ctrfit)
@@ -109,7 +110,7 @@ What the tests protect:
 | `test_workflow.py` | guided steps recover film and surface; per-dataset copies in steps; cancel keeps the best values; project round trip |
 | `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
 | `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
-| `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), macros, calculators (Si critical angle), CLI, window offscreen |
+| `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), UB refinement (exact UB, strained lattice in every mode, lattice scale, delta offset, wrong-HKL outlier, list I/O and HKL guess), macros, calculators (Si critical angle), CLI, window offscreen |
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |

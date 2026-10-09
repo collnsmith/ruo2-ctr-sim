@@ -172,7 +172,18 @@ computation is in `ctrfit/beamline` and works from scripts too.
   the TiO2(110) surface cell (a2 = a3), nor the sign of H and K: all equivalent indexings are listed,
   and the surface normal in the phi frame (e.g. `0 0 1` if it is along the phi axis) picks the one
   with L along it. Command line: `python -m ctrfit index peaks.txt --energy 16 --normal "0 0 1"`.
-- **Angles.** UB from the indexer or from two reflections (like `or0` / `or1`). Angles for an HKL in a
+- **UB refinement (reflex).** Like SPEC's reflex file: keep adding reflections as you find them
+  (HKL plus the six angles, each at its own energy; leave HKL blank and it is guessed from the
+  current UB) and UB is refined by least squares on all of them after every addition. Choose what
+  is refined: the orientation only, a common lattice scale, a, b, c, all six lattice parameters, or
+  all nine UB elements; motor zero offsets (e.g. `del`) can be refined too. The result gives the
+  lattice with standard errors, the angle between measured and calculated Q for every reflection,
+  outliers (usually a wrong HKL: untick "use" to leave one out), warnings about undetermined or
+  correlated parameters, and a `setlat` line. The list saves to JSON or text, the indexed peaks can
+  be added in one click, and the refined UB goes to the angle calculator. Lattice and offsets need a
+  spread of HKL directions and 2theta; with few reflections refine the orientation only. Command
+  line: `python -m ctrfit refine reflex.txt --energy 16 --free abc --offsets del`.
+- **Angles.** UB from the indexer, the refinement or from two reflections (like `or0` / `or1`). Angles for an HKL in a
   surface mode (horizontal or vertical surface, fixed incidence angle or alpha = beta) or four-circle
   mode, with the SPEC `umv` line; and HKL, alpha and beta from a set of angles.
 - **Macro maker.** SPEC command files for rod scans (Bragg peaks skipped, finer steps near them, count

@@ -1,4 +1,4 @@
-"""Beamline helper window: Bragg peak indexer, angle calculator, SPEC macro maker, calculators.
+"""Beamline helper window: Bragg peak indexer, UB refinement (reflex), angle calculator, SPEC macro maker, calculators.
 
 Run:  python ctr_beamline.py   (or python -m ctrfit beamline)
 
@@ -22,6 +22,7 @@ from ..beamline import xtools
 from ..beamline.indexing import ALLOWED, index_peaks
 from ..beamline.psic import (DEFAULT_LIMITS, LATTICES, MODES, MOTORS, Lattice, Psic, angles_for_hkl, as_angles,
                              energy_to_wavelength, mode_with_alpha, parse_angle_lines, ub_from_two_reflections)
+from ..beamline.refine import REFLEX_HELP, ReflectionList, parse_reflection_lines, refine_ub
 from ..core.settings import DEFAULTS, parse_points, parse_rods
 
 PEAK_HELP = ("One Bragg peak per line, angles in SPEC psic order:  del eta chi phi nu mu\n"
@@ -50,6 +51,8 @@ class BeamlineWindow(QtWidgets.QMainWindow):
         self.geo = Psic()
         self.UB = None
         self.index_result = None
+        self.reflex = ReflectionList()
+        self.refine_result = None
 
         # ---------------- shared: energy, lattice, motor signs
         self.energy = _dspin(3.0, 40.0, DEFAULTS["energy_kev"], 4, 0.1, " keV")
@@ -74,6 +77,7 @@ class BeamlineWindow(QtWidgets.QMainWindow):
 
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.addTab(self._indexer_tab(), "Bragg peak indexer")
+        self.tabs.addTab(self._reflex_tab(), "UB refinement (reflex)")
         self.tabs.addTab(self._angles_tab(), "Angles (HKL <-> motors)")
         self.tabs.addTab(self._macro_tab(), "Macro maker")
         self.tabs.addTab(self._calc_tab(), "Calculators")
@@ -206,11 +210,13 @@ class BeamlineWindow(QtWidgets.QMainWindow):
             self.say("Index at least two peaks first.", error=True)
             return
         self.set_ub(self.index_result.UB, "from the indexer")
-        self.tabs.setCurrentIndex(1)
+        self.tabs.setCurrentWidget(self.angles_page)
 
     def set_ub(self, UB, source):
         self.UB = np.array(UB, float)
+        self.ub_text.blockSignals(True)            # keep the full-precision UB, not the 6 decimals shown
         self.ub_text.setPlainText("\n".join(" ".join(f"{x:.6f}" for x in row) for row in self.UB))
+        self.ub_text.blockSignals(False)
         self.ub_source.setText(f"UB {source}")
         n = self.UB @ np.array([0.0, 0.0, 1.0])
         self.normal_ang.setText(" ".join(f"{x:.4f}" for x in n / np.linalg.norm(n)))
@@ -224,9 +230,274 @@ class BeamlineWindow(QtWidgets.QMainWindow):
                                                   lattice=self.current_lattice().to_dict()), indent=1))
             self.say(f"Saved {Path(path).name}")
 
+    # ------------------------------------------------------------------ UB refinement (reflex)
+    COLS = ["use", "H", "K", "L", *MOTORS, "E (keV)", "label", "dangle °", "d|Q|/|Q|"]
+
+    def _reflex_tab(self):
+        w = QtWidgets.QWidget()
+        self.rx_table = QtWidgets.QTableWidget(0, len(self.COLS))
+        self.rx_table.setHorizontalHeaderLabels(self.COLS)
+        self.rx_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.rx_table.verticalHeader().setDefaultSectionSize(22)
+        self.rx_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        self.rx_table.horizontalHeader().setStretchLastSection(True)
+        self.rx_hkl = QtWidgets.QLineEdit()
+        self.rx_hkl.setPlaceholderText("H K L (blank: guess from the current UB)")
+        self.rx_ang = QtWidgets.QLineEdit()
+        self.rx_ang.setPlaceholderText("del eta chi phi nu mu (as read from SPEC wh)")
+        self.rx_label = QtWidgets.QLineEdit()
+        self.rx_label.setPlaceholderText("label (optional)")
+        b_add = QtWidgets.QPushButton("Add reflection")
+        b_add.setMinimumHeight(28)
+        self.rx_bulk = QtWidgets.QPlainTextEdit()
+        self.rx_bulk.setFont(_mono())
+        self.rx_bulk.setPlaceholderText(REFLEX_HELP + "\nEnergy defaults to the energy at the top.")
+        self.rx_bulk.setMaximumHeight(90)
+        b_bulk = QtWidgets.QPushButton("Add these lines")
+        self.rx_free = QtWidgets.QComboBox()
+        for key, text in (("orientation", "orientation only (U)"), ("scale", "U + common lattice scale"),
+                          ("abc", "U + a, b, c"), ("all", "U + all six lattice parameters"),
+                          ("ub", "free UB (9 elements)")):
+            self.rx_free.addItem(text, key)
+        self.rx_offsets = QtWidgets.QLineEdit("")
+        self.rx_offsets.setPlaceholderText("motor zero offsets to refine, e.g. del eta")
+        self.rx_auto = QtWidgets.QCheckBox("Refine after each change")
+        self.rx_auto.setChecked(True)
+        b_refine = QtWidgets.QPushButton("Refine UB")
+        b_refine.setMinimumHeight(30)
+        b_use = QtWidgets.QPushButton("Use refined UB for the angle calculator")
+        b_import = QtWidgets.QPushButton("Add the indexed peaks")
+        b_remove = QtWidgets.QPushButton("Remove selected")
+        b_clear = QtWidgets.QPushButton("Clear")
+        b_load = QtWidgets.QPushButton("Load…")
+        b_save = QtWidgets.QPushButton("Save…")
+        b_lat = QtWidgets.QPushButton("Set the custom lattice to the refined one")
+        self.rx_out = QtWidgets.QPlainTextEdit(readOnly=True)
+        self.rx_out.setFont(_mono())
+
+        add = QtWidgets.QHBoxLayout()
+        for x, st in ((self.rx_hkl, 2), (self.rx_ang, 4), (self.rx_label, 2), (b_add, 0)):
+            add.addWidget(x, st)
+        bulk = QtWidgets.QHBoxLayout()
+        bulk.addWidget(self.rx_bulk, 1)
+        bulk.addWidget(b_bulk)
+        opts = QtWidgets.QHBoxLayout()
+        for x in (QtWidgets.QLabel("Refine"), self.rx_free, QtWidgets.QLabel("Offsets"), self.rx_offsets,
+                  self.rx_auto, b_refine):
+            opts.addWidget(x)
+        rows = QtWidgets.QHBoxLayout()
+        for x in (b_import, b_remove, b_clear, b_load, b_save):
+            rows.addWidget(x)
+        rows.addStretch(1)
+        left = QtWidgets.QVBoxLayout()
+        left.addWidget(QtWidgets.QLabel("<b>Reflections</b> (edit cells in place; untick 'use' to leave one out)"))
+        left.addWidget(self.rx_table, 1)
+        left.addLayout(add)
+        left.addLayout(bulk)
+        left.addLayout(rows)
+        left.addLayout(opts)
+        right = QtWidgets.QVBoxLayout()
+        right.addWidget(QtWidgets.QLabel("<b>Refined orientation</b>"))
+        right.addWidget(self.rx_out, 1)
+        right.addWidget(b_use)
+        right.addWidget(b_lat)
+        lay = QtWidgets.QHBoxLayout(w)
+        lay.addLayout(left, 3)
+        lay.addLayout(right, 2)
+        b_add.clicked.connect(self.add_reflection)
+        self.rx_ang.returnPressed.connect(self.add_reflection)
+        b_bulk.clicked.connect(self.add_reflection_lines)
+        b_refine.clicked.connect(self.refine)
+        b_use.clicked.connect(self.use_refined_ub)
+        b_lat.clicked.connect(self.use_refined_lattice)
+        b_import.clicked.connect(self.import_indexed)
+        b_remove.clicked.connect(self.remove_reflections)
+        b_clear.clicked.connect(self.clear_reflections)
+        b_load.clicked.connect(lambda: self.load_reflections())
+        b_save.clicked.connect(lambda: self.save_reflections())
+        self.rx_table.itemChanged.connect(self._reflex_edited)
+        self.rx_free.currentIndexChanged.connect(lambda *_: self._auto_refine())
+        return w
+
+    def _guess_ub(self):
+        if self.refine_result is not None:
+            return self.refine_result.UB
+        return self.UB
+
+    def _fill_reflex_table(self):
+        t = self.rx_table
+        t.blockSignals(True)
+        t.setRowCount(len(self.reflex))
+        fits = {f.index: f for f in self.refine_result.fits} if self.refine_result is not None else {}
+        for i, r in enumerate(self.reflex):
+            use = QtWidgets.QTableWidgetItem()
+            use.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
+            use.setCheckState(QtCore.Qt.Checked if r.use else QtCore.Qt.Unchecked)
+            t.setItem(i, 0, use)
+            vals = [f"{x:g}" for x in r.hkl] + [f"{r.angles[m]:.4f}" for m in MOTORS] + [f"{r.energy_kev:.4f}",
+                                                                                         r.label]
+            f = fits.get(i)
+            vals += [f"{f.dangle:.4f}", f"{f.dq_rel:.1e}"] if f else ["", ""]
+            for j, v in enumerate(vals, start=1):
+                it = QtWidgets.QTableWidgetItem(v)
+                if j >= len(self.COLS) - 2:
+                    it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
+                    if f and f.outlier:
+                        it.setForeground(QtGui.QColor("#c0392b"))
+                t.setItem(i, j, it)
+        t.blockSignals(False)
+
+    def _reflex_edited(self, item):
+        i, j = item.row(), item.column()
+        r = self.reflex[i]
+        try:
+            if j == 0:
+                r.use = item.checkState() == QtCore.Qt.Checked
+            elif j <= 3:
+                h = list(r.hkl)
+                h[j - 1] = float(item.text())
+                r.hkl = tuple(h)
+            elif j <= 9:
+                r.angles[MOTORS[j - 4]] = float(item.text())
+            elif j == 10:
+                r.energy_kev = float(item.text())
+            elif j == 11:
+                r.label = item.text()
+                return
+        except ValueError:
+            self.say(f"row {i + 1}: '{item.text()}' is not a number", error=True)
+            self._fill_reflex_table()
+            return
+        self._auto_refine()
+
+    def _auto_refine(self):
+        if self.rx_auto.isChecked() and len(self.reflex.used) >= 2:
+            self.refine(quiet=True)
+        else:
+            self.refine_result = None
+            self._fill_reflex_table()
+
+    def add_reflection(self):
+        def go():
+            hkl = self._vec(self.rx_hkl.text(), "HKL") if self.rx_hkl.text().strip() else None
+            ang = self._vec(self.rx_ang.text(), "angles", 6)
+            r = self.reflex.add(hkl, ang, self.energy.value(), self.rx_label.text().strip(), UB=self._guess_ub(),
+                                geo=self.current_geo())
+            self.rx_hkl.clear()
+            self.rx_ang.clear()
+            self.rx_label.clear()
+            self.say(f"Added ({' '.join(f'{x:g}' for x in r.hkl)})" + (" (HKL guessed from the UB)" if hkl is None
+                                                                        else ""))
+            self._auto_refine()
+        self._run(go)
+
+    def add_reflection_lines(self):
+        def go():
+            rows = parse_reflection_lines(self.rx_bulk.toPlainText(), self.energy.value())
+            if not rows:
+                raise ValueError("no reflections in the text")
+            for row in rows:              # each guessed HKL uses the UB refined from the rows before it
+                self.reflex.add(row["hkl"], row["angles"], row["energy_kev"], row["label"], UB=self._guess_ub(),
+                                geo=self.current_geo())
+                if len(self.reflex.used) >= 2:
+                    self.refine(quiet=True)
+            self.rx_bulk.clear()
+            self._auto_refine()
+            self.say(f"Added {len(rows)} reflection(s)")
+        self._run(go)
+
+    def import_indexed(self):
+        if self.index_result is None or self.index_result.UB is None:
+            self.say("Index Bragg peaks first (indexer tab).", error=True)
+            return
+        n = 0
+        for p in self.index_result.peaks:
+            if p.indexed:
+                self.reflex.add(p.hkl, p.angles, self.energy.value(), p.angles.get("label", "") or "indexer")
+                n += 1
+        self.say(f"Added {n} indexed peak(s)")
+        self._auto_refine()
+
+    def remove_reflections(self):
+        rows = sorted({ix.row() for ix in self.rx_table.selectedIndexes()}, reverse=True)
+        for i in rows:
+            self.reflex.remove(i)
+        self.refine_result = None
+        self._auto_refine()
+
+    def clear_reflections(self):
+        self.reflex.clear()
+        self.refine_result = None
+        self.rx_out.clear()
+        self._fill_reflex_table()
+
+    def refine(self, quiet=False):
+        def go():
+            offsets = self.rx_offsets.text().replace(",", " ").split()
+            res = refine_ub(self.reflex, self.current_lattice(), self.rx_free.currentData(), offsets,
+                            geo=self.current_geo())
+            self.refine_result = res
+            self.rx_out.setPlainText(res.summary)
+            self._fill_reflex_table()
+            self.say(f"UB refined on {res.n_used} reflections: rms angle {res.rms_angle:.4f}°"
+                     + (f", {len(res.warnings)} warning(s)" if res.warnings else ""))
+        if quiet:
+            try:
+                go()
+            except (ValueError, np.linalg.LinAlgError) as ex:   # e.g. not enough reflections for the parameters
+                self.refine_result = None
+                self.rx_out.setPlainText(f"Not refined: {ex}")
+                self._fill_reflex_table()
+        else:
+            self._run(go)
+
+    def use_refined_ub(self):
+        if self.refine_result is None:
+            self.say("Refine the UB first.", error=True)
+            return
+        self.set_ub(self.refine_result.UB, f"refined on {self.refine_result.n_used} reflections")
+        self.tabs.setCurrentWidget(self.angles_page)
+
+    def use_refined_lattice(self):
+        if self.refine_result is None:
+            self.say("Refine the UB first.", error=True)
+            return
+        lat = self.refine_result.lattice
+        self.lattice.setCurrentIndex(self.lattice.findData("custom"))
+        self.custom.setText(" ".join(f"{getattr(lat, n):.5f}" for n in ("a", "b", "c", "alpha", "beta", "gamma")))
+        self.say("Custom lattice set to the refined one")
+
+    def save_reflections(self, path=None):
+        path = path or QtWidgets.QFileDialog.getSaveFileName(self, "Save reflections", "reflex.json",
+                                                             "JSON (*.json);;Text (*.txt)")[0]
+        if not path:
+            return
+        if str(path).endswith(".txt"):
+            Path(path).write_text(self.reflex.text() + "\n", encoding="utf-8")
+        else:
+            d = self.reflex.to_dict()
+            d.update(energy_kev=self.energy.value(), lattice=self.current_lattice().to_dict())
+            if self.refine_result is not None:
+                d["refined"] = self.refine_result.to_dict()
+            Path(path).write_text(json.dumps(d, indent=1), encoding="utf-8")
+        self.say(f"Saved {Path(path).name}")
+
+    def load_reflections(self, path=None):
+        path = path or QtWidgets.QFileDialog.getOpenFileName(self, "Load reflections", "",
+                                                             "Reflections (*.json *.txt);;All files (*)")[0]
+        if not path:
+            return
+
+        def go():
+            self.reflex = ReflectionList.load(path)
+            self.refine_result = None
+            self.say(f"Loaded {len(self.reflex)} reflections from {Path(path).name}")
+            self._auto_refine()
+        self._run(go)
+
     # ------------------------------------------------------------------ angles
     def _angles_tab(self):
-        w = QtWidgets.QWidget()
+        w = self.angles_page = QtWidgets.QWidget()
         self.ub_text = QtWidgets.QPlainTextEdit()
         self.ub_text.setFont(_mono())
         self.ub_text.setMaximumHeight(80)

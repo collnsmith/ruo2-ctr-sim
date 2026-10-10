@@ -18,7 +18,7 @@ def test_repository_apps_are_found():
     apps = discover(ROOT)
     titles = [a.title for a in apps]
     assert titles == ["CTR simulator", "3D film viewer", "Simulation notebook", "Fitting", "Example fit",
-                      "Make example data", "Beamline helper"]
+                      "Make example data", "In-situ CV analysis", "Make in-situ CV example", "Beamline helper"]
     assert [a.group for a in apps][:3] == ["Simulate"] * 3
     byname = {a.path.name: a for a in apps}
     assert byname["ctr_viewer3d.py"].needs == ["PyQt5", "numba"] and byname["run_fit.py"].kind == "script"

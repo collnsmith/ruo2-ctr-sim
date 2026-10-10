@@ -53,6 +53,26 @@ def build_parser():
     ix.add_argument("--normal", default=None, help="surface normal in the phi frame, e.g. '0 0 1'")
     ix.add_argument("--tol-q", type=float, default=0.01, help="relative |Q| tolerance")
     ix.add_argument("--save-ub", default=None, help="write the UB matrix to this JSON file")
+    sub.add_parser("echem", help="open the in-situ CV window (stationary SPEC scan + potentiostat)")
+    cv = sub.add_parser("cv", help="in-situ CV: stationary SPEC scan vs potential, fits, CTR prediction")
+    cv.add_argument("spec", help="SPEC data file")
+    cv.add_argument("--scan", type=int, default=None, help="scan number (default: the last stationary scan)")
+    cv.add_argument("--ec", default=None, help="potentiostat file (.mpr needs galvani, .mpt, .csv)")
+    cv.add_argument("--cv", default=None, metavar="HOLD_V,HOLD_S,LOWER,UPPER,RATE_mVs,CYCLES[,up|down[,DELAY_S]]",
+                    help="define the CV by hand instead of --ec, e.g. '0.5,300,0.4,1.4,10,3,up,60'")
+    cv.add_argument("--counter", default=None)
+    cv.add_argument("--monitor", default=None)
+    cv.add_argument("--sync", default="absolute", choices=["absolute", "manual", "events"])
+    cv.add_argument("--offset", type=float, default=0.0, help="EC time = SPEC time + offset (s)")
+    cv.add_argument("--background", default="linear", choices=["none", "constant", "linear", "exponential"])
+    cv.add_argument("--transitions", type=int, default=1, help="sigmoidal transitions per sweep direction")
+    cv.add_argument("--cycles", default="all")
+    cv.add_argument("--hkl", default=None, help="'H K L' if the scan has no #Q")
+    cv.add_argument("--path", default="H2O -> OH -> O", help="composition path for the CTR model")
+    cv.add_argument("--path-transitions", default="0.8, 0.03; 1.1, 0.04", help="'E0, width; ...' (V)")
+    cv.add_argument("--reference", default="H2O=1", help="surface state during the relaxation period")
+    cv.add_argument("--fit-path", action="store_true", help="fit the composition path through the CTR model")
+    cv.add_argument("--out", default="insitu_cv", help="output folder: data.csv, results.json, summary.txt, PNGs")
     rf = sub.add_parser("refine", help="refine UB (and lattice, motor offsets) from a list of reflections")
     rf.add_argument("reflections", help="text file, one per line: H K L del eta chi phi nu mu [energy] (or reflex JSON)")
     rf.add_argument("--energy", type=float, default=None, help="photon energy (keV) for lines without one")
@@ -96,6 +116,63 @@ def cmd_index(a):
     if a.save_ub and res.UB is not None:
         Path(a.save_ub).write_text(json.dumps(dict(UB=res.UB.tolist(), energy_kev=a.energy), indent=1))
         print(f"wrote {a.save_ub}")
+    return 0
+
+
+def cmd_echem(a):
+    from .app.echem_window import main as ew_main
+    return ew_main([])
+
+
+def cmd_cv(a):
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.figure import Figure
+    from .echem.session import Options, Session
+    from .project import plots
+    o = Options(scan=a.scan, counter=a.counter, monitor=a.monitor, sync_mode=a.sync, offset=a.offset,
+                background=a.background, n_transitions=a.transitions, cycles=a.cycles, states=a.path,
+                transitions=a.path_transitions, reference=a.reference)
+    if a.hkl:
+        o.hkl = tuple(float(x) for x in a.hkl.replace(",", " ").split())
+    if a.cv:
+        parts = [x.strip() for x in a.cv.split(",")]
+        if len(parts) < 6:
+            raise SystemExit("--cv: give HOLD_V,HOLD_S,LOWER,UPPER,RATE_mVs,CYCLES[,up|down[,DELAY_S]]")
+        o.cv_manual = True
+        o.cv_hold_V, o.cv_hold_s, o.cv_lower, o.cv_upper, o.cv_rate = map(float, parts[:5])
+        o.cv_cycles = int(parts[5])
+        if len(parts) > 6:
+            o.cv_first = parts[6]
+        if len(parts) > 7:
+            o.cv_delay = float(parts[7])
+    elif not a.ec:
+        raise SystemExit("give the potentiostat file (--ec) or define the CV (--cv)")
+    s = Session(o)
+    try:
+        s.load_spec(a.spec)
+        if a.ec and not a.cv:
+            s.load_ec(a.ec)
+        s.run()
+        if a.fit_path:
+            s.fit_path()
+        s.coverage()
+    except (ValueError, KeyError, RuntimeError) as ex:
+        raise SystemExit(str(ex))
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    s.export_csv(out / "data.csv")
+    s.export_json(out / "results.json")
+    (out / "summary.txt").write_text(s.summary() + "\n", encoding="utf-8")
+    r = s.res
+    for name, fn, args in (("sync", plots.draw_echem_sync, (r, s.ec)), ("background", plots.draw_echem_background, (r,)),
+                           ("i_vs_v", plots.draw_echem_iv, (r,)), ("transitions", plots.draw_echem_fit, (r,)),
+                           ("ctr_model", plots.draw_echem_model, (r, r.point_model))):
+        fig = Figure(figsize=(9, 6), layout="constrained")
+        fn(fig, *args)
+        fig.savefig(out / f"{name}.png", dpi=110)
+    print(s.summary())
+    print(f"\nwrote data.csv, results.json, summary.txt and 5 plots to {out}")
     return 0
 
 
@@ -241,6 +318,7 @@ def cmd_fit(a):
 def main(argv=None):
     a = build_parser().parse_args(argv)
     return {"fit": cmd_fit, "gui": cmd_gui, "beamline": cmd_beamline, "index": cmd_index, "refine": cmd_refine,
+            "echem": cmd_echem, "cv": cmd_cv,
             "macro": cmd_macro, "ask": cmd_ask, "launcher": cmd_launcher}[a.command](a)
 
 

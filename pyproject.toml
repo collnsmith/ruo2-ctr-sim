@@ -16,6 +16,7 @@ viewer = ["PyQt5", "numba"]
 mcmc = ["emcee"]
 assistant = ["anthropic"]
 anomalous = ["xraydb"]
+echem = ["galvani"]
 test = ["pytest"]
 
 [project.scripts]

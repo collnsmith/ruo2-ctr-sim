@@ -45,12 +45,16 @@ ctrfit/project   plots.py (all plotting, simulator and fits), report.py (writes 
 ctrfit/beamline  psic.py (SPEC psic geometry, UB, HKL <-> angles), indexing.py (Bragg peak indexer),
                  refine.py (reflection list and least-squares UB / lattice / motor offset refinement),
                  macros.py (SPEC macro maker), xtools.py (critical angle, footprint, ...)
+ctrfit/echem     in-situ CV: spec.py (SPEC scans, point times), ec.py (EC-Lab .mpr via galvani, .mpt, tables,
+                 hand-defined CV), sync.py (absolute / manual / events), analysis.py (background, cycles,
+                 sigmoids), predict.py (CTR intensity at one HKL along a composition path), session.py,
+                 synthetic.py (known-truth experiment)
 ctrfit/assistant agent.py (Claude fitting assistant: tool-use loop over the fitting API, no Qt)
-ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py (Qt; the only Qt code in ctrfit)
+ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py, echem_window.py (Qt; the only Qt code in ctrfit)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
-ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py launch the ctrfit windows
+ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py, ctr_echem.py launch the ctrfit windows
 ctr_launcher.py  launcher: finds every file with an '# @app' tag (ctrfit/apps.py, ctrfit/app/launcher_window.py)
 ```
 
@@ -111,6 +115,7 @@ What the tests protect:
 | `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
 | `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
 | `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), [H K L] tags (every equivalent reachable, stable as peaks are added, impossible and conflicting tags reported), UB refinement (exact UB, strained lattice in every mode, lattice scale, delta offset, wrong-HKL outlier, list I/O and HKL guess), macros, calculators (Si critical angle), CLI, window offscreen |
+| `test_echem.py` | SPEC scans and point times (epoch vs elapsed agree), stationary detection, .mpt / CSV / faked .mpr readers, hand-defined CV, sync modes (absolute and manual agree, events lag, typed onset), cycles, background, sigmoid recovery, exact CTR quadratic, path fit recovers the synthetic truth (loopscan, phi scan, hand-defined CV), coverage, exports, CLI, window offscreen |
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |

@@ -1,0 +1,12 @@
+hkl = (0, 1, 1.5)
+states = ('H2O', 'OH', 'O')
+E0 = (0.8, 1.1)
+widths = (0.03, 0.04)
+cathodic_shift = 0.03
+clock_offset = 7.3
+cv_delay = 60.0
+hold = 300.0
+lower = 0.4
+upper = 1.4
+rate = 0.01
+cycles = 3

@@ -366,3 +366,171 @@ def draw_series(fig, x, values, errors, ylabel, xlabel="potential (V)", truth=No
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontsize=10)
     ax.grid(alpha=0.25)
+
+
+# ----------------------------------------------------------------------------------------------
+# in-situ electrochemistry (ctrfit.echem)
+# ----------------------------------------------------------------------------------------------
+BRANCH_STYLE = {1: dict(color="tab:red", label="anodic"), -1: dict(color="tab:blue", label="cathodic"),
+                0: dict(color="0.5", label="hold / no potential")}
+
+
+def draw_echem_sync(fig, r, ec):
+    """Intensity and potential on the potentiostat time axis."""
+    fig.clear()
+    if r is None or r.t_ec is None:
+        message(fig, "Load a SPEC scan and a potentiostat file (or define the CV), then press Update.")
+        return
+    a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 2]))
+    t0 = r.alignment.ec_t[0]
+    x = r.t_ec - t0
+    for br, st in BRANCH_STYLE.items():
+        m = r.branch == br
+        if m.any():
+            a.plot(x[m], r.I[m], ".", ms=3, color=st["color"], label=st["label"])
+    if r.background is not None and r.background.model != "none":
+        a.axvspan(x[0], x[0] + r.background.t_end, color="0.92", zorder=0, label="relaxation window")
+    al = r.alignment
+    if al.onset_spec is not None:
+        a.axvline(al.onset_spec + al.offset - t0, color="tab:green", lw=1, label="intensity onset")
+    a.set_ylabel("intensity")
+    a.legend(fontsize=7, loc="best")
+    b.plot(al.ec_t - t0, ec.potential, color="k", lw=0.8, label="potentiostat")
+    ok = np.isfinite(r.V)
+    b.plot(x[ok], r.V[ok], ".", ms=2, color="tab:orange", label="at the SPEC points")
+    if al.sweep_start_ec is not None:
+        b.axvline(al.sweep_start_ec - t0, color="tab:green", lw=1, label="sweep start")
+    b.set_ylabel("potential (V)")
+    b.set_xlabel("time from the potentiostat start (s)")
+    b.legend(fontsize=7, loc="best")
+    a.set_title(f"{al.mode} sync, offset {al.offset:+.2f} s", fontsize=10)
+    for ax in (a, b):
+        ax.grid(alpha=0.25)
+
+
+def draw_echem_background(fig, r):
+    fig.clear()
+    if r is None or r.background is None:
+        message(fig, "Press Update to fit the relaxation-period background.")
+        return
+    a, b = fig.subplots(2, 1, sharex=True)
+    bg = r.background
+    a.plot(r.t, r.I, ".", ms=3, color="0.4", label="intensity")
+    if bg.model != "none":
+        inside = r.t <= bg.t_end
+        a.plot(r.t[inside], bg(r.t[inside]), color="tab:red", lw=1.5, label=f"{bg.model} fit")
+        a.plot(r.t[~inside], bg(r.t[~inside]), color="tab:red", lw=1, ls="--", label="extrapolated")
+        a.axvspan(r.t[0], bg.t_end, color="0.92", zorder=0)
+    a.set_ylabel("intensity")
+    a.legend(fontsize=7)
+    b.plot(r.t, r.I_corr, ".", ms=3, color="k")
+    b.set_ylabel(f"corrected ({bg.correction})")
+    b.set_xlabel("time from the first SPEC point (s)")
+    for ax in (a, b):
+        ax.grid(alpha=0.25)
+
+
+def draw_echem_iv(fig, r, cycles=None, show_points=True):
+    """Corrected intensity vs potential: points by cycle, bins (or points) per sweep direction, fits."""
+    fig.clear()
+    if r is None or r.I_corr is None:
+        message(fig, "Press Update to see intensity vs potential.")
+        return
+    ax = fig.add_subplot(111)
+    if show_points:
+        cyc = sorted({int(c) for c in r.cycle if c > 0} if cycles is None else cycles)
+        cmap = cm.viridis
+        for k, c in enumerate(cyc):
+            col = cmap(k / max(len(cyc) - 1, 1))
+            for br, mk in ((1, "o"), (-1, "s")):
+                m = (r.cycle == c) & (r.branch == br) & np.isfinite(r.V)
+                if m.any():
+                    ax.plot(r.V[m], r.I_corr[m], mk, ms=2.5, color=col, alpha=0.35,
+                            mfc=col if br > 0 else "none", label=f"cycle {c}" if br > 0 else None)
+    for b in r.binned:
+        st = BRANCH_STYLE[b.branch]
+        ax.errorbar(b.V, b.I, yerr=b.sigma, fmt="o-" if b.V.size < 400 else "-", ms=3, lw=1, color=st["color"],
+                    label=f"{st['label']} (binned)", capsize=0, elinewidth=0.6)
+        f = r.fits.get(b.branch)
+        if f is not None:
+            v = np.linspace(b.V.min(), b.V.max(), 400)
+            ax.plot(v, f.model(v), color=st["color"], lw=2, alpha=0.6, ls="--")
+            for t in f.transitions:
+                ax.axvline(t.E0, color=st["color"], lw=0.8, ls=":")
+    ax.set_xlabel("potential (V)")
+    ax.set_ylabel("corrected intensity")
+    ax.grid(alpha=0.25)
+    ax.legend(fontsize=7, loc="best", ncol=2)
+    ax.set_title("filled: anodic, open: cathodic; dashed: sigmoid fits", fontsize=9)
+
+
+def draw_echem_fit(fig, r):
+    fig.clear()
+    if r is None or not r.fits:
+        message(fig, "Press 'Fit transitions' (needs enough points per sweep direction).")
+        return
+    axs = fig.subplots(2, len(r.fits), sharex="col", squeeze=False, gridspec_kw=dict(height_ratios=[3, 1]))
+    for j, (br, f) in enumerate(sorted(r.fits.items(), reverse=True)):
+        a, b = axs[0, j], axs[1, j]
+        st = BRANCH_STYLE[br]
+        a.errorbar(f.V, f.I, yerr=f.sigma, fmt="o", ms=3, color=st["color"], elinewidth=0.6)
+        v = np.linspace(f.V.min(), f.V.max(), 400)
+        base, comps = f.model(v, parts=True)
+        a.plot(v, f.model(v), color="k", lw=1.5, label="fit")
+        for k, (c, t) in enumerate(zip(comps, f.transitions)):
+            a.plot(v, base + c, lw=0.8, ls="--", label=f"E{k + 1} = {t.E0:.3f} V, {1e3 * t.width:.0f} mV")
+        a.set_title(f"{st['label']} sweep, reduced chi2 {f.red_chi2:.2f}", fontsize=10)
+        a.legend(fontsize=7)
+        b.plot(f.V, (f.I - f.model(f.V)) / f.sigma, ".", color=st["color"])
+        b.axhline(0, color="k", lw=0.6)
+        b.set_ylabel("residual / σ")
+        b.set_xlabel("potential (V)")
+        a.set_ylabel("intensity")
+        for ax in (a, b):
+            ax.grid(alpha=0.25)
+
+
+def draw_echem_model(fig, r, pm=None):
+    """Predicted intensity vs potential for the composition path (relative to the reference state),
+    the data on the same scale, the path fit, and the fractions (path and from the data)."""
+    fig.clear()
+    if r is None or not r.sim:
+        message(fig, "Enter the composition path and press 'Simulate'.")
+        return
+    sim = r.sim
+    a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 2]))
+    ref = sim["ref_model"]
+    a.plot(sim["V"], sim["anodic"] / ref, color="tab:red", lw=1.5, label="model, anodic")
+    if not np.allclose(sim["anodic"], sim["cathodic"]):
+        a.plot(sim["V"], sim["cathodic"] / ref, color="tab:blue", lw=1.5, label="model, cathodic")
+    if r.I_corr is not None and r.scale:
+        for br in (1, -1):
+            m = (r.branch == br) & np.isfinite(r.V)
+            if m.any():
+                a.plot(r.V[m], r.I_corr[m] / r.scale / ref, ".", ms=2, alpha=0.35,
+                       color=BRANCH_STYLE[br]["color"], label=f"data ({BRANCH_STYLE[br]['label']})")
+    if r.path_fit is not None and pm is not None:
+        p = r.path_fit
+        for br, ls in ((1, "-"), (-1, "--")):
+            a.plot(sim["V"], p.curve(pm, sim["V"], np.full(sim["V"].size, br)) / (r.scale or p.scale) / ref,
+                   color="k", lw=1, ls=ls, label="path fit" if br > 0 else None)
+    a.set_ylabel("I / I(reference state)")
+    a.legend(fontsize=7, ncol=2)
+    states = " → ".join(sim["states"])
+    a.set_title(f"CTR model at the HKL, path {states}", fontsize=10)
+    names = ("H2O", "OH", "O")
+    cols = ("tab:cyan", "tab:orange", "tab:purple")
+    for i, (nm, c) in enumerate(zip(names, cols)):
+        if np.any(sim["fractions"][:, i] > 0):
+            b.plot(sim["V"], sim["fractions"][:, i], color=c, lw=1.5, label=f"{nm} (path)")
+    if r.coverage is not None:
+        ok = np.isfinite(r.V)
+        for i, (nm, c) in enumerate(zip(names, cols)):
+            if np.any(r.coverage.fractions[ok, i] > 0):
+                b.plot(r.V[ok], r.coverage.fractions[ok, i], ".", ms=2, color=c, alpha=0.4, label=f"{nm} (from data)")
+    b.set_ylabel("fraction of CUS sites")
+    b.set_xlabel("potential (V)")
+    b.set_ylim(-0.05, 1.05)
+    b.legend(fontsize=7, ncol=2)
+    for ax in (a, b):
+        ax.grid(alpha=0.25)

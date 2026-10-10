@@ -165,6 +165,45 @@ python -m ctrfit fit model.json data.csv --out fit_results
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).
 
+## In-situ CV analysis
+
+`python ctr_echem.py` (or `python -m ctrfit echem`) analyses a stationary SPEC scan, either a loopscan
+or a phi scan that does not move (start = end), recorded while the potentiostat holds a potential
+(relaxation) and then runs a CV. The computation is in `ctrfit/echem` and works from scripts too.
+
+- **Files.** The SPEC file (pick the scan; only stationary scans are listed unless you untick it), the
+  counter, an optional monitor, per-second normalisation and the time column: `Epoch` (seconds since
+  `#E`, phi scans) or `Time` (seconds since the scan's `#D`, loopscans). The HKL comes from `#Q` or is
+  typed in. The potential comes from an EC-Lab `.mpr` (needs `pip install galvani`), an EC-Lab `.mpt`
+  text export or a CSV, **or a CV defined by hand**: hold potential and time, lower and upper
+  vertex, scan rate, number of cycles, first sweep direction and when the hold started after the
+  scan start.
+- **Time sync**, three modes. *Absolute clocks + offset*: both files' own clocks; the offset
+  corrects a difference between the two computers (EC time = SPEC time + offset). *Manual offset*:
+  times from each file's start; type the delay. *Align by events*: the intensity onset after the
+  relaxation is put on the detected start of the sweep (both can be typed in). "Offset from events"
+  fills the offset of the first two modes the same way. Events are biased when the intensity only
+  starts to change some time into the CV (in the example by about 24 s, i.e. 0.24 V at 10 mV/s), so
+  prefer the clocks when they exist. Each point gets the mean potential over its counting window,
+  the sweep direction and the cycle number.
+- **Background.** None, constant, linear or exponential fitted to the relaxation period, removed by
+  division (beam or sample decay) or subtraction. A warning says when it is extrapolated far.
+- **I vs V.** Points by cycle (filled anodic, open cathodic) and, optionally, cycles averaged in
+  potential bins per sweep direction with error bars.
+- **Transition fit.** One to four sigmoidal steps per sweep direction: E0, width (with the apparent
+  electron number RT/(F·width)), step height, and the hysteresis between the directions.
+- **CTR model.** The predicted intensity at the HKL for a composition path vs potential (e.g.
+  `H2O -> OH -> O`, one `E0, width` per change, coverage, cathodic shift), from the simulator's
+  structure (defaults or a settings `.ini`). The relaxation state sets the intensity scale.
+  "Fit path to data" fits the transitions, scale and cathodic shift (optionally the coverage)
+  through the CTR model. "Coverage from data" turns each intensity into a composition on the path;
+  it flags points that match more than one composition or none.
+- **Output.** The aligned data as CSV, the results as JSON, and the session (files and settings) as JSON.
+  Command line: `python -m ctrfit cv scan.spec --ec cv.mpt --offset 7.3 --transitions 2 --fit-path`
+  (or `--cv 0.5,300,0.4,1.4,10,3,up,60` instead of `--ec`).
+- **Example.** `python examples/insitu_cv/make_data.py` writes a synthetic loopscan, an unmoving phi
+  scan and an `.mpt` with a known truth (`truth.txt`); with offset +7.3 s the path fit recovers it.
+
 ## Beamline helper (SPEC psic)
 
 `python ctr_beamline.py` (or `python -m ctrfit beamline`) opens a helper for the run itself. The

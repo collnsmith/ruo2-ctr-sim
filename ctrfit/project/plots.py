@@ -242,6 +242,40 @@ def draw_ab(fig, r, H, K, labels, mark_L=None, excl=0.15):
         ax.grid(alpha=0.25)
 
 
+def draw_param_study(fig, d, hk, label, excl=0.15, mark_L=None):
+    """One parameter-study row on one rod: |F|^2 for every value (coloured by value, colour bar) and
+    the change across the values, (max - min) / mean, in %."""
+    fig.clear()
+    if d is None or hk not in d.get("I", {}):
+        message(fig, "Select a row in the parameter ranking to see its rods.")
+        return
+    L, I = d["L"][hk], d["I"][hk]
+    sub, film = d["bragg"][hk]
+    a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[2, 1]))
+    norm = Normalize(min(d["values"]), max(d["values"]))
+    cmap = cm.viridis
+    for v, y in zip(d["values"], I):
+        a.semilogy(L, y, color=cmap(norm(v)), lw=1.1)
+    _mark_bragg(a, L, sub, film)
+    sm = cm.ScalarMappable(norm=norm, cmap=cmap)
+    fig.colorbar(sm, ax=a, pad=0.01).set_label(label, fontsize=8)
+    b.plot(L, 100 * d["rel"][hk], color="k", lw=1)
+    _mark_bragg(b, L, sub, film, excl=excl)
+    fig.colorbar(sm, ax=b, pad=0.01).ax.set_visible(False)        # keeps the two panels aligned
+    if mark_L is not None:
+        for ax in (a, b):
+            ax.axvline(mark_L, color="tab:green", lw=1.2, alpha=0.8)
+    H, K = hk
+    a.set_title(f"({H} {K} L): {label} from {d['lo']:g} to {d['hi']:g} in {d['steps']} steps"
+                + (f", largest change at L = {mark_L:.2f}" if mark_L is not None else ""), fontsize=10)
+    a.set_ylabel("|F|² (e²)")
+    a.legend(handles=_bragg_handles(), fontsize=7, loc="upper right")
+    b.set_ylabel("change (%)")
+    b.set_xlabel("L (r.l.u.)")
+    for ax in (a, b):
+        ax.grid(alpha=0.25)
+
+
 def draw_study(fig, out, points, thick, relax, coherent_nm):
     fig.clear()
     wide = is_wide(fig, 1.6)

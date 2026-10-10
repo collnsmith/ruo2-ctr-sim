@@ -1,4 +1,4 @@
-# @app title: CTR simulator | group: Simulate | order: 10 | kind: gui | needs: PyQt5 | desc: Rods, OH vs H2O comparison, sensitivity map and ranking, thickness and relaxation study
+# @app title: CTR simulator | group: Simulate | order: 10 | kind: gui | needs: PyQt5 | desc: Rods, OH vs H2O comparison, sensitivity map and ranking, parameter study, thickness and relaxation study
 """RuO2/TiO2 CTR simulator: desktop GUI.
 
 Run:  python ctr_gui.py
@@ -36,8 +36,10 @@ APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path
 sys.path.insert(0, str(APP_DIR))
 
 import ctr_plots as plots                                                     # noqa: E402
-from ctr_engine import CTRModel, film_spacing, oh_h2o, parse_inputs, relaxation_study  # noqa: E402
-from ctr_params import DEFAULTS, GROUPS, SPECS, comp_label, read_ini, write_ini  # noqa: E402
+from ctr_engine import (CTRModel, film_spacing, oh_h2o, parameter_study, parse_inputs,  # noqa: E402
+                        relaxation_study)
+from ctr_params import (DEFAULTS, GROUPS, SPECS, STUDY_DEFAULT, STUDY_KEYS, comp_label,  # noqa: E402
+                        format_study_rows, parse_study_rows, read_ini, study_label, write_ini)
 
 SETTINGS_FILE = APP_DIR / "settings.ini"
 PRESET_DIR = APP_DIR / "presets"
@@ -502,6 +504,7 @@ class MainWindow(QtWidgets.QMainWindow):
         split_rank.addWidget(self.p_ab)
         split_rank.setSizes([300, 400])
         self.tabs.addTab(split_rank, "Ranking")
+        self.tabs.addTab(self._param_study_tab(), "Parameter study")
 
         self.p_study = PlotPanel("Tick 'Thickness and relaxation study' and press Run.")
         self.study_table = self._table(["Relaxation", "Point"])
@@ -564,6 +567,210 @@ class MainWindow(QtWidgets.QMainWindow):
         self.refresh_presets()
         self.load_settings()
         QtCore.QTimer.singleShot(200, self.run_or_stop)  # first results right after start-up
+
+    # ------------------------------------------------------------------ parameter study tab
+    PS_COLS = ["Parameter", "Min", "Max", "Steps"]
+
+    def _param_study_tab(self):
+        self.ps_in = QtWidgets.QTableWidget(0, len(self.PS_COLS))
+        self.ps_in.setHorizontalHeaderLabels(self.PS_COLS)
+        self.ps_in.verticalHeader().setVisible(False)
+        self.ps_in.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.ps_in.horizontalHeader().setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+        self.ps_in.setToolTip("One setting per row, varied from Min to Max in Steps values while the other settings "
+                              "stay as in the sidebar")
+        b_add = QtWidgets.QPushButton("Add parameter")
+        b_del = QtWidgets.QPushButton("Remove selected")
+        self.ps_run = QtWidgets.QPushButton("Run parameter study")
+        self.ps_run.setStyleSheet(f"QPushButton {{ background: {ACCENT}; color: white; font-weight: 600; "
+                                  f"border-radius: 4px; padding: 4px 10px; }} "
+                                  f"QPushButton:disabled {{ background: #9bb8d3; }}")
+        b_csv = QtWidgets.QPushButton("Export ranking as CSV…")
+        self.ps_table = self._table(["Rank", "Parameter", "Min", "Max", "Steps", "Max change (%)", "Rod", "L",
+                                     "Median change (%)"])
+        self.ps_rod = QtWidgets.QComboBox()
+        self.ps_rod.setToolTip("Rod shown for the selected parameter (default: where its change is largest)")
+        self.p_ps = PlotPanel("Fill the table, then press 'Run parameter study'. Select a row to see its rods.")
+        buttons = QtWidgets.QHBoxLayout()
+        for b in (b_add, b_del, self.ps_run):
+            buttons.addWidget(b)
+        buttons.addStretch(1)
+        buttons.addWidget(b_csv)
+        top = QtWidgets.QWidget()
+        tl = QtWidgets.QVBoxLayout(top)
+        tl.addWidget(QtWidgets.QLabel("<b>Parameters to vary</b> (one at a time; rods, surface state for plots and "
+                                      "'Ignore near Bragg peaks' come from the sidebar). Change = (max − min) / mean "
+                                      "of |F|² over the values."))
+        tl.addWidget(self.ps_in, 2)
+        tl.addLayout(buttons)
+        tl.addWidget(self.ps_table, 3)
+        bottom = QtWidgets.QWidget()
+        bl = QtWidgets.QVBoxLayout(bottom)
+        bl.setContentsMargins(0, 0, 0, 0)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Rod"))
+        row.addWidget(self.ps_rod)
+        row.addStretch(1)
+        bl.addLayout(row)
+        bl.addWidget(self.p_ps, 1)
+        split = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        split.addWidget(top)
+        split.addWidget(bottom)
+        split.setSizes([330, 420])
+        self.ps_result = None
+        self.ps_worker = None
+        b_add.clicked.connect(lambda: self._ps_add_row())
+        b_del.clicked.connect(self._ps_remove_rows)
+        self.ps_run.clicked.connect(self.run_param_study)
+        b_csv.clicked.connect(lambda: self._export(self.ps_table, "parameter_ranking.csv"))
+        self.ps_table.itemSelectionChanged.connect(self._ps_selected)
+        self.ps_rod.currentIndexChanged.connect(lambda *_: self.show_param_study())
+        self.set_param_study_rows(parse_study_rows(STUDY_DEFAULT))
+        return split
+
+    def _ps_add_row(self, key=None, lo=None, hi=None, n=5):
+        used = {r[0] for r in self._ps_cells()}
+        key = key or next((k for k in STUDY_KEYS if k not in used), STUDY_KEYS[0])
+        t = self.ps_in
+        i = t.rowCount()
+        t.insertRow(i)
+        combo = Combo()
+        for k in STUDY_KEYS:
+            combo.addItem(study_label(k), k)
+        combo.setCurrentIndex(STUDY_KEYS.index(key))
+        t.setCellWidget(i, 0, combo)
+        for j, v in ((1, lo), (2, hi), (3, n)):
+            t.setItem(i, j, QtWidgets.QTableWidgetItem("" if v is None else f"{v:g}"))
+        combo.currentIndexChanged.connect(lambda *_, c=combo: self._ps_default_range(c))
+        if lo is None or hi is None:
+            self._ps_default_range(combo)
+
+    def _ps_default_range(self, combo):
+        """A range around the current sidebar value: 4 spin-box steps each way, within the limits."""
+        for i in range(self.ps_in.rowCount()):
+            if self.ps_in.cellWidget(i, 0) is combo:
+                break
+        else:
+            return
+        key = combo.currentData()
+        s = SPECS[key]
+        v = float(self.panel.values().get(key, s["default"]))
+        d = 4 * s.get("step", max(abs(v) * 0.1, 0.01))
+        lo, hi = max(s.get("min", -math.inf), v - d), min(s.get("max", math.inf), v + d)
+        self.ps_in.item(i, 1).setText(f"{lo:.6g}")
+        self.ps_in.item(i, 2).setText(f"{hi:.6g}")
+
+    def _ps_remove_rows(self):
+        for i in sorted({ix.row() for ix in self.ps_in.selectedIndexes()}, reverse=True):
+            self.ps_in.removeRow(i)
+
+    def _ps_cells(self):
+        out = []
+        for i in range(self.ps_in.rowCount()):
+            combo = self.ps_in.cellWidget(i, 0)
+            out.append((combo.currentData(), *[(self.ps_in.item(i, j).text() if self.ps_in.item(i, j) else "").strip()
+                                               for j in (1, 2, 3)]))
+        return out
+
+    def param_study_rows(self):
+        """Rows of the input table, checked (raises ValueError with a readable message)."""
+        text = "; ".join(", ".join(c) for c in self._ps_cells())
+        rows = parse_study_rows(text)
+        if not rows:
+            raise ValueError("parameter study: add at least one parameter")
+        return rows
+
+    def set_param_study_rows(self, rows):
+        self.ps_in.setRowCount(0)
+        for key, lo, hi, n in rows:
+            self._ps_add_row(key, lo, hi, n)
+
+    def run_param_study(self):
+        if self.ps_worker is not None:
+            self.ps_worker.cancelled = True
+            self.status_msg.setText("Stopping…")
+            return
+        params, inputs = self._gather()
+        if params is None:
+            return
+        try:
+            rows = self.param_study_rows()
+        except ValueError as ex:
+            QtWidgets.QMessageBox.warning(self, "Check the parameter study", str(ex))
+            self.say(str(ex), error=True)
+            return
+
+        def done(out):
+            self._ps_finished()
+            self.ps_result = out
+            self._fill_param_study(out)
+            self.say(f"Parameter study done: {len(out)} parameter(s) on {len(inputs['rods'])} rod(s)")
+
+        def fn(progress):
+            return parameter_study(params, rows, inputs["rods"], inputs["comp_default"], params["bragg_excl"],
+                                   progress=progress)
+        self.ps_run.setText("Stop")
+        self.say(f"Parameter study: {sum(r[3] for r in rows)} models…")
+        self.ps_worker = self._start(fn, on_done=done)
+        self.ps_worker.signals.failed.connect(lambda *_: self._ps_finished())
+
+    def _ps_finished(self):
+        self.ps_worker = None
+        self.ps_run.setText("Run parameter study")
+        self.progress.hide()
+
+    def _fill_param_study(self, out):
+        t = self.ps_table
+        t.setSortingEnabled(False)
+        t.setRowCount(len(out))
+        for i, d in enumerate(out):
+            found = d["at_hk"] is not None and d["max_rel"] > 0
+            rod = f"{d['at_hk'][0]} {d['at_hk'][1]}" if found else "no change"
+            row = [i + 1, study_label(d["key"]), (d["lo"], ".6g"), (d["hi"], ".6g"), d["steps"],
+                   (100 * d["max_rel"], ".1f"), rod, (d["at_L"], ".3f") if found else "",
+                   (100 * d["median_rel"], ".1f")]
+            for j, v in enumerate(row):
+                it = self._item(*v) if isinstance(v, tuple) else self._item(v)
+                if j == 0:
+                    it.setData(QtCore.Qt.UserRole, i)
+                t.setItem(i, j, it)
+        t.setSortingEnabled(True)
+        t.sortItems(0, QtCore.Qt.AscendingOrder)
+        if out:
+            t.selectRow(0)
+
+    def _ps_current(self):
+        if not self.ps_result:
+            return None
+        rows = self.ps_table.selectionModel().selectedRows()
+        if not rows:
+            return None
+        return self.ps_result[self.ps_table.item(rows[0].row(), 0).data(QtCore.Qt.UserRole)]
+
+    def _ps_selected(self):
+        d = self._ps_current()
+        if d is None:
+            return
+        self.ps_rod.blockSignals(True)
+        self.ps_rod.clear()
+        for hk in d["I"]:
+            self.ps_rod.addItem(f"({hk[0]} {hk[1]} L)", hk)
+        if d["at_hk"] in d["I"]:
+            self.ps_rod.setCurrentIndex(list(d["I"]).index(d["at_hk"]))
+        self.ps_rod.blockSignals(False)
+        self.show_param_study()
+
+    def show_param_study(self):
+        d = self._ps_current()
+        hk = self.ps_rod.currentData()
+        if d is None or hk is None:
+            return
+        hk = tuple(hk)
+        mark = d["at_L"] if hk == d["at_hk"] and d["max_rel"] > 0 else None
+        excl = self.result["params"]["bragg_excl"] if self.result else DEFAULTS["bragg_excl"]
+        err = self.p_ps.draw(plots.draw_param_study, d, hk, study_label(d["key"]), excl, mark)
+        if err:
+            self.say(err, error=True)
 
     # ------------------------------------------------------------------ helpers
     @staticmethod
@@ -941,8 +1148,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 titles = list(self.panel.sections)
                 self.panel.set_section_state({titles[int(k[1:])]: v for k, v in cp["sections"].items()
                                               if k[1:].isdigit() and int(k[1:]) < len(titles)})
+            if cp.has_section("param_study") and cp["param_study"].get("rows", "").strip():
+                try:
+                    self.set_param_study_rows(parse_study_rows(cp["param_study"]["rows"]))
+                except ValueError as ex:
+                    self.say(f"settings.ini: parameter study rows not restored ({ex})")
         except (configparser.Error, ValueError) as ex:
             self.say(f"settings.ini: window layout not restored ({ex})")
+
+    def _ps_rows_lenient(self):
+        """Input rows that parse, for saving (a half-typed row is skipped, not an error)."""
+        rows = []
+        for cells in self._ps_cells():
+            try:
+                rows += parse_study_rows(", ".join(cells))
+            except ValueError:
+                pass
+        return rows
 
     def save_settings(self):
         b64 = lambda qba: bytes(qba.toBase64()).decode()  # noqa: E731
@@ -952,6 +1174,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "run": dict(scan="true" if self.chk_scan.isChecked() else "false",
                         study="true" if self.chk_study.isChecked() else "false"),
             "sections": {f"s{i}": on for i, on in enumerate(self.panel.section_state().values())},
+            "param_study": dict(rows=format_study_rows(self._ps_rows_lenient())),
         }
         try:
             write_ini(SETTINGS_FILE, self.panel.values(), extra)

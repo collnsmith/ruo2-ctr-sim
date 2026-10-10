@@ -204,6 +204,12 @@ GROUPS = [
 SPECS = {s["key"]: s for _, _, specs in GROUPS for s in specs}
 DEFAULTS = {k: s["default"] for k, s in SPECS.items()}
 
+# Parameter study: every numeric physics setting can be varied (not the L grid or the scan settings)
+_NOT_STUDIED = {"two_theta_max", "L_min", "L_max", "L_step", "scan_h_max", "scan_k_max", "bragg_excl", "rel_min",
+                "i_bg", "top_n", "coherent_tol_pct", "alpha_abs"}
+STUDY_KEYS = [k for k, s in SPECS.items() if s["type"] == "float" and k not in _NOT_STUDIED]
+STUDY_DEFAULT = "roughness_nm, 0.05, 0.4, 5; oh_dz, -0.2, 0.2, 5"
+
 
 # ----------------------------------------------------------------------------------------------
 # value conversion for INI files
@@ -340,6 +346,43 @@ def parse_points(text):
     if not pts:
         raise ValueError("points: enter at least one point")
     return pts
+
+
+def study_label(key):
+    s = SPECS[key]
+    return s["label"] + (f" ({s['unit']})" if s.get("unit") else "")
+
+
+def parse_study_rows(text):
+    """Parameter-study rows from 'key, min, max, steps; key, min, max, steps' -> [(key, lo, hi, n)].
+    Values must lie within the setting's limits; steps from 2 to 50."""
+    rows = []
+    for item in _split_items(text.replace("\n", ";")):
+        parts = [x.strip() for x in item.split(",")]
+        if len(parts) != 4:
+            raise ValueError(f"parameter study: '{item}' should be 'parameter, min, max, steps'")
+        key = parts[0]
+        if key not in STUDY_KEYS:
+            raise ValueError(f"parameter study: '{key}' is not a numeric physics setting")
+        try:
+            lo, hi, n = float(parts[1]), float(parts[2]), int(parts[3])
+        except ValueError:
+            raise ValueError(f"parameter study: '{item}': min and max are numbers, steps a whole number") from None
+        s = SPECS[key]
+        for v in (lo, hi):
+            if not s.get("min", -float("inf")) <= v <= s.get("max", float("inf")):
+                raise ValueError(f"parameter study: {study_label(key)} = {v:g} is outside "
+                                 f"{s.get('min')} to {s.get('max')}")
+        if lo == hi:
+            raise ValueError(f"parameter study: {study_label(key)}: min and max are equal")
+        if not 2 <= n <= 50:
+            raise ValueError(f"parameter study: {study_label(key)}: steps must be 2 to 50")
+        rows.append((key, lo, hi, n))
+    return rows
+
+
+def format_study_rows(rows):
+    return "; ".join(f"{k}, {lo:g}, {hi:g}, {n}" for k, lo, hi, n in rows)
 
 
 def parse_extra_layers(text):

@@ -62,10 +62,17 @@ Without a CUDA GPU it falls back to the CPU at lower resolution.
 - Left: settings, grouped in collapsible sections. Hover a label for help.
   Thickness, commensurate thickness, spread and roughness are entered in nm. The film and
   commensurate thickness are rounded to whole (110) trilayers; the line under each field shows the result.
-- Right: Summary, Structure, Rods, OH vs H2O, Sensitivity map, Ranking, Thickness study, Log.
+- Right: Summary, Structure, Rods, OH vs H2O, Sensitivity map, Ranking, Parameter study, Thickness study, Log.
 - Run with the button, Ctrl+R or F5. The same button stops a run.
   A yellow note appears when settings changed since the last run.
 - Sensitivity map: hover a rod for its values, click it to open its curves in the Ranking tab.
+- Parameter study: a table of settings to vary (roughness, Ru_cus shifts, adsorbate heights, B factors,
+  strain, electrolyte, ...), each with a min, max and number of steps. "Run parameter study" varies one
+  setting at a time, the rest as in the sidebar, on the sidebar's rods and surface state. The ranking
+  below orders the settings by the largest change, (max − min) / mean of |F|² over the values, away
+  from Bragg peaks, with the rod and L where it happens and the median change. Select a row to see the
+  rod curves coloured by value and the change along L; pick another rod above the plot. The rows are
+  saved in settings.ini.
 - Each plot has a toolbar for zoom and saving. Tables export to CSV.
 - Plots switch between side-by-side and stacked panels as the window changes shape.
 

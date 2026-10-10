@@ -419,6 +419,58 @@ def relaxation_study(params, points, thick_nm, relax_vals, comp_a, comp_b, progr
     return out
 
 
+def parameter_study(params, rows, rods, comp, excl=0.15, progress=None):
+    """Effect of varying single settings on the rods (one setting at a time, the rest as in params).
+
+    rows: [(key, lo, hi, steps)] in GUI units. For each row the rods are computed on the L grid of
+    the unchanged model at `steps` values from lo to hi. The change at each L is the spread across
+    the values, (max - min) / mean, with points within `excl` of any Bragg peak (of any of the
+    models) left out. Returns a list (one dict per row, sorted by the largest change) with the
+    values, the curves per rod, the change curves, and max / median change with where the max is."""
+    base = CTRModel(params)
+    grids = {(H, K): base.L_range(H, K) for H, K in rods}
+    grids = {hk: L for hk, L in grids.items() if L is not None}
+    if not grids:
+        raise ValueError("none of the rods is reachable with these settings")
+    total = sum(n for _, _, _, n in rows)
+    done, out = 0, []
+    for key, lo, hi, n in rows:
+        values = np.linspace(lo, hi, n)
+        curves = {hk: [] for hk in grids}
+        masks = {hk: np.ones(L.shape, bool) for hk, L in grids.items()}
+        for v in values:
+            if progress:
+                progress(done, total, f"parameter study: {key} = {v:.4g}")
+            m = CTRModel(dict(params, **{key: float(v)}))
+            for hk, L in grids.items():
+                curves[hk].append(m.intensity(*hk, L, comp))
+                masks[hk] &= m.bragg_mask(*hk, L, excl)
+            done += 1
+        rel, best, pooled = {}, (-1.0, None, None), []
+        for hk, L in grids.items():
+            I = np.array(curves[hk])
+            mean = I.mean(axis=0)
+            ok = masks[hk] & (mean > 0)
+            r = np.full(L.shape, np.nan)
+            r[ok] = (I.max(axis=0) - I.min(axis=0))[ok] / mean[ok]
+            rel[hk] = r
+            curves[hk] = I
+            if ok.any():
+                i = int(np.nanargmax(r))
+                pooled.append(r[ok])
+                if r[i] > best[0]:
+                    best = (float(r[i]), hk, float(L[i]))
+        pooled = np.concatenate(pooled) if pooled else np.array([])
+        out.append(dict(key=key, lo=lo, hi=hi, steps=n, values=values, L=grids, I=curves, rel=rel,
+                        max_rel=best[0] if best[1] else float("nan"), at_hk=best[1], at_L=best[2],
+                        median_rel=float(np.median(pooled)) if pooled.size else float("nan"),
+                        bragg={hk: base.bragg_L(*hk, L.max()) for hk, L in grids.items()}))
+    if progress:
+        progress(total, total, "parameter study done")
+    out.sort(key=lambda d: -d["max_rel"] if np.isfinite(d["max_rel"]) else np.inf)
+    return out
+
+
 def parse_inputs(p):
     """Parse every text field once so errors show up before any computation starts."""
     return dict(

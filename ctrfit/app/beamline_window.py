@@ -25,8 +25,9 @@ from ..beamline.psic import (DEFAULT_LIMITS, LATTICES, MODES, MOTORS, Lattice, P
 from ..beamline.refine import REFLEX_HELP, ReflectionList, parse_reflection_lines, refine_ub
 from ..core.settings import DEFAULTS, parse_points, parse_rods
 
-PEAK_HELP = ("One Bragg peak per line, angles in SPEC psic order:  del eta chi phi nu mu\n"
-             "or as name=value pairs (del= eta= chi= phi= nu= mu=). Text after # is a label.")
+PEAK_HELP = ("One Bragg peak per line, angles in SPEC psic order:  del eta chi phi nu mu  [H K L]\n"
+             "or as name=value pairs (del= eta= chi= phi= nu= mu=). The optional [H K L] tag fixes what that peak\n"
+             "is called (tag two peaks to stop the indexing changing). Text after # is a label.")
 
 
 def _mono():

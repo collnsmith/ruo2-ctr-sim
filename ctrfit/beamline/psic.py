@@ -301,13 +301,32 @@ def angles_for_hkl(hkl, UB, wavelength, mode, fixed=None, normal_phi=None, geo=N
 def parse_angle_lines(text):
     """Angle sets from text: one peak per line, either six numbers in psic order
     (del eta chi phi nu mu) or name=value pairs (e.g. 'del=20.1 eta=10.05 chi=90 phi=12 nu=0 mu=0.5').
-    Blank lines and lines starting with # are skipped; a trailing '# comment' is kept as the label."""
+    An optional tag '[H K L]' after the angles asks the indexer to call this peak (H K L); it is
+    returned as 'want'. Blank lines and lines starting with # are skipped; a trailing '# comment' is
+    kept as the label."""
     import re
     out = []
     for raw in text.splitlines():
         line, _, label = raw.partition("#")
         if not line.strip():
             continue
+        want = None
+        tags = re.findall(r"\[([^\]]*)\]", line)
+        if len(tags) > 1:
+            raise ValueError(f"one [H K L] tag per line: {raw.strip()}")
+        if tags:
+            vals = [x for x in re.split(r"[\s,;]+", tags[0].strip()) if x]
+            try:
+                want = tuple(int(round(float(x))) for x in vals)
+                if len(vals) != 3 or any(abs(float(x) - round(float(x))) > 1e-9 for x in vals):
+                    raise ValueError
+            except ValueError:
+                raise ValueError(f"the tag should be three integers, e.g. [0 0 2]: {raw.strip()}") from None
+            if not any(want):
+                raise ValueError(f"[0 0 0] is not a reflection: {raw.strip()}")
+            line = re.sub(r"\[[^\]]*\]", " ", line)
+        if "[" in line or "]" in line:
+            raise ValueError(f"unmatched bracket in: {raw.strip()}")
         pairs = re.findall(r"([A-Za-z]+)\s*[=:]\s*(-?[\d.eE+-]+)", line)
         if pairs:
             names = {n.lower(): float(v) for n, v in pairs}
@@ -321,5 +340,7 @@ def parse_angle_lines(text):
             nums = [float(x) for x in re.split(r"[\s,;]+", line.strip()) if x]
             a = as_angles(nums)
         a["label"] = label.strip()
+        if want is not None:
+            a["want"] = want
         out.append(a)
     return out

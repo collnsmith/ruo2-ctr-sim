@@ -13,6 +13,13 @@ surface cell (a2 = a3), swapping K and L. Bragg peaks alone cannot tell them apa
 surface normal (phi frame, e.g. (0, 0, 1) if it is along the phi axis) to choose the one whose L
 axis is along the normal; the result lists the equivalent alternatives either way.
 With one peak, only the |Q| candidates are listed.
+
+Tags fix the choice: a peak given with want=(H, K, L) (a '[H K L]' tag after the angles) is called
+that, by applying the lattice symmetry operation (proper rotation of the metric that keeps every
+peak on an allowed reflection) that satisfies the most tags, earlier tags first. Two tagged peaks
+with non-parallel Q fix the indexing completely, so it no longer changes when peaks are added. A tag
+that cannot be met (not a symmetry equivalent of the peak, or in conflict with earlier tags) is
+reported with the closest equivalent that works. Tags win over the surface-normal hint.
 """
 import itertools
 import math
@@ -85,6 +92,7 @@ class IndexedPeak:
     dq: float                 # |Q_calc - Q_obs| (1/Å) with the refined UB
     indexed: bool
     forbidden: bool = False   # on integer HKL that the structure forbids (wrong energy/lattice, or not Bragg)
+    want: tuple = None        # the [H K L] tag, if any
 
 
 @dataclass
@@ -97,6 +105,7 @@ class IndexResult:
     alternatives: list = field(default_factory=list)   # equivalent indexings: list of lists of HKL
     notes: list = field(default_factory=list)
     candidates: list = field(default_factory=list)     # one-peak mode: [(hkl, |Q|), ...]
+    tags: list = field(default_factory=list)           # one line per [H K L] tag: met, or why not
 
     @property
     def summary(self):
@@ -105,17 +114,21 @@ class IndexResult:
             lines.append("One peak: candidates by |Q| only (no orientation).")
             for h, q in self.candidates:
                 lines.append(f"  ({h[0]:>3d} {h[1]:>3d} {h[2]:>3d})  |Q| = {q:.4f} 1/Å")
-            return "\n".join(lines + self.notes)
+            return "\n".join(lines + self.tags + self.notes)
         lines.append(f"{self.n_indexed} of {len(self.peaks)} peaks indexed, rms |dQ| = {self.rms_dq:.2e} 1/Å")
         lines.append(f"{'#':>2} {'del':>8} {'eta':>8} {'chi':>8} {'phi':>8} {'nu':>8} {'mu':>8}   "
                      f"{'H':>7} {'K':>7} {'L':>7}   guess        |dQ|")
         for i, p in enumerate(self.peaks):
             a = p.angles
             h = p.hkl_float
-            guess = (f"({p.hkl[0]} {p.hkl[1]} {p.hkl[2]})" if p.indexed else
+            mark = "" if p.want is None else " *" if tuple(p.hkl) == tuple(p.want) and p.indexed else " !"
+            guess = (f"({p.hkl[0]} {p.hkl[1]} {p.hkl[2]}){mark}" if p.indexed else
                      f"forbidden ({p.hkl[0]} {p.hkl[1]} {p.hkl[2]})" if p.forbidden else "not indexed")
             lines.append(f"{i + 1:>2} " + " ".join(f"{a[m]:>8.3f}" for m in ("del", "eta", "chi", "phi", "nu", "mu"))
                          + f"   {h[0]:>7.3f} {h[1]:>7.3f} {h[2]:>7.3f}   {guess:<12} {p.dq:.1e}")
+        if self.tags:
+            lines.append("Tags (* met, ! not met):")
+            lines += ["  " + t for t in self.tags]
         lines.append("UB (1/Å, 2 pi convention):")
         lines += ["  " + " ".join(f"{x:>10.5f}" for x in row) for row in self.UB]
         if len(self.alternatives) > 1:
@@ -123,6 +136,92 @@ class IndexResult:
             for alt in self.alternatives[:6]:
                 lines.append("  " + ", ".join(f"({h[0]} {h[1]} {h[2]})" for h in alt))
         return "\n".join(lines + self.notes)
+
+
+# ----------------------------------------------------------------------------------------------
+# lattice symmetry and tags
+# ----------------------------------------------------------------------------------------------
+_OPS = {}
+
+
+def symmetry_ops(lattice, tol=1e-6):
+    """Integer matrices M (entries -1, 0, 1, det +1) that keep the reciprocal metric: if h indexes a
+    peak with U, M h indexes it equally well with the rotation U B M^-1 B^-1."""
+    key = tuple(round(getattr(lattice, n), 9) for n in ("a", "b", "c", "alpha", "beta", "gamma"))
+    if key not in _OPS:
+        G = lattice.B.T @ lattice.B
+        all_m = np.array(list(itertools.product((-1, 0, 1), repeat=9)), float).reshape(-1, 3, 3)
+        all_m = all_m[np.abs(np.linalg.det(all_m) - 1) < 1e-9]
+        dev = np.abs(np.einsum("nji,jk,nkl->nil", all_m, G, all_m) - G).max(axis=(1, 2))
+        _OPS[key] = [m.astype(int) for m in all_m[dev < tol * np.abs(G).max()]]
+    return _OPS[key]
+
+
+def _fmt(h):
+    return "(" + " ".join(str(int(x)) for x in h) + ")"
+
+
+def _apply_tags(U, B, lattice, h_int, ok, wants, allowed, n_hat):
+    """Re-index with the symmetry operation that meets the most tags (earlier tags first, then the
+    surface normal). Returns U, h_int and the tag report lines."""
+    tagged = [i for i, w in enumerate(wants) if w is not None]
+    report = {}
+    for i in tagged:
+        if not ok[i]:
+            report[i] = (f"peak {i + 1}: tag {_fmt(wants[i])} ignored, the peak is not on an allowed reflection")
+    use = [i for i in tagged if ok[i]]
+    if not use:
+        return U, h_int, [report[i] for i in tagged]
+    valid = []
+    for M in symmetry_ops(lattice):
+        h2 = h_int @ M.T
+        if all(allowed(h) for h in h2[ok]):
+            valid.append((M, h2))
+    Binv = np.linalg.inv(B)
+
+    def rot(M):
+        return U @ B @ np.linalg.inv(M) @ Binv
+
+    def key(item):
+        M, h2 = item
+        miss = tuple(tuple(h2[i]) != tuple(wants[i]) for i in use)
+        dist = sum(float(np.linalg.norm(h2[i] - np.array(wants[i]))) for i, m in zip(use, miss) if m)
+        normal = 0.0
+        if n_hat is not None:
+            l_axis = rot(M) @ B @ np.array([0.0, 0.0, 1.0])
+            normal = -float(np.dot(l_axis / np.linalg.norm(l_axis), n_hat))
+        return (sum(miss), miss, round(dist, 9), round(normal, 9), tuple(np.abs(M - np.eye(3)).ravel()))
+    valid.sort(key=key)
+    M, h_best = valid[0]
+    best = key(valid[0])
+    for i in use:
+        w = tuple(wants[i])
+        got = tuple(int(x) for x in h_best[i])
+        if got == w:
+            report[i] = f"peak {i + 1}: {_fmt(w)} as tagged"
+            continue
+        equivalents = {tuple(int(x) for x in h2[i]) for _, h2 in valid}
+        lat_q = lattice.q(np.array([w, got], float))
+        if w in equivalents:
+            why = "conflicts with the tags on earlier peaks"
+        elif abs(lat_q[0] - lat_q[1]) > 1e-6 * lat_q[1]:
+            why = f"|Q| of {_fmt(w)} is {lat_q[0]:.4f} 1/Å, the peak is at {lat_q[1]:.4f} 1/Å"
+        elif not allowed(w):
+            why = f"{_fmt(w)} is a forbidden reflection"
+        else:
+            why = f"{_fmt(w)} has the same |Q| but is not a symmetry equivalent of this peak's reflection"
+        closest = min(equivalents, key=lambda h: (float(np.linalg.norm(np.subtract(h, w))), h))
+        line = f"peak {i + 1}: {_fmt(w)} is not possible ({why}); indexed as {_fmt(got)}, the equivalent that fits"
+        line += " the other tags" if len(use) > 1 else ""
+        if closest != got:
+            line += f"; nearest equivalent overall: {_fmt(closest)} (conflicts with the other tags)"
+        report[i] = line
+    same = {tuple(map(tuple, h2)) for item in valid if key(item)[:4] == best[:4] for h2 in [item[1]]}
+    lines = [report[i] for i in tagged]
+    if len(same) > 1:
+        lines.append(f"{len(same)} equivalent indexings still agree with the tags: tag one more peak whose Q is "
+                     "not parallel to the tagged ones to fix the indexing")
+    return rot(M), h_best.astype(int), lines
 
 
 # ----------------------------------------------------------------------------------------------
@@ -151,9 +250,12 @@ def index_peaks(peaks, wavelength, lattice, allowed=allowed_all, tol_q=0.01, tol
 
     tol_q: relative |Q| tolerance for candidates; tol_angle: degrees between Q vectors;
     tol_hkl: how far from integers an indexed peak may be. normal_phi: surface normal in the phi
-    frame, used to choose among equivalent indexings (L along the normal)."""
+    frame, used to choose among equivalent indexings (L along the normal). A peak dict with
+    want=(H, K, L) is a tag (see the module docstring)."""
     geo = geo or Psic()
     angs = [as_angles(p) for p in peaks]
+    wants = [tuple(int(x) for x in p["want"]) if isinstance(p, dict) and p.get("want") is not None else None
+             for p in peaks]
     qs = np.array([geo.q_phi(a, wavelength) for a in angs])
     qn = np.linalg.norm(qs, axis=1)
     if np.any(qn < 1e-9):
@@ -165,7 +267,12 @@ def index_peaks(peaks, wavelength, lattice, allowed=allowed_all, tol_q=0.01, tol
     if len(angs) == 1:
         c = cands[0]
         order = np.argsort(np.abs(lattice.q(c) - qn[0])) if len(c) else []
-        return IndexResult(None, None, [], np.nan, 0, notes=notes,
+        tags = []
+        if wants[0] is not None:
+            listed = [tuple(int(x) for x in h) for h in c]
+            tags.append(f"peak 1: {_fmt(wants[0])} " + ("is a candidate" if wants[0] in listed else
+                                                       "is not among the candidates (|Q| does not match)"))
+        return IndexResult(None, None, [], np.nan, 0, notes=notes, tags=tags,
                            candidates=[(tuple(int(x) for x in c[i]), float(lattice.q(c[i])[0])) for i in order[:20]])
     B = lattice.B
     # most informative pairs: Q vectors closest to perpendicular, both with candidates
@@ -219,14 +326,21 @@ def index_peaks(peaks, wavelength, lattice, allowed=allowed_all, tol_q=0.01, tol
         if len(alternatives) > 1:
             notes.append("Give the surface normal (phi frame) to choose among the equivalent indexings.")
     n, rms, U, h_int, ok = equiv[0]
+    tags = []
+    if any(w is not None for w in wants):
+        n_hat_ = None if normal_phi is None else np.asarray(normal_phi, float) / np.linalg.norm(normal_phi)
+        U, h_int, tags = _apply_tags(U, B, lattice, h_int, ok, wants, allowed, n_hat_)
+        notes = [x for x in notes if not x.startswith(("Give the surface normal", "Chosen among"))]
+        notes.append("Chosen among the equivalent indexings: the [H K L] tags"
+                     + (", then L along the surface normal." if normal_phi is not None else "."))
     UB = U @ B
     out = []
-    for a, q, h, good, qv in zip(angs, qn, h_int, ok, qs):
+    for a, q, h, good, qv, w in zip(angs, qn, h_int, ok, qs, wants):
         hf = np.linalg.solve(UB, qv)
         dq = float(np.linalg.norm(UB @ h - qv)) if good else float("nan")
         forbidden = bool(not good and np.all(np.abs(hf - h) < tol_hkl) and np.any(h != 0))
-        out.append(IndexedPeak(a, float(q), hf, tuple(int(x) for x in h), dq, bool(good), forbidden))
+        out.append(IndexedPeak(a, float(q), hf, tuple(int(x) for x in h), dq, bool(good), forbidden, w))
     if any(p.forbidden for p in out):
         notes.append("forbidden: the peak sits on integer HKL that the structure does not allow; check the energy "
                      "and lattice, or it is not a substrate Bragg peak (film, multiple scattering, powder).")
-    return IndexResult(UB, U, out, rms, n, alternatives=alternatives, notes=notes)
+    return IndexResult(UB, U, out, rms, n, alternatives=alternatives, notes=notes, tags=tags)

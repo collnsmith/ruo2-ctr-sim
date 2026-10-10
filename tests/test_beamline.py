@@ -9,7 +9,7 @@ import pytest
 
 from ctrfit.beamline import macros as mac
 from ctrfit.beamline import xtools
-from ctrfit.beamline.indexing import allowed_tio2_surface, candidate_reflections, index_peaks
+from ctrfit.beamline.indexing import allowed_tio2_surface, candidate_reflections, index_peaks, symmetry_ops
 from ctrfit.beamline.refine import (Reflection, ReflectionList, lattice_from_ub, parse_reflection_lines,
                                     refine_ub)
 from ctrfit.beamline.psic import (MODES, MOTORS, Lattice, Psic, angles_for_hkl, as_angles, energy_to_wavelength,
@@ -164,10 +164,64 @@ def test_index_rejects_peak_that_is_not_bragg_and_one_peak_mode():
     assert one.UB is None and (0, 0, 2) in [h for h, _ in one.candidates]
 
 
+def tagged(peaks, tags):
+    out = [dict(p) for p in peaks]
+    for i, h in tags.items():
+        out[i]["want"] = tuple(h)
+    return out
+
+
+def test_tags_pick_an_equivalent_and_keep_it_when_peaks_are_added():
+    assert len(symmetry_ops(LAT)) == 8                          # 422 proper rotations of the (110) surface cell
+    peaks = synthetic_peaks(aligned_ub(seed=3))
+    free = index_peaks(peaks, LAM, LAT, allowed_tio2_surface)
+    chosen = [p.hkl for p in free.peaks]
+    for alt in free.alternatives:                               # every listed equivalent can be asked for
+        res = index_peaks(tagged(peaks, {0: alt[0], 2: alt[2]}), LAM, LAT, allowed_tio2_surface)
+        assert [p.hkl for p in res.peaks] == alt and res.rms_dq == pytest.approx(free.rms_dq, rel=1e-6)
+        assert all("as tagged" in t for t in res.tags) and not any("still agree" in t for t in res.tags)
+    want = next(a for a in free.alternatives if a != chosen)
+    base = tagged(peaks, {0: want[0], 1: want[1]})
+    for n in (3, 4, 5, 6):                                      # the indexing stays put as peaks come in
+        res = index_peaks(base[:n], LAM, LAT, allowed_tio2_surface)
+        assert [p.hkl for p in res.peaks] == want[:n]
+    one = index_peaks(tagged(peaks, {0: want[0]}), LAM, LAT, allowed_tio2_surface)
+    assert one.peaks[0].hkl == want[0] and any("tag one more peak" in t for t in one.tags)
+    # tags win over the surface normal
+    res = index_peaks(tagged(peaks, {0: want[0], 2: want[2]}), LAM, LAT, allowed_tio2_surface, normal_phi=[0, 0, 1])
+    assert [p.hkl for p in res.peaks] == want
+
+
+def test_impossible_and_conflicting_tags_are_reported():
+    peaks = synthetic_peaks(aligned_ub(seed=3))
+    free = index_peaks(peaks, LAM, LAT, allowed_tio2_surface)
+    h = [np.array(p.hkl) for p in free.peaks]
+    res = index_peaks(tagged(peaks, {0: free.peaks[0].hkl, 1: (0, 0, 4)}), LAM, LAT, allowed_tio2_surface)
+    assert res.peaks[0].hkl == free.peaks[0].hkl and res.n_indexed == 6
+    assert "(0 0 4) is not possible" in res.tags[1] and "|Q|" in res.tags[1] and "!" in res.summary
+    # two tags that are each fine alone but need different symmetry operations
+    ops = symmetry_ops(LAT)
+    combos = {(tuple(M @ h[0]), tuple(M @ h[1])) for M in ops}
+    t0 = tuple(h[0])
+    t1 = next(tuple(M @ h[1]) for M in ops if (t0, tuple(M @ h[1])) not in combos)
+    res = index_peaks(tagged(peaks, {0: t0, 1: t1}), LAM, LAT, allowed_tio2_surface)
+    assert res.peaks[0].hkl == t0 and res.peaks[1].hkl != t1                     # the earlier tag wins
+    assert "conflicts with the tags on earlier peaks" in res.tags[1]
+    assert f"({res.peaks[1].hkl[0]} {res.peaks[1].hkl[1]} {res.peaks[1].hkl[2]})" in res.tags[1]
+    single = index_peaks(tagged(peaks[:1], {0: (0, 0, 2)}), LAM, LAT, allowed_tio2_surface)
+    assert "is a candidate" in single.summary
+
+
 def test_parse_angle_lines():
     text = "# my peaks\n20.1 10.05 90 12 0 0.5  # (0 0 2)\ndelta=30 eta=15 chi=0 phi=0 nu=1 mu=0\n\n"
     p = parse_angle_lines(text)
     assert len(p) == 2 and p[0]["chi"] == 90 and p[0]["label"] == "(0 0 2)" and p[1]["del"] == 30
+    p = parse_angle_lines("20 10 90 12 0 0.5 [0 0 2] # or0\ndel=30 eta=15 [1, -1, 1]\n1 2 3 4 5 6")
+    assert p[0]["want"] == (0, 0, 2) and p[0]["label"] == "or0" and p[1]["want"] == (1, -1, 1) and "want" not in p[2]
+    for bad in ("1 2 3 4 5 6 [0 0 2.5]", "1 2 3 4 5 6 [0 0]", "1 2 3 4 5 6 [0 0 0]", "1 2 3 4 5 6 [0 0 2",
+                "1 2 3 4 5 6 [0 0 2] [1 1 1]"):
+        with pytest.raises(ValueError):
+            parse_angle_lines(bad)
     with pytest.raises(ValueError):
         parse_angle_lines("foo=1 del=2")
     with pytest.raises(ValueError):
@@ -369,6 +423,14 @@ def test_beamline_window(monkeypatch, tmp_path):
     w.run_index()
     assert not msgs, msgs
     assert "6 of 6 peaks indexed" in w.index_out.toPlainText()
+    lines = w.peaks_in.toPlainText().splitlines()
+    first = w.index_result.alternatives[-1]
+    lines[0] = lines[0].replace("  #", f" [{first[0][0]} {first[0][1]} {first[0][2]}]  #")
+    lines[1] = lines[1].replace("  #", f" [{first[1][0]} {first[1][1]} {first[1][2]}]  #")
+    w.peaks_in.setPlainText("\n".join(lines))
+    w.run_index()
+    assert not msgs and [p.hkl for p in w.index_result.peaks] == first
+    assert "as tagged" in w.index_out.toPlainText() and "peak 0" in w.index_out.toPlainText()
     w.use_index_ub()
     assert w.UB is not None and w.tabs.currentWidget() is w.angles_page
     w.mode.setCurrentText("vertical surface, fixed alpha")

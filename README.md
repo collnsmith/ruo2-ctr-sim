@@ -171,7 +171,13 @@ computation is in `ctrfit/beamline` and works from scripts too.
   flagged. With one peak you get the candidates by |Q|. Bragg peaks alone cannot tell K from L in
   the TiO2(110) surface cell (a2 = a3), nor the sign of H and K: all equivalent indexings are listed,
   and the surface normal in the phi frame (e.g. `0 0 1` if it is along the phi axis) picks the one
-  with L along it. Command line: `python -m ctrfit index peaks.txt --energy 16 --normal "0 0 1"`.
+  with L along it. To fix the choice yourself, tag peaks with the HKL you want them called:
+  `del eta chi phi nu mu [H K L]`. Tag as many as you like; two tagged peaks with non-parallel Q fix
+  the indexing completely, so adding peaks no longer changes it (and you don't have to redo the
+  orientation in SPEC). A tag that cannot be met (wrong |Q|, forbidden, not a symmetry equivalent,
+  or in conflict with an earlier tag) is reported with the equivalent used instead and the nearest
+  one. Tags win over the surface normal. Command line:
+  `python -m ctrfit index peaks.txt --energy 16 --normal "0 0 1"`.
 - **UB refinement (reflex).** Like SPEC's reflex file: keep adding reflections as you find them
   (HKL plus the six angles, each at its own energy; leave HKL blank and it is guessed from the
   current UB) and UB is refined by least squares on all of them after every addition. Choose what

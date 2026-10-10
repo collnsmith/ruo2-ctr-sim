@@ -62,6 +62,8 @@ def _from_columns(cols, start, source, time_col=None, e_col=None):
     cc = _pick(names, CYCLE_NAMES, "cycle", required=False)
     t = np.asarray(cols[tc], float)
     order = np.argsort(t, kind="stable")
+    keep = np.r_[True, np.diff(t[order]) > 0]          # repeated time stamps: keep the first
+    order = order[keep]
     get = lambda c: None if c is None else np.asarray(cols[c], float)[order]  # noqa: E731
     d = ECData(t[order], get(ec), get(ic), get(cc), start, {k: np.asarray(v)[order] for k, v in cols.items()}, source)
     if ec == "control/V":
@@ -213,15 +215,32 @@ def cv_knots(E_hold, t_hold, E_upper, E_lower, rate, n_cycles, first="up", E_end
     return np.array(t), np.array(E), np.array(c)
 
 
-def make_cv(E_hold, t_hold, E_upper, E_lower, rate, n_cycles, first="up", E_end=None, start=None, dt=None):
+def make_cv(E_hold, t_hold, E_upper, E_lower, rate, n_cycles, first="up", E_end=None, start=None, dt=None,
+            stop=None):
     """ECData for a hand-defined CV: hold, then cycles (see cv_knots). rate in V/s; sampled every dt
-    seconds (default: 1 mV steps, at most 0.5 s). start: local start time of the hold (datetime)."""
+    seconds (default: 1 mV steps, at most 0.5 s). start: local start time of the hold (datetime).
+    stop: the CV was stopped this many seconds after the end of the hold (the record ends there;
+    n_cycles=0 means 'as many as fit until stop')."""
+    if n_cycles == 0:
+        if stop is None:
+            raise ValueError("cycles = 0 (until stopped) needs the time the CV was stopped")
+        per = 2 * abs(E_upper - E_lower) / rate
+        n_cycles = max(1, int(np.ceil(stop / per + 1e-9)))
     kt, kE, kc = cv_knots(E_hold, t_hold, E_upper, E_lower, rate, n_cycles, first, E_end)
+    if stop is not None:
+        t_cut = t_hold + stop
+        if t_cut < kt[-1]:
+            keep = kt < t_cut
+            kE = np.append(kE[keep], np.interp(t_cut, kt, kE))
+            kc = np.append(kc[keep], kc[np.searchsorted(kt, t_cut)])
+            kt = np.append(kt[keep], t_cut)
     dt = dt or min(0.5, 1e-3 / rate)
     t = np.unique(np.concatenate([np.arange(0, kt[-1], dt), kt]))
+    t = t[np.r_[True, np.diff(t) > 1e-3 * dt]]          # no near-duplicates (they vanish on a clock in seconds)
     E = np.interp(t, kt, kE)
     cyc = kc[np.clip(np.searchsorted(kt, t, side="left"), 0, kc.size - 1)]
     out = ECData(t, E, None, cyc.astype(float), start, {}, "CV defined by hand")
     out.notes.append(f"hand-defined CV: hold {E_hold:g} V for {t_hold:g} s, {n_cycles} cycle(s) {E_lower:g} to "
-                     f"{E_upper:g} V at {1e3 * rate:g} mV/s, first sweep {first}")
+                     f"{E_upper:g} V at {1e3 * rate:g} mV/s, first sweep {first}"
+                     + (f", stopped {stop:.1f} s after the hold" if stop is not None else ""))
     return out

@@ -174,18 +174,25 @@ or a phi scan that does not move (start = end), recorded while the potentiostat 
 - **Files.** The SPEC file (pick the scan; only stationary scans are listed unless you untick it), the
   counter, an optional monitor, per-second normalisation and the time column: `Epoch` (seconds since
   `#E`, phi scans) or `Time` (seconds since the scan's `#D`, loopscans). The HKL comes from `#Q` or is
-  typed in. The potential comes from an EC-Lab `.mpr` (needs `pip install galvani`), an EC-Lab `.mpt`
-  text export or a CSV, **or a CV defined by hand**: hold potential and time, lower and upper
-  vertex, scan rate, number of cycles, first sweep direction and when the hold started after the
-  scan start.
+  typed in (H and K are rounded to the rod). An attenuator transmission column (`transm`) divides
+  the intensity, keeping the counting errors right. Scans copied out of a SPEC file without its
+  header (no `#E`) are fine: epoch times are then counted from the scan's `#D`. The potential comes
+  from an EC-Lab `.mpr` (needs `pip install galvani`), an EC-Lab `.mpt` text export or a CSV, **or a
+  CV defined by hand**: hold potential and time, lower and upper vertex, scan rate, number of
+  cycles (or "until stopped"), first sweep direction, and either the delay after the scan start or
+  the point numbers from your log ("CV start at point # 73", saying whether that point is the start
+  of the hold or of the sweep, and "CV end at point # 433").
 - **Time sync**, three modes. *Absolute clocks + offset*: both files' own clocks; the offset
   corrects a difference between the two computers (EC time = SPEC time + offset). *Manual offset*:
   times from each file's start; type the delay. *Align by events*: the intensity onset after the
   relaxation is put on the detected start of the sweep (both can be typed in). "Offset from events"
   fills the offset of the first two modes the same way. Events are biased when the intensity only
   starts to change some time into the CV (in the example by about 24 s, i.e. 0.24 V at 10 mV/s), so
-  prefer the clocks when they exist. Each point gets the mean potential over its counting window,
-  the sweep direction and the cycle number.
+  prefer the clocks when they exist. "Shift that closes the loop" finds the time shift that makes
+  the anodic and cathodic I(V) agree; it tests a timing error but a real (kinetic) hysteresis is
+  closed by it too. Each point gets the mean potential over its counting window, the sweep
+  direction and the cycle number, and the summary compares how often the intensity and the
+  potential repeat (a mismatch points to a wrong scan rate or vertices).
 - **Background.** None, constant, linear or exponential fitted to the relaxation period, removed by
   division (beam or sample decay) or subtraction. A warning says when it is extrapolated far.
 - **I vs V.** Points by cycle (filled anodic, open cathodic) and, optionally, cycles averaged in

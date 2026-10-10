@@ -290,6 +290,36 @@ def fit_sigmoids(V, I, sigma=None, n=1, branch=0, slope=False, E0=None, width0=0
     return fit
 
 
+def dominant_period(t, y, min_period=None, max_period=None):
+    """Repeat time of a signal (s): the lag P that minimises the mean of (y(t + P) - y(t))^2 (a
+    structure function, which unlike the autocorrelation is not pulled towards short lags by
+    partial cycles), searched between min_period and max_period (default 4 samples to 2/3 of the
+    record). None if the best lag does not repeat the signal clearly (at least 1.5 periods)."""
+    t, y = np.asarray(t, float), np.asarray(y, float)
+    ok = np.isfinite(t) & np.isfinite(y)
+    t, y = t[ok], y[ok]
+    if t.size < 20:
+        return None
+    dt = float(np.median(np.diff(t)))
+    grid = np.arange(t[0], t[-1], dt)
+    g = np.interp(grid, t, y)
+    var = float(np.var(g))
+    if var <= 0:
+        return None
+    lo = max(2, int(np.ceil((min_period or 4 * dt) / dt)))
+    hi = min(g.size // 3 * 2, int((max_period or (t[-1] - t[0]) / 1.5) / dt))
+    if hi <= lo + 2:
+        return None
+    D = np.array([np.mean((g[k:] - g[:-k]) ** 2) for k in range(lo, hi + 1)])
+    i = int(np.argmin(D))
+    if D[i] > var or i in (0, D.size - 1):          # not a clear repeat inside the range
+        return None
+    a, b, c = D[i - 1], D[i], D[i + 1]
+    den = a - 2 * b + c
+    frac = 0.5 * (a - c) / den if den else 0.0
+    return float((lo + i + frac) * dt)
+
+
 def hysteresis(anodic, cathodic):
     """[(E_anodic - E_cathodic, error)] for transitions matched in order of potential."""
     if anodic is None or cathodic is None:
@@ -299,4 +329,4 @@ def hysteresis(anodic, cathodic):
 
 
 __all__ = ["BACKGROUNDS", "Background", "fit_background", "parse_cycles", "Binned", "bin_by_potential",
-           "sigmoid", "Transition", "SigmoidFit", "fit_sigmoids", "hysteresis", "RT_F"]
+           "sigmoid", "Transition", "SigmoidFit", "fit_sigmoids", "hysteresis", "dominant_period", "RT_F"]

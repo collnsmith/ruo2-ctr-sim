@@ -115,6 +115,12 @@ class Scan:
         rest = [n for n in self.labels if n not in skip]
         return rest[-1] if rest else self.labels[-1]
 
+    def default_transmission(self):
+        for name in ("transm", "transmission", "trans", "Transm"):
+            if self.has(name):
+                return name
+        return None
+
     def default_monitor(self):
         for name in ("Monitor", "monitor", "mon", "i0", "I0", "ic1"):
             if self.has(name):
@@ -125,7 +131,9 @@ class Scan:
         """Seconds (naive local clock, see the module docstring) of every point.
 
         kind: 'epoch' (seconds since #E), 'elapsed' (seconds since the scan's #D), 'unix' (absolute
-        Unix time, converted with the time-zone offset of the file's #D/#E pair).
+        Unix time, converted with the time-zone offset of the file's #D/#E pair). Without the file
+        header (scans cut out of a file) epoch times count from the scan's #D: the first point ends
+        one count time after it (the #D is then good to the scan's start-up time, ~1 s).
         mark: when the time stamp is taken: 'end' of the count (SPEC default), 'start' or 'middle';
         the point is put at the middle of its counting window."""
         if column is None:
@@ -133,9 +141,13 @@ class Scan:
         t = self.column(column).astype(float)
         kind = kind or ("epoch" if column.lower() == "epoch" else "elapsed")
         if kind == "epoch":
-            if self.file_date is None:
-                raise ValueError("epoch times need the file header #D date (the local date of #E)")
-            t = to_seconds(self.file_date) + t
+            if self.file_date is None:                 # scans cut out of the file: no #E / #D header
+                if self.date is None:
+                    raise ValueError("epoch times need the file header (#E, #D) or the scan's #D")
+                ct0 = float(self.point_count_times()[0])
+                t = to_seconds(self.date) + (t - t[0]) + ct0
+            else:
+                t = to_seconds(self.file_date) + t
         elif kind == "elapsed":
             if self.date is None:
                 raise ValueError(f"scan {self.number} has no #D date")

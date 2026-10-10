@@ -28,6 +28,7 @@ class Options:
     scan: int = None
     counter: str = None
     monitor: str = None              # None: no monitor normalisation
+    transmission: str = None         # attenuator transmission column (intensity / transmission), None: none
     per_second: bool = True
     time_column: str = None
     time_kind: str = None            # epoch | elapsed | unix (None: from the column)
@@ -35,6 +36,7 @@ class Options:
     sync_mode: str = "absolute"
     offset: float = 0.0              # EC time = SPEC time + offset (s)
     onset: float = None              # events mode: intensity onset (s from the first point), None = detect
+    onset_point: int = None          # events mode: the CV starts at this SPEC point (0-based), overrides onset
     sweep_start: float = None        # events mode: sweep start (s from the EC file start), None = detect
     fine_shift: float = 0.0          # events mode: added to the event offset (s)
     ec_start: str = None             # override the EC file's start time ('YYYY-mm-dd HH:MM:SS.fff')
@@ -44,7 +46,10 @@ class Options:
     cv_upper: float = 1.4            # V
     cv_lower: float = 0.4            # V
     cv_rate: float = 10.0            # mV/s
-    cv_cycles: int = 3
+    cv_cycles: int = 3               # 0: as many as fit until the end point
+    cv_start_point: int = None       # the first sweep starts at this SPEC point (0-based); overrides cv_delay
+    cv_end_point: int = None         # the CV was stopped at this SPEC point (0-based)
+    cv_start_marks: str = "sweep"    # cv_start_point marks the start of the first 'sweep' or of the 'hold' 
     cv_first: str = "up"             # first sweep towards the upper ('up') or lower vertex
     cv_delay: float = 0.0            # the hold starts this many s after the scan start (#D)
     background: str = "linear"
@@ -96,6 +101,8 @@ class Result:
     binned: list = field(default_factory=list)
     fits: dict = field(default_factory=dict)          # branch -> SigmoidFit
     hysteresis: list = field(default_factory=list)
+    period_I: float = None           # repeat time of the intensity during the CV (s)
+    period_E: float = None           # repeat time of the potential (s)
     point_model: object = None
     sim: dict = field(default_factory=dict)           # V grid, I per branch, fractions
     path_fit: object = None
@@ -134,12 +141,17 @@ class Session:
 
     def hkl(self):
         if self.opt.hkl is not None:
-            return tuple(self.opt.hkl)
-        if self.scan.hkl is not None:
-            return self.scan.hkl
-        if all(self.scan.has(c) for c in "HKL"):
-            return tuple(float(np.mean(self.scan.column(c))) for c in "HKL")
-        raise ValueError("no HKL in the scan (#Q or H K L columns): enter it")
+            h = tuple(self.opt.hkl)
+        elif self.scan.hkl is not None:
+            h = self.scan.hkl
+        elif all(self.scan.has(c) for c in "HKL"):
+            h = tuple(float(np.mean(self.scan.column(c))) for c in "HKL")
+        else:
+            raise ValueError("no HKL in the scan (#Q or H K L columns): enter it")
+        H, K = round(h[0]), round(h[1])                # the model is evaluated on the rod
+        if max(abs(h[0] - H), abs(h[1] - K)) > 0.1:
+            raise ValueError(f"HKL ({h[0]:.3f} {h[1]:.3f} {h[2]:.3f}) is not on a rod: enter it")
+        return (float(H), float(K), float(h[2]))
 
     # ------------------------------------------------------------------ steps
     def intensity(self):
@@ -148,6 +160,11 @@ class Session:
         raw = s.column(counter).astype(float)
         sig = poisson_sigma(raw)
         f = np.ones_like(raw)
+        if o.transmission:
+            tr = s.column(o.transmission).astype(float)
+            if np.any(tr <= 0):
+                raise ValueError(f"transmission '{o.transmission}' has zero or negative values")
+            f = f / tr
         if o.monitor:
             mon = s.column(o.monitor).astype(float)
             if np.any(mon <= 0):
@@ -172,6 +189,50 @@ class Session:
             self.opt.sync_mode = mode
             self.res = keep
 
+    def loop_offset(self, lo=-120.0, hi=120.0, step=2.0):
+        """Time shift (s, added to the offset; to the fine shift in events mode) that makes the anodic
+        and cathodic I(V) curves agree best (mean |I_anodic - I_cathodic| / I over their common
+        potential range, binned). Returns (shift, mismatch at the shift, mismatch at 0, scan table).
+        A real hysteresis (slow kinetics) is closed by this too: use it to test a timing error, not
+        to remove hysteresis."""
+        o = self.opt
+        field_ = "fine_shift" if o.sync_mode == "events" else "offset"
+        base = getattr(o, field_)
+        keep = self.res
+        avg = o.average
+
+        def mismatch(shift):
+            setattr(o, field_, base + shift)
+            r = self.run(upto="fit")
+            b = {x.branch: x for x in r.binned}
+            if 1 not in b or -1 not in b:
+                return np.nan
+            v0 = max(b[1].V.min(), b[-1].V.min())
+            v1 = min(b[1].V.max(), b[-1].V.max())
+            if v1 - v0 < 3 * o.bin_width:
+                return np.nan
+            v = np.linspace(v0, v1, 60)
+            ia, ic = np.interp(v, b[1].V, b[1].I), np.interp(v, b[-1].V, b[-1].I)
+            return float(np.mean(np.abs(ia - ic)) / np.mean(np.abs(ia) + np.abs(ic)) * 2)
+        try:
+            o.average = True
+            shifts = np.arange(lo, hi + step / 2, step)
+            m = np.array([mismatch(x) for x in shifts])
+            if not np.any(np.isfinite(m)):
+                raise ValueError("no shift gives overlapping anodic and cathodic sweeps")
+            i = int(np.nanargmin(m))
+            best = float(shifts[i])
+            fine = np.arange(best - step, best + step + 1e-9, step / 8)
+            mf = np.array([mismatch(x) for x in fine])
+            j = int(np.nanargmin(mf))
+            best, m_best = float(fine[j]), float(mf[j])
+            m0 = mismatch(0.0)
+        finally:
+            setattr(o, field_, base)
+            o.average = avg
+            self.res = keep
+        return best, m_best, m0, np.column_stack([shifts, m])
+
     def run(self, upto="all", axes=None):
         """Recompute from the current options. upto: 'sync', 'background', 'fit' or 'all'."""
         o, r = self.opt, Result()
@@ -184,7 +245,7 @@ class Session:
         r.t = t_abs - t_abs[0]
         if o.cv_manual:
             from .spec import to_seconds as _ts
-            self.ec = self.manual_cv(_ts(s.date) if s.date is not None else t_abs[0])
+            self.ec = self.manual_cv(_ts(s.date) if s.date is not None else t_abs[0], t_abs)
         if self.ec is None:
             raise ValueError("load the potentiostat file, or define the CV by hand")
         if o.ec_start and not o.cv_manual:
@@ -200,10 +261,14 @@ class Session:
                  else o.sweep_start) if o.sweep_start is not None else None
         from .spec import to_seconds
         zero = to_seconds(s.date) if s.date is not None else None
-        if o.sync_mode == "events" and o.onset is not None and self.ec.start is None and zero is not None:
-            onset = o.onset + t_abs[0] - zero          # given from the first point; axis is from #D
+        if o.onset_point is not None and o.sync_mode == "events":
+            onset_rel = float(t_abs[self._point(o.onset_point)] - t_abs[0])
+            onset = onset_rel + (t_abs[0] if self.ec.start is not None else 0.0)
+        if o.sync_mode == "events" and onset is not None and self.ec.start is None and zero is not None:
+            onset = onset + t_abs[0] - zero            # given from the first point; axis is from #D
         if axes == "relative" and o.sync_mode == "events":         # typed event times are always from the starts
-            onset = None if o.onset is None else o.onset + t_abs[0] - (zero if zero is not None else t_abs[0])
+            given = (float(t_abs[self._point(o.onset_point)] - t_abs[0]) if o.onset_point is not None else o.onset)
+            onset = None if given is None else given + t_abs[0] - (zero if zero is not None else t_abs[0])
             sweep = o.sweep_start
         r.alignment = sy.align(t_abs, self.ec, o.sync_mode, o.offset, r.I, onset, sweep, o.fine_shift, zero, axes)
         r.notes += r.alignment.notes + self.ec.notes
@@ -232,6 +297,15 @@ class Session:
         r.background = an.fit_background(r.t, r.I, t_end, o.background, o.correction, r.sigma)
         r.notes += r.background.notes
         r.I_corr, r.sigma_corr = r.background.correct(r.t, r.I, r.sigma)
+        sweeping = r.branch != 0
+        if sweeping.sum() > 20:
+            et, eE = r.alignment.ec_t, self.ec.potential
+            moving = np.flatnonzero(np.abs(np.gradient(eE, et)) > 1e-6)
+            if moving.size > 20:
+                sel = slice(moving[0], moving[-1] + 1)
+                r.period_E = an.dominant_period(et[sel], eE[sel])
+            if r.period_E:
+                r.period_I = an.dominant_period(r.t[sweeping], r.I_corr[sweeping], 0.5 * r.period_E, 1.6 * r.period_E)
         if upto == "background":
             return r
         # I(V)
@@ -253,14 +327,39 @@ class Session:
         self.simulate()
         return r
 
-    def manual_cv(self, t0_abs):
-        """ECData for the hand-defined CV, starting cv_delay s after the scan start (#D, or the first
-        point), on the SPEC clock, so every sync mode works ('absolute' with offset 0)."""
+    def _point(self, i):
+        n = self.scan.npts
+        if not 0 <= int(i) < n:
+            raise ValueError(f"point #{i} is not in the scan (points 0 to {n - 1})")
+        return int(i)
+
+    def manual_cv(self, t0_abs, t_points=None):
+        """ECData for the hand-defined CV on the SPEC clock, so every sync mode works ('absolute' with
+        offset 0). The hold starts cv_delay s after the scan start (#D, or the first point), or, with
+        cv_start_point, the first sweep starts at that point's time (the middle of its count). With
+        cv_end_point the CV stops at that point's time."""
         from .ec import make_cv
         from .spec import from_seconds
         o = self.opt
-        return make_cv(o.cv_hold_V, o.cv_hold_s, o.cv_upper, o.cv_lower, o.cv_rate / 1e3, int(o.cv_cycles),
-                       o.cv_first, start=from_seconds(t0_abs + o.cv_delay))
+        sweep0 = t0_abs + o.cv_delay + o.cv_hold_s
+        if o.cv_start_point is not None:
+            if o.cv_start_marks not in ("sweep", "hold"):
+                raise ValueError("cv_start_marks must be 'sweep' or 'hold'")
+            sweep0 = float(t_points[self._point(o.cv_start_point)])
+            if o.cv_start_marks == "hold":
+                sweep0 += o.cv_hold_s
+        stop = None
+        if o.cv_end_point is not None:
+            stop = float(t_points[self._point(o.cv_end_point)]) - sweep0
+            if stop <= 0:
+                raise ValueError("the CV end point comes before its start point")
+        ec = make_cv(o.cv_hold_V, o.cv_hold_s, o.cv_upper, o.cv_lower, o.cv_rate / 1e3, int(o.cv_cycles),
+                     o.cv_first, start=from_seconds(sweep0 - o.cv_hold_s), stop=stop)
+        if o.cv_start_point is not None:
+            ec.notes.append(f"the {'first sweep' if o.cv_start_marks == 'sweep' else 'hold'} starts at point "
+                            f"#{o.cv_start_point} (the middle of its count)"
+                            + (f"; stopped at point #{o.cv_end_point}" if o.cv_end_point is not None else ""))
+        return ec
 
     def default_relax_end(self):
         """End of the relaxation window: a little before the intensity onset, or before the first
@@ -372,6 +471,13 @@ class Session:
             if a.onset_spec is not None:
                 lines.append(f"  intensity onset at SPEC {a.onset_spec - a.spec_t[0]:.1f} s, sweep start at EC "
                              f"{a.sweep_start_ec - a.ec_t[0]:.1f} s")
+        if r.period_E:
+            msg = f"CV repeats every {r.period_E:.1f} s"
+            if r.period_I:
+                d = r.period_I - r.period_E
+                msg += f"; the intensity every {r.period_I:.1f} s ({d:+.1f} s"
+                msg += ", check the scan rate and vertices)" if abs(d) > 0.03 * r.period_E else ", consistent)"
+            lines.append(msg)
         try:
             lines.append(f"HKL: ({' '.join(f'{x:g}' for x in self.hkl())})")
         except ValueError:

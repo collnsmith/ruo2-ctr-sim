@@ -300,3 +300,60 @@ def test_echem_window(files, tmp_path, monkeypatch):
     assert msgs and "HKL" in msgs[-1]                                     # bad input: message, window alive
     w.close()
     w2.close()
+
+
+# ---------------------------------------------------------------------------- real-file features
+def _cut_out(text):
+    """The scans without the file header (#E, #D, #O), as when scans are copied out of a SPEC file."""
+    return text[text.index("#S 1"):]
+
+
+def test_scans_without_file_header_point_numbers_and_loop_shift():
+    text, ec, tr = make_experiment("phi", cathodic_shift=0.0)
+    f = SpecFile(text=_cut_out(text))
+    assert f.file_date is None and f.scan(2).stationary
+    full = SpecFile(text=text).scan(2).times()
+    np.testing.assert_allclose(f.scan(2).times(), full, atol=TRUTH["dead"] + 1e-6)   # #D-anchored epoch
+    s = Session(Options(monitor="Monitor", n_transitions=2, cv_manual=True, cv_hold_V=0.5, cv_hold_s=TRUTH["hold"],
+                        cv_lower=0.4, cv_upper=1.4, cv_rate=10.0, cv_cycles=0))
+    s.spec = f
+    s.opt.scan = 2
+    t = s.scan.times()
+    sweep0 = to_seconds(tr["cv0"]) + TRUTH["hold"]
+    k = int(np.argmin(np.abs(t - sweep0)))
+    s.opt.cv_start_point, s.opt.cv_end_point = k, s.scan.npts - 20
+    r = s.run(upto="fit")
+    assert r.alignment.ec_t[-1] - r.alignment.ec_t[0] == pytest.approx(t[-20] - t[k] + TRUTH["hold"], abs=0.01)
+    assert set(np.unique(r.cycle)) >= {1, 2, 3}                                       # cycles until stopped
+    assert r.period_I == pytest.approx(200.0, rel=0.03)                              # 2 x 1.0 V / 10 mV/s
+    hold_marked = Session(Options(**dict(s.opt.to_dict(), cv_start_point=k - int(TRUTH["hold"] / 1.1),
+                                         cv_start_marks="hold")))
+    hold_marked.spec, hold_marked.opt.hkl = f, None
+    assert hold_marked.run(upto="sync").alignment.ec_t[0] == pytest.approx(r.alignment.ec_t[0], abs=1.5)
+    # a deliberate timing error is found by closing the anodic / cathodic loop (no true hysteresis here)
+    s.opt.offset = 12.0
+    best, m_best, m0, _ = s.loop_offset(-30, 30, 2)
+    assert best + 12.0 == pytest.approx(t[k] - sweep0, abs=1.5) and m_best < 0.5 * m0
+    assert s.opt.offset == 12.0                                                       # options restored
+
+
+def test_transmission_and_off_rod_hkl():
+    text, ec, tr = make_experiment("loopscan")
+    lines = text.splitlines()
+    i = next(j for j, ln in enumerate(lines) if ln.startswith("#L Time"))
+    lines[i] += "  transm"
+    j = i + 1
+    while j < len(lines) and lines[j] and not lines[j].startswith("#"):
+        lines[j] += " 0.25"
+        j += 1
+    lines = [ln.replace("#Q 0 1 1.5", "#Q -0.0003 1.0057 1.5") for ln in lines]
+    f = SpecFile(text="\n".join(lines))
+    s = Session(Options(transmission="transm", per_second=False))
+    s.spec, s.opt.scan = f, 2
+    raw, I, sig = s.intensity()
+    np.testing.assert_allclose(I, raw / 0.25)
+    np.testing.assert_allclose(sig, np.sqrt(np.maximum(raw, 1)) / 0.25)
+    assert s.scan.default_transmission() == "transm" and s.hkl() == (0.0, 1.0, 1.5)
+    s.opt.hkl = (0.3, 1, 2)
+    with pytest.raises(ValueError, match="rod"):
+        s.hkl()

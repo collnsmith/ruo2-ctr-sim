@@ -155,10 +155,13 @@ class EchemWindow(QtWidgets.QMainWindow):
         f.addRow("", self.only_stationary)
         self.counter = QtWidgets.QComboBox()
         self.monitor = QtWidgets.QComboBox()
+        self.transm = QtWidgets.QComboBox()
+        self.transm.setToolTip("Attenuator transmission column: the intensity is divided by it")
         self.per_second = QtWidgets.QCheckBox("divide by the count time")
         self.per_second.setChecked(True)
         f.addRow("Counter", self.counter)
         f.addRow("Monitor", self.monitor)
+        f.addRow("Transmission", self.transm)
         f.addRow("", self.per_second)
         self.time_col = QtWidgets.QComboBox()
         self.time_kind = QtWidgets.QComboBox()
@@ -205,17 +208,27 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.cv_upper = _dspin(-5, 5, o.cv_upper, 3, 0.05, " V")
         self.cv_rate = _dspin(0.001, 1e5, o.cv_rate, 3, 1, " mV/s")
         self.cv_cycles = QtWidgets.QSpinBox()
-        self.cv_cycles.setRange(1, 1000)
+        self.cv_cycles.setRange(0, 1000)
+        self.cv_cycles.setSpecialValueText("until stopped")
+        self.cv_cycles.setToolTip("0: as many cycles as fit until the 'stopped at point'")
         self.cv_cycles.setValue(o.cv_cycles)
         self.cv_first = QtWidgets.QComboBox()
         self.cv_first.addItems(["up", "down"])
         self.cv_delay = _dspin(-1e6, 1e6, o.cv_delay, 2, 1, " s")
-        self.cv_delay.setToolTip("The hold starts this long after the scan start (#D)")
+        self.cv_delay.setToolTip("The hold starts this long after the scan start (#D); not used with a start point")
+        self.cv_start_point = QtWidgets.QLineEdit()
+        self.cv_start_point.setPlaceholderText("point # (0-based); blank: use the delay")
+        self.cv_start_marks = QtWidgets.QComboBox()
+        self.cv_start_marks.addItem("start of the first sweep", "sweep")
+        self.cv_start_marks.addItem("start of the hold", "hold")
+        self.cv_end_point = QtWidgets.QLineEdit()
+        self.cv_end_point.setPlaceholderText("point # where the CV stopped (optional)")
         self.cv_widgets = []
         for lab, w in (("Hold (relaxation) potential", self.cv_hold_V), ("Hold time", self.cv_hold_s),
                        ("Lower vertex", self.cv_lower), ("Upper vertex", self.cv_upper), ("Scan rate", self.cv_rate),
                        ("Cycles", self.cv_cycles), ("First sweep", self.cv_first),
-                       ("Hold starts after the scan start", self.cv_delay)):
+                       ("Hold starts after the scan start", self.cv_delay), ("CV starts at point", self.cv_start_point),
+                       ("That point marks the", self.cv_start_marks), ("CV stopped at point", self.cv_end_point)):
             f.addRow(lab, w)
             self.cv_widgets.append(w)
         self.use_manual.toggled.connect(lambda *_: self._cv_mode_changed())
@@ -234,6 +247,8 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.offset.setToolTip("EC time = SPEC time + offset")
         self.onset = QtWidgets.QLineEdit()
         self.onset.setPlaceholderText("detect (s from the first SPEC point)")
+        self.onset_point = QtWidgets.QLineEdit()
+        self.onset_point.setPlaceholderText("or the point # where the CV starts")
         self.sweep_start = QtWidgets.QLineEdit()
         self.sweep_start.setPlaceholderText("detect (s from the potentiostat start)")
         self.fine_shift = _dspin(-1e5, 1e5, 0.0, 2, 0.5, " s")
@@ -243,8 +258,16 @@ class EchemWindow(QtWidgets.QMainWindow):
         f.addRow("Mode", self.sync_mode)
         f.addRow(self.sync_help)
         f.addRow("Offset", self.offset)
-        f.addRow("", b_auto)
+        b_loop = QtWidgets.QPushButton("Shift that closes the loop")
+        b_loop.setToolTip("Find the time shift that makes the anodic and cathodic I(V) agree best. A real hysteresis "
+                          "is closed by it too, so it tests a timing error; it does not prove one")
+        b_loop.clicked.connect(lambda: self.close_loop())
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(b_auto)
+        row.addWidget(b_loop)
+        f.addRow("", row)
         f.addRow("Intensity onset", self.onset)
+        f.addRow("Onset at point", self.onset_point)
         f.addRow("Sweep start", self.sweep_start)
         f.addRow("Fine shift (events)", self.fine_shift)
         self.sync_mode.currentIndexChanged.connect(lambda *_: self._sync_mode_changed())
@@ -348,11 +371,21 @@ class EchemWindow(QtWidgets.QMainWindow):
         except ValueError:
             raise ValueError(f"{what}: '{text}' is not a number (leave it empty to detect)") from None
 
+    @staticmethod
+    def _opt_int(text, what):
+        text = text.strip().lstrip("#").strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            raise ValueError(f"{what}: '{text}' is not a point number") from None
+
     def _sync_mode_changed(self):
         mode = self.sync_mode.currentData()
         self.sync_help.setText(SYNC_HELP[mode])
         ev = mode == "events"
-        for w in (self.onset, self.sweep_start, self.fine_shift):
+        for w in (self.onset, self.onset_point, self.sweep_start, self.fine_shift):
             w.setEnabled(ev)
         self.offset.setEnabled(not ev)
 
@@ -402,6 +435,7 @@ class EchemWindow(QtWidgets.QMainWindow):
         s = self.session.scan
         for combo, items, pick in ((self.counter, s.labels, s.default_counter()),
                                    (self.monitor, ["(none)"] + s.labels, s.default_monitor() or "(none)"),
+                                   (self.transm, ["(none)"] + s.labels, s.default_transmission() or "(none)"),
                                    (self.time_col, s.labels, s.default_time_column()[0] if any(
                                        x in s.labels for x in ("Epoch", "Time")) else s.labels[0])):
             combo.blockSignals(True)
@@ -446,6 +480,7 @@ class EchemWindow(QtWidgets.QMainWindow):
         o = self.session.opt
         o.counter = self.counter.currentText() or None
         o.monitor = None if self.monitor.currentText() in ("", "(none)") else self.monitor.currentText()
+        o.transmission = None if self.transm.currentText() in ("", "(none)") else self.transm.currentText()
         o.per_second = self.per_second.isChecked()
         o.time_column = self.time_col.currentText() or None
         o.time_kind = self.time_kind.currentText()
@@ -461,6 +496,10 @@ class EchemWindow(QtWidgets.QMainWindow):
         o.cv_hold_V, o.cv_hold_s = self.cv_hold_V.value(), self.cv_hold_s.value()
         o.cv_lower, o.cv_upper, o.cv_rate = self.cv_lower.value(), self.cv_upper.value(), self.cv_rate.value()
         o.cv_cycles, o.cv_first, o.cv_delay = self.cv_cycles.value(), self.cv_first.currentText(), self.cv_delay.value()
+        o.cv_start_point = self._opt_int(self.cv_start_point.text(), "CV start point")
+        o.cv_end_point = self._opt_int(self.cv_end_point.text(), "CV stop point")
+        o.cv_start_marks = self.cv_start_marks.currentData()
+        o.onset_point = self._opt_int(self.onset_point.text(), "onset point")
         o.ec_start = self.ec_start.text().strip() or None
         o.sync_mode = self.sync_mode.currentData()
         o.offset = self.offset.value()
@@ -499,8 +538,11 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.bg_model.setCurrentText(o.background)
         self.bg_corr.setCurrentText(o.correction)
         self.time_mark.setCurrentText(o.time_mark)
-        for w, v in ((self.onset, o.onset), (self.sweep_start, o.sweep_start), (self.relax_end, o.relax_end)):
+        for w, v in ((self.onset, o.onset), (self.sweep_start, o.sweep_start), (self.relax_end, o.relax_end),
+                     (self.cv_start_point, o.cv_start_point), (self.cv_end_point, o.cv_end_point),
+                     (self.onset_point, o.onset_point)):
             w.setText("" if v is None else f"{v:g}")
+        self.cv_start_marks.setCurrentIndex(max(0, self.cv_start_marks.findData(o.cv_start_marks)))
         self.ec_start.setText(o.ec_start or "")
         self.hkl.setText("" if o.hkl is None else " ".join(f"{x:g}" for x in o.hkl))
         self.cycles.setText(o.cycles)
@@ -541,6 +583,17 @@ class EchemWindow(QtWidgets.QMainWindow):
             self.offset.setValue(off)
             self.say(f"offset from events: {off:+.2f} s (check it: the intensity may lag the sweep start)")
             self.update_all(tab=self.p_sync)
+        self._run(go)
+
+    def close_loop(self):
+        def go():
+            o = self.gather()
+            best, m_best, m0, _ = self.session.loop_offset()
+            target = self.fine_shift if o.sync_mode == "events" else self.offset
+            target.setValue(target.value() + best)
+            self.update_all(tab=self.p_iv)
+            self.say(f"shift {best:+.1f} s: anodic/cathodic mismatch {100 * m0:.1f}% -> {100 * m_best:.1f}%. A real "
+                     "hysteresis is closed too; keep it only if a timing error is plausible")
         self._run(go)
 
     def simulate(self):

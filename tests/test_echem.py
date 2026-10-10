@@ -357,3 +357,69 @@ def test_transmission_and_off_rod_hkl():
     s.opt.hkl = (0.3, 1, 2)
     with pytest.raises(ValueError, match="rod"):
         s.hkl()
+
+
+# ---------------------------------------------------------------------------- near-surface oxygen
+def test_near_surface_oxygen_in_the_cv_model(files, tmp_path):
+    pm = pr.PointModel(hkl=(0, 1, 3.25))
+    c = np.array([0.3, 0.4, 0.1])
+    I = pm.intensity(np.tile(c, (3, 1)), dB=np.array([0.0, 1.3, 2.7]), du=np.array([0.0, 0.001, -0.002]))
+    assert I == pytest.approx([pm.direct(c, b, u) for b, u in ((0, 0), (1.3, 0.001), (2.7, -0.002))], rel=1e-4)
+    assert pm.intensity(c, 2.0)[0] < 0.8 * pm.intensity(c)[0]                     # odd rod near Bragg: drops
+    with pytest.raises(ValueError, match="ns_tl"):
+        pr.PointModel(dict(ns_tl=0), hkl=(0, 1, 3.25)).intensity(c, 1.0)
+    ns = pr.NearSurface(2.0)
+    V = np.linspace(0.4, 1.4, 50)
+    np.testing.assert_allclose(ns.extent(V, [0.8], [0.03]), an.sigmoid((V - 0.8) / 0.03))
+    # synthetic CV on an odd rod near Bragg with a known near-surface change: fit recovers it
+    spec, mpt, tr = write_experiment(tmp_path, "loopscan", hkl=(0, 1, 3.25), ns_dB=2.0, states=("H2O", "OH"),
+                                     E0=(0.8,), widths=(0.04,))
+    s = Session(Options(monitor="Monitor", offset=TRUTH["clock_offset"], states="H2O -> OH",
+                        transitions="0.75, 0.05", fit_ns_B=True))
+    s.load_spec(spec)
+    s.load_ec(mpt)
+    s.run()
+    p = s.fit_path()
+    assert p.ns.dB == pytest.approx(2.0, abs=max(4 * p.ns_err["dB"], 0.1))
+    assert abs(p.E0[0] - 0.8) < 3 * p.E0_err[0]
+    plain = Session(Options(**dict(s.opt.to_dict(), fit_ns_B=False)))
+    plain.spec, plain.ec = s.spec, s.ec
+    plain.run()
+    assert plain.fit_path().red_chi2 > 3 * p.red_chi2                               # without it the fit is poor
+    assert "near-surface O" in s.summary()
+    s.coverage()
+    assert np.nanmean(s.res.coverage.fractions[s.res.V > 1.2, 1]) > 0.9               # OH at the top
+    d = s.export_json(tmp_path / "r.json")
+    assert "near_surface" in json.loads(Path(d).read_text())["path_fit"]
+
+
+def test_window_near_surface_fields(files, tmp_path, monkeypatch):
+    pytest.importorskip("PyQt5")
+    from PyQt5 import QtWidgets
+    from ctrfit.app.echem_window import EchemWindow
+    msgs = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: msgs.append(a[2])))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    w = EchemWindow()
+    spec, mpt, _ = files["loopscan"]
+    w.open_spec(str(spec))
+    w.open_ec(str(mpt))
+    w.offset.setValue(TRUTH["clock_offset"])
+    w.ns_dB.setValue(1.5)
+    w.ns_tl.setText("4")
+    w.ns_E0.setText("0.9")
+    w.update_all()
+    assert not msgs, msgs
+    o = w.session.opt
+    assert (o.ns_dB, o.ns_tl, o.ns_E0) == (1.5, 4, 0.9) and w.session.point_model().model.ns_tl == 4
+    assert "Near-surface O change" in w.summary.toPlainText()
+    assert w.session.res.sim["ns_extent"] is not None
+    w.save_session(str(tmp_path / "s.json"))
+    w2 = EchemWindow()
+    w2.open_session(str(tmp_path / "s.json"))
+    assert w2.ns_dB.value() == 1.5 and w2.ns_tl.text() == "4" and w2.ns_E0.text() == "0.9"
+    w.ns_width.setText("-1")
+    w.update_all()
+    assert msgs and "width" in msgs[-1]
+    w.close()
+    w2.close()

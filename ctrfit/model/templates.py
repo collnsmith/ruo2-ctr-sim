@@ -27,6 +27,10 @@ _SPECS = [
     ("b_film_O", "Å²", 0.0, 10.0, False, "film", "B factor of buried RuO2 O"),
     ("b_sub_Ti", "Å²", 0.0, 10.0, False, "film", "B factor of TiO2 Ti"),
     ("b_sub_O", "Å²", 0.0, 10.0, False, "film", "B factor of TiO2 O"),
+    ("ns_B_O", "Å²", 0.0, 30.0, False, "film",
+     "Extra B factor of lattice O in the near-surface region (top ns_tl trilayers, a fixed setting)"),
+    ("ns_du", "", -0.03, 0.03, False, "film",
+     "Change of the rutile O parameter u in the near-surface region (top ns_tl trilayers)"),
     # ---------------------------------------------------------------- surface
     ("b_surf_Ru", "Å²", 0.0, 20.0, False, "surface", "B factor of Ru in the exposed (top) trilayer"),
     ("b_surf_O", "Å²", 0.0, 20.0, False, "surface", "B factor of lattice O in the exposed trilayer"),
@@ -67,6 +71,7 @@ _DIRECT = {
     "dz_Rucus_OH": "oh_dz", "dz_Rucus_H2O": "h2o_dz", "dz_Rucus_O": "o_dz",
     "z_OH": "oh_z", "z_H2O": "h2o_z", "z_O": "o_z", "B_OH": "oh_B", "B_H2O": "h2o_B", "B_O": "o_B",
     "el_z0": "water_z0", "el_sigma": "water_sigma", "interface_A": "interface_A",
+    "ns_B_O": "ns_B_O", "ns_du": "ns_du",
 }
 
 DEFAULT_OPTIONS = dict(water_layer=False, water_layer_site="cus")

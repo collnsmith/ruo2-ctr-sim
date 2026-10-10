@@ -115,3 +115,12 @@ def test_model_json_round_trip(tmp_path):
     assert back.params.values() == model.params.values() and back.params["z_H2O"].expr == "z_OH + 0.2"
     L = np.linspace(0.5, 3, 20)
     np.testing.assert_array_equal(back.F(0, 1, L), model.F(0, 1, L))
+
+
+def test_old_model_files_get_new_parameters():
+    """A model saved before a template parameter existed loads with it added (fixed, from the settings)."""
+    d = Model.from_settings(DEFAULTS).to_dict()
+    d["parameters"] = [p for p in d["parameters"] if p["name"] not in ("ns_B_O", "ns_du")]
+    m = Model.from_dict(d)
+    assert m.params["ns_B_O"].value == 0.0 and not m.params["ns_B_O"].fit and m.params["ns_du"].value == 0.0
+    np.testing.assert_allclose(m.intensity(0, 1, [1.5]), Model.from_settings(DEFAULTS).intensity(0, 1, [1.5]))

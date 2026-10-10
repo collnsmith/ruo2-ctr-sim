@@ -132,6 +132,17 @@ GROUPS = [
         dict(key="relax_Mcus_vac", label="Empty Ru_cus", type="float", default=0.0, min=-1.0, max=1.0,
              step=0.01, decimals=3, unit="Å"),
     ]),
+    ("Near-surface oxygen", False, [
+        dict(key="ns_tl", label="Affected top trilayers", type="int", default=3, min=0, max=50,
+             tip="Number of (110) trilayers below the surface whose lattice O is changed (e.g. by proton "
+                 "insertion); counted down from the film top, including the exposed layer. 0 = off"),
+        dict(key="ns_B_O", label="Extra O disorder", type="float", default=0.0, min=0.0, max=30.0, step=0.1,
+             decimals=2, unit="Å²", tip="Added to the B factor of every lattice O in those trilayers"),
+        dict(key="ns_du", label="O position change (Δu)", type="float", default=0.0, min=-0.03, max=0.03,
+             step=0.0005, decimals=4,
+             tip="Change of the rutile u parameter of the O in those trilayers (in-plane O at ±u, bridging O "
+                 "at a height set by u); RuO2 u = 0.3058"),
+    ]),
     ("Electrolyte and extra layers", False, [
         dict(key="water_on", label="Bulk electrolyte (00L only)", type="bool", default=True),
         dict(key="water_rho", label="Electron density", type="float", default=0.334, min=0.0, max=2.0,

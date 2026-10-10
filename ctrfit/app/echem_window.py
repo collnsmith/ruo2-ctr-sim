@@ -324,6 +324,19 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.fit_shift = QtWidgets.QCheckBox("fit the cathodic shift")
         self.fit_shift.setChecked(True)
         self.fit_theta = QtWidgets.QCheckBox("fit the coverage")
+        # near-surface lattice oxygen (e.g. proton insertion), switched on with potential
+        self.ns_dB = _dspin(0, 30, o.ns_dB, 2, 0.25, " Å²")
+        self.ns_dB.setToolTip("Extra B factor of the lattice O in the top trilayers at full extent")
+        self.ns_du = _dspin(-0.03, 0.03, o.ns_du, 4, 0.0005)
+        self.ns_du.setToolTip("Change of the rutile u parameter of those O at full extent (RuO2 u = 0.3058)")
+        self.ns_E0 = QtWidgets.QLineEdit()
+        self.ns_E0.setPlaceholderText("V; blank: with the first transition")
+        self.ns_width = QtWidgets.QLineEdit()
+        self.ns_width.setPlaceholderText("V; blank: the first transition's width")
+        self.ns_tl = QtWidgets.QLineEdit()
+        self.ns_tl.setPlaceholderText("trilayers; blank: from the settings (default 3)")
+        self.fit_ns_B = QtWidgets.QCheckBox("fit the near-surface O disorder")
+        self.fit_ns_u = QtWidgets.QCheckBox("fit the near-surface O u change")
         b_sim = QtWidgets.QPushButton("Simulate")
         b_fitp = QtWidgets.QPushButton("Fit path to data")
         b_cov = QtWidgets.QPushButton("Coverage from data")
@@ -335,7 +348,9 @@ class EchemWindow(QtWidgets.QMainWindow):
         b_use.clicked.connect(lambda: self.use_fitted_transitions())
         for lab, w in (("Path (states)", self.states), ("Transitions", self.transitions), ("Coverage θ", self.theta),
                        ("Cathodic shift", self.cath_shift), ("Relaxation state", self.reference), ("", self.fit_shift),
-                       ("", self.fit_theta)):
+                       ("", self.fit_theta), ("Near-surface O: extra B", self.ns_dB), ("Near-surface O: Δu", self.ns_du),
+                       ("  switches on at", self.ns_E0), ("  width", self.ns_width), ("  top trilayers", self.ns_tl),
+                       ("", self.fit_ns_B), ("", self.fit_ns_u)):
             f.addRow(lab, w)
         g = QtWidgets.QGridLayout()
         for i, b in enumerate((b_sim, b_fitp, b_cov, b_use)):
@@ -516,12 +531,20 @@ class EchemWindow(QtWidgets.QMainWindow):
         o.theta, o.cathodic_shift = self.theta.value(), self.cath_shift.value() / 1e3
         o.reference = self.reference.text()
         o.fit_shift, o.fit_theta = self.fit_shift.isChecked(), self.fit_theta.isChecked()
+        o.ns_dB, o.ns_du = self.ns_dB.value(), self.ns_du.value()
+        o.ns_E0 = self._opt_float(self.ns_E0.text(), "near-surface switch potential")
+        o.ns_width = self._opt_float(self.ns_width.text(), "near-surface width")
+        if o.ns_width is not None and o.ns_width <= 0:
+            raise ValueError("near-surface width must be positive")
+        o.ns_tl = self._opt_int(self.ns_tl.text(), "near-surface trilayers")
+        o.fit_ns_B, o.fit_ns_u = self.fit_ns_B.isChecked(), self.fit_ns_u.isChecked()
         return o
 
     def apply_options(self, o):
         self.session.opt = o
         sets = ((self.per_second, o.per_second), (self.average, o.average), (self.slope, o.slope),
-                (self.fit_shift, o.fit_shift), (self.fit_theta, o.fit_theta))
+                (self.fit_shift, o.fit_shift), (self.fit_theta, o.fit_theta), (self.fit_ns_B, o.fit_ns_B),
+                (self.fit_ns_u, o.fit_ns_u))
         for w, v in sets:
             w.setChecked(bool(v))
         self.use_manual.setChecked(bool(o.cv_manual))
@@ -529,7 +552,8 @@ class EchemWindow(QtWidgets.QMainWindow):
         for w, v in ((self.cv_hold_V, o.cv_hold_V), (self.cv_hold_s, o.cv_hold_s), (self.cv_lower, o.cv_lower),
                      (self.cv_upper, o.cv_upper), (self.cv_rate, o.cv_rate), (self.cv_delay, o.cv_delay),
                      (self.offset, o.offset), (self.fine_shift, o.fine_shift), (self.theta, o.theta),
-                     (self.bin_width, 1e3 * o.bin_width), (self.cath_shift, 1e3 * o.cathodic_shift)):
+                     (self.bin_width, 1e3 * o.bin_width), (self.cath_shift, 1e3 * o.cathodic_shift),
+                     (self.ns_dB, o.ns_dB), (self.ns_du, o.ns_du)):
             w.setValue(float(v))
         self.cv_cycles.setValue(int(o.cv_cycles))
         self.n_trans.setValue(int(o.n_transitions))
@@ -540,7 +564,8 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.time_mark.setCurrentText(o.time_mark)
         for w, v in ((self.onset, o.onset), (self.sweep_start, o.sweep_start), (self.relax_end, o.relax_end),
                      (self.cv_start_point, o.cv_start_point), (self.cv_end_point, o.cv_end_point),
-                     (self.onset_point, o.onset_point)):
+                     (self.onset_point, o.onset_point), (self.ns_E0, o.ns_E0), (self.ns_width, o.ns_width),
+                     (self.ns_tl, o.ns_tl)):
             w.setText("" if v is None else f"{v:g}")
         self.cv_start_marks.setCurrentIndex(max(0, self.cv_start_marks.findData(o.cv_start_marks)))
         self.ec_start.setText(o.ec_start or "")
@@ -637,6 +662,9 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.cath_shift.setValue(1e3 * p.cathodic_shift)
         if self.fit_theta.isChecked():
             self.theta.setValue(p.theta)
+        if p.ns is not None:
+            self.ns_dB.setValue(p.ns.dB)
+            self.ns_du.setValue(p.ns.du)
 
     # ------------------------------------------------------------------ files out
     def export_csv(self, path=None):

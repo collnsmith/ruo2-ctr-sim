@@ -68,6 +68,13 @@ class Options:
     reference: str = "H2O=1"         # state during the relaxation period (sets the scale)
     fit_shift: bool = True
     fit_theta: bool = False
+    ns_dB: float = 0.0               # near-surface lattice O: extra B factor at full extent (A^2)
+    ns_du: float = 0.0               # near-surface lattice O: u change at full extent
+    ns_E0: float = None              # where the near-surface change switches on (V); None: first transition
+    ns_width: float = None           # its width (V); None: first transition's width
+    ns_tl: int = None                # affected top trilayers; None: from the simulator settings
+    fit_ns_B: bool = False
+    fit_ns_u: bool = False
     sim_settings: str = None         # simulator settings .ini (None: defaults)
 
     def to_dict(self):
@@ -384,7 +391,13 @@ class Session:
         if self.opt.sim_settings:
             vals, _ = read_ini(self.opt.sim_settings)
             p.update(vals)
+        if self.opt.ns_tl is not None:
+            p["ns_tl"] = int(self.opt.ns_tl)
         return p
+
+    def near_surface(self):
+        o = self.opt
+        return pr.NearSurface(o.ns_dB, o.ns_du, o.ns_E0, o.ns_width)
 
     def point_model(self):
         key = (self.hkl(), json.dumps(self.sim_params(), sort_keys=True, default=str))
@@ -409,8 +422,11 @@ class Session:
         ref = parse_comp(o.reference, "reference state")
         I_ref_model = pm.of_comp(ref)
         sim = dict(V=V, states=states, E0=E0, widths=w, ref_model=I_ref_model,
-                   anodic=pr.simulate_path(pm, V, states, E0, w, o.theta, np.ones_like(V), o.cathodic_shift),
-                   cathodic=pr.simulate_path(pm, V, states, E0, w, o.theta, -np.ones_like(V), o.cathodic_shift),
+                   anodic=pr.simulate_path(pm, V, states, E0, w, o.theta, np.ones_like(V), o.cathodic_shift,
+                                           self.near_surface()),
+                   cathodic=pr.simulate_path(pm, V, states, E0, w, o.theta, -np.ones_like(V), o.cathodic_shift,
+                                             self.near_surface()),
+                   ns_extent=self.near_surface().extent(V, E0, w) if self.near_surface().active else None,
                    fractions=pr.path_fractions(V, states, E0, w, o.theta),
                    states_I={st: float(pm.intensity(pr.state_vector(st, o.theta))[0]) for st in states})
         r.sim = sim
@@ -431,7 +447,8 @@ class Session:
         cycles = an.parse_cycles(o.cycles, r.cycle)
         use = np.isin(r.cycle, cycles) & np.isfinite(r.V) & (r.branch != 0)
         r.path_fit = pr.fit_path(pm, r.V[use], r.I_corr[use], r.sigma_corr[use], states, E0, w, o.theta,
-                                 r.branch[use], o.fit_shift, o.fit_theta, r.scale)
+                                 r.branch[use], o.fit_shift, o.fit_theta, r.scale, self.near_surface(),
+                                 o.fit_ns_B, o.fit_ns_u)
         return r.path_fit
 
     def coverage(self):
@@ -450,8 +467,18 @@ class Session:
         for k, st in enumerate(states):
             if np.allclose(pr.state_vector(st, o.theta), ref_v):
                 start = float(k)
+        ns = r.path_fit.ns if r.path_fit is not None and r.path_fit.ns is not None else self.near_surface()
+        dB = du = None
+        if ns.active:
+            if r.path_fit is not None:
+                E0, w, sh = r.path_fit.E0, r.path_fit.widths, r.path_fit.cathodic_shift
+            else:
+                E0, w = pr.parse_transitions(o.transitions, len(states) - 1)
+                sh = o.cathodic_shift
+            x = ns.extent(np.nan_to_num(r.V), E0, w, r.branch, sh)
+            dB, du = ns.dB * x, ns.du * x
         r.coverage = pr.coverage_from_intensity(pm, r.I_corr / r.scale, states, o.theta, start,
-                                                sigma=r.sigma_corr / r.scale)
+                                                sigma=r.sigma_corr / r.scale, dB=dB, du=du)
         return r.coverage
 
     # ------------------------------------------------------------------ output
@@ -499,6 +526,13 @@ class Session:
             ref = r.sim["ref_model"]
             lines.append("Model at this HKL (relative to the reference state): " +
                          ", ".join(f"{k} {v / ref:.3f}" for k, v in st.items()))
+            ns = self.near_surface()
+            if ns.active:
+                pm = self.point_model()
+                c = pr.state_vector(r.sim["states"][0], o.theta)
+                ratio = float(pm.intensity(c, ns.dB, ns.du)[0]) / float(pm.intensity(c)[0])
+                lines.append(f"Near-surface O change (extra B {ns.dB:g} A^2, du {ns.du:+g}, top {pm.model.ns_tl} TL) "
+                             f"alone: x {ratio:.3f} at this HKL")
         if r.path_fit is not None:
             p = r.path_fit
             lines.append(f"Path fit ({' -> '.join(p.states)}): reduced chi2 {p.red_chi2:.2f}, scale {p.scale:.4g}")
@@ -509,6 +543,12 @@ class Session:
                 lines.append(f"  cathodic shift {1e3 * p.cathodic_shift:.1f} ± {1e3 * p.shift_err:.1f} mV")
             if o.fit_theta:
                 lines.append(f"  coverage {p.theta:.3f}")
+            if p.ns is not None:
+                e = p.ns_err
+                lines.append(f"  near-surface O (top {self.point_model().model.ns_tl} TL): extra B {p.ns.dB:.2f}"
+                             + (f" ± {e['dB']:.2f}" if "dB" in e else "") + f" A^2, du {p.ns.du:+.4f}"
+                             + (f" ± {e['du']:.4f}" if "du" in e else "") + ", switching at "
+                             + (f"{p.ns.E0:.3f} V" if p.ns.E0 is not None else "the first transition"))
             lines += ["  " + n for n in p.notes]
         if r.coverage is not None:
             lines += ["Coverage: " + n for n in r.coverage.notes]
@@ -539,6 +579,9 @@ class Session:
             d["path_fit"] = dict(states=p.states, E0=p.E0.tolist(), E0_err=p.E0_err.tolist(), widths=p.widths.tolist(),
                                  widths_err=p.widths_err.tolist(), scale=p.scale, cathodic_shift=p.cathodic_shift,
                                  theta=p.theta, red_chi2=p.red_chi2)
+            if p.ns is not None:
+                d["path_fit"]["near_surface"] = dict(dB=p.ns.dB, du=p.ns.du, E0=p.ns.E0, width=p.ns.width, **{
+                    f"{k}_err": v for k, v in p.ns_err.items()})
         Path(path).write_text(json.dumps(d, indent=1, default=float), encoding="utf-8")
         return path
 

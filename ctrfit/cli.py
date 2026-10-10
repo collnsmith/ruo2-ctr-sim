@@ -72,6 +72,11 @@ def build_parser():
     cv.add_argument("--path-transitions", default="0.8, 0.03; 1.1, 0.04", help="'E0, width; ...' (V)")
     cv.add_argument("--reference", default="H2O=1", help="surface state during the relaxation period")
     cv.add_argument("--fit-path", action="store_true", help="fit the composition path through the CTR model")
+    cv.add_argument("--ns-dB", type=float, default=0.0, help="near-surface lattice O: extra B at full extent (A^2)")
+    cv.add_argument("--ns-du", type=float, default=0.0, help="near-surface lattice O: u change at full extent")
+    cv.add_argument("--ns-tl", type=int, default=None, help="near-surface trilayers (default: simulator setting, 3)")
+    cv.add_argument("--fit-ns", action="store_true", help="fit the near-surface O disorder in the path fit")
+    cv.add_argument("--fit-ns-u", action="store_true", help="fit the near-surface O u change in the path fit")
     cv.add_argument("--out", default="insitu_cv", help="output folder: data.csv, results.json, summary.txt, PNGs")
     rf = sub.add_parser("refine", help="refine UB (and lattice, motor offsets) from a list of reflections")
     rf.add_argument("reflections", help="text file, one per line: H K L del eta chi phi nu mu [energy] (or reflex JSON)")
@@ -132,7 +137,8 @@ def cmd_cv(a):
     from .project import plots
     o = Options(scan=a.scan, counter=a.counter, monitor=a.monitor, sync_mode=a.sync, offset=a.offset,
                 background=a.background, n_transitions=a.transitions, cycles=a.cycles, states=a.path,
-                transitions=a.path_transitions, reference=a.reference)
+                transitions=a.path_transitions, reference=a.reference, ns_dB=a.ns_dB, ns_du=a.ns_du, ns_tl=a.ns_tl,
+                fit_ns_B=a.fit_ns, fit_ns_u=a.fit_ns_u)
     if a.hkl:
         o.hkl = tuple(float(x) for x in a.hkl.replace(",", " ").split())
     if a.cv:

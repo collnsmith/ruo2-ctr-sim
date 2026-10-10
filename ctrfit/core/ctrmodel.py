@@ -78,6 +78,8 @@ class CTRModel:
         self.relax_top = dict(M_6f=p["relax_M6f"], O_br=p["relax_Obr"], O_ip=p["relax_Oip"],
                               M_cus_vacant=p["relax_Mcus_vac"])
         self.extra_layers = parse_extra_layers(p["extra_layers"])
+        self.ns_tl = max(0, int(round(p["ns_tl"])))                 # near-surface oxygen
+        self.ns_B_O, self.ns_du = float(p["ns_B_O"]), float(p["ns_du"])
         self.electrolyte = dict(on=p["water_on"], rho=p["water_rho"], z0=p["water_z0"],
                                 sigma=p["water_sigma"])
         self.mix_mode = p["mix_mode"]
@@ -149,36 +151,51 @@ class CTRModel:
         exposed = np.clip(occ - np.append(occ[1:], 0.0), 0.0, None)
         return ks, z, d, top, occ, exposed
 
+    @property
+    def ns_on(self):
+        return self.ns_tl > 0 and (self.ns_B_O != 0 or self.ns_du != 0)
+
+    def near_surface(self, k, n_film):
+        """True for trilayers k in the near-surface region: the top ns_tl trilayers of a film of
+        n_film trilayers, and every (partly occupied) trilayer above it."""
+        k = np.asarray(k)
+        return np.zeros(k.shape, bool) if not self.ns_on else k > n_film - self.ns_tl
+
     def build_film_regions(self, comp, n_film=None):
         n_film = self.n_film if n_film is None else n_film
         theta = self.check_comp(comp)
         regions = (self._new(), self._new())
         u = self.p["ruo2_u"]
         BF = self.B_FILM
-        for k, z0, d_k, is_top, o, e in zip(*self.film_layers(n_film)):
+        ks, *rest = self.film_layers(n_film)
+        ns_k = self.near_surface(ks, n_film)
+        for k, z0, d_k, is_top, o, e, ns in zip(ks, *rest, ns_k):
             if o < 1e-6:
                 continue
             at = regions[int(is_top)]
             on = o - e
             p_ = k % 2
             if on > 1e-9:
-                self.add_trilayer(at, "Ru", p_, z0, d_k, u, on, BF["M"], BF["O"], f"L{k}")
+                self.add_trilayer(at, "Ru", p_, z0, d_k, u + (self.ns_du if ns else 0.0), on, BF["M"],
+                                  BF["O"] + (self.ns_B_O if ns else 0.0), f"L{k}")
             if e <= 1e-9:
                 continue
-            self.add_exposed_layer(at, p_, z0, d_k, e, comp, theta, f"L{k}s")
+            self.add_exposed_layer(at, p_, z0, d_k, e, comp, theta, f"L{k}s", ns=bool(ns))
         bottom, top = self._done(regions[0]), self._done(regions[1])
         if top["B"].size:
             top["B"] = top["B"] + self.b_top_extra
         return bottom, top
 
-    def add_exposed_layer(self, at, p_, z0, d_k, e, comp, theta, tag):
+    def add_exposed_layer(self, at, p_, z0, d_k, e, comp, theta, tag, ns=False):
         """Atoms of an exposed trilayer with occupancy e: lattice without M_cus, top relaxations,
-        CUS species of the composition, empty CUS Ru, and the extra ordered layers."""
-        u = self.p["ruo2_u"]
+        CUS species of the composition, empty CUS Ru, and the extra ordered layers. ns: the trilayer
+        is in the near-surface region (lattice O get the extra B and the u change)."""
+        dB, du = (self.ns_B_O, self.ns_du) if ns else (0.0, 0.0)
+        u = self.p["ruo2_u"] + du
         BF, BS = self.B_FILM, self.B_SURF
         s = 0.5 * p_
-        self.add_trilayer(at, "Ru", p_, z0, d_k, u, e, BS["M"], BS["O"], tag,
-                          skip=("M_cus",), relax=self.relax_top, B_Olo=BF["O"])
+        self.add_trilayer(at, "Ru", p_, z0, d_k, u, e, BS["M"], BS["O"] + dB, tag,
+                          skip=("M_cus",), relax=self.relax_top, B_Olo=BF["O"] + dB)
         f2c = (0.5 + s) % 1.0
         for sp, frac in comp.items():
             if frac <= 0:

@@ -89,3 +89,34 @@ def test_electrolyte_matches_numerical_integral():
     eng = m.F_electrolyte(0, 0, L)
     np.testing.assert_allclose(eng, num, rtol=1e-6)
     assert not np.any(m.F_electrolyte(0, 1, L)) and not np.any(m.F_electrolyte(1, 0, L))
+
+
+# ---------------------------------------------------------------------------- near-surface oxygen
+def test_near_surface_oxygen():
+    """Off when ns_B_O = ns_du = 0 (any ns_tl); fast evaluator equals the reference with it on; it
+    changes the oxygen-only Bragg peaks of the H + K odd rods on both flanks and barely the even rods."""
+    from ctrfit.core.ctrmodel import CTRModel
+    from ctrfit.core.fast import FastCTR
+    from ctrfit.core.settings import DEFAULTS
+    H2O = {"H2O": 1.0}
+    L = np.linspace(0.3, 5.0, 120)
+    base = CTRModel(DEFAULTS)
+    for tl in (0, 1, 7):
+        np.testing.assert_array_equal(CTRModel(dict(DEFAULTS, ns_tl=tl)).intensity(0, 1, L, H2O),
+                                      base.intensity(0, 1, L, H2O))
+    for over in (dict(ns_B_O=2.0), dict(ns_B_O=1.0, ns_du=0.004, ns_tl=2, relax_001=0.5, thickness_nm=10.0),
+                 dict(ns_du=-0.003, roughness_nm=0.4, mix_mode="domains"), dict(ns_B_O=3.0, ns_tl=40)):
+        m = CTRModel(dict(DEFAULTS, **over))
+        comp = {"OH": 0.4, "H2O": 0.4}
+        for hk in ((0, 0), (0, 1), (1, 0), (1, 1)):
+            np.testing.assert_allclose(FastCTR(*hk, L).intensity(m, comp), m.intensity(*hk, L, comp), rtol=1e-9)
+    ns = CTRModel(dict(DEFAULTS, ns_B_O=2.0, ns_tl=3))
+    ru = CTRModel(dict(DEFAULTS, b_film_M=DEFAULTS["b_film_M"] + 2.0))
+
+    def change(m, hk, l):
+        return m.intensity(*hk, [l], H2O)[0] / base.intensity(*hk, [l], H2O)[0] - 1
+    for hk, flanks in (((0, 1), (2.75, 3.25)), ((1, 0), (1.75, 2.25))):
+        assert all(change(ns, hk, l) < -0.2 for l in flanks), hk                # both flanks drop
+        assert all(abs(change(ru, hk, l)) < 1e-3 for l in flanks), hk           # no Ru in these Bragg peaks
+    for hk, l in (((1, 1), 2.75), ((1, 1), 3.25), ((0, 0), 1.75), ((0, 2), 1.75)):
+        assert abs(change(ns, hk, l)) < 0.06, (hk, l)

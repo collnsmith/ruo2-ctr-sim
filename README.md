@@ -165,6 +165,17 @@ python -m ctrfit fit model.json data.csv --out fit_results
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).
 
+## Near-surface oxygen
+
+The "Near-surface oxygen" settings (simulator sidebar, fitting model, in-situ CV window) change the
+lattice oxygen of the top `ns_tl` trilayers of the film (default 3, counted down from the film top,
+including the exposed layer): an extra B factor (`ns_B_O`, Å²) and a change of the rutile u
+parameter (`ns_du`). It models a change of the oxide below the surface, e.g. proton insertion
+(RuO2 + δH⁺ + δe⁻ ⇌ RuO2−δ(OH)δ). On the H + K odd rods the Bragg peaks are oxygen-only reflections
+(the two Ru of the cell cancel), so this lowers both flanks of those peaks while the H + K even rods
+barely change; a change of the CUS species instead flips sign across a Bragg peak. Both values are
+fit parameters (`ns_B_O`, `ns_du`); `ns_tl` is a setting. With both at 0 the model is unchanged.
+
 ## In-situ CV analysis
 
 `python ctr_echem.py` (or `python -m ctrfit echem`) analyses a stationary SPEC scan, either a loopscan
@@ -204,7 +215,10 @@ or a phi scan that does not move (start = end), recorded while the potentiostat 
   structure (defaults or a settings `.ini`). The relaxation state sets the intensity scale.
   "Fit path to data" fits the transitions, scale and cathodic shift (optionally the coverage)
   through the CTR model. "Coverage from data" turns each intensity into a composition on the path;
-  it flags points that match more than one composition or none.
+  it flags points that match more than one composition or none. A near-surface oxygen change
+  (extra B, Δu at full extent; switching on with the first transition or at its own potential and
+  width; affected trilayers) can be added to the prediction, fitted with the path ("fit the
+  near-surface O disorder / u change"), and is taken into account in "Coverage from data".
 - **Output.** The aligned data as CSV, the results as JSON, and the session (files and settings) as JSON.
   Command line: `python -m ctrfit cv scan.spec --ec cv.mpt --offset 7.3 --transitions 2 --fit-path`
   (or `--cv 0.5,300,0.4,1.4,10,3,up,60` instead of `--ec`).

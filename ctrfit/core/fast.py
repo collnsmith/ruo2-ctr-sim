@@ -8,7 +8,7 @@ with A the structure factor of a full buried trilayer, S that of an exposed tril
 species), on_k / e_k the buried / exposed occupancy of trilayer k for film thickness n, P_k the
 in-plane parity phase (-1)^(K k) and z_k the trilayer heights. A and S are built with the same
 CTRModel methods (add_trilayer, add_exposed_layer) as the reference engine. A buried and a relaxed
-(top) region have their own A and S. Every intermediate is cached by the exact content it depends
+(top) region have their own A and S, and so do trilayers in the near-surface oxygen region (An, Sn). Every intermediate is cached by the exact content it depends
 on (atom lists, heights, occupancies), so only what changed is recomputed.
 """
 import numpy as np
@@ -16,6 +16,8 @@ import numpy as np
 from .electrolyte import electrolyte_amplitude
 
 OCC_MIN, PART_MIN = 1e-6, 1e-9          # same cut-offs as CTRModel.build_film_regions
+# occupancy blocks: buried / exposed x bottom / top region x normal / near-surface, then raw exposure
+BLOCKS = ("on_b", "ex_b", "on_t", "ex_t", "on_bn", "ex_bn", "on_tn", "ex_tn", "e")
 
 
 class Points:
@@ -108,19 +110,20 @@ class FastCTR:
             return self.sf(m.SUB_CELL, "b", m) / (1 - np.exp(-2j * np.pi * self.pts.L - m.alpha_abs))
         return self._cached("sub", _key(_atoms_key(m.SUB_CELL), m.alpha_abs, m.A1, m.A2, m.C3, m.f_anom), build)
 
-    def _unit_bulk(self, m, top):
+    def _unit_bulk(self, m, top, ns=False):
         at = m._new()
         d = m.D_TOP if top else m.D_FILM
-        m.add_trilayer(at, "Ru", 0, 0.0, d, m.p["ruo2_u"], 1.0, m.B_FILM["M"], m.B_FILM["O"], "u")
+        dB, du = (m.ns_B_O, m.ns_du) if ns else (0.0, 0.0)
+        m.add_trilayer(at, "Ru", 0, 0.0, d, m.p["ruo2_u"] + du, 1.0, m.B_FILM["M"], m.B_FILM["O"] + dB, "u")
         at = m._done(at)
         if top:
             at["B"] = at["B"] + m.b_top_extra
         return at
 
-    def _unit_exposed(self, m, top, comp):
+    def _unit_exposed(self, m, top, comp, ns=False):
         at = m._new()
         d = m.D_TOP if top else m.D_FILM
-        m.add_exposed_layer(at, 0, 0.0, d, 1.0, comp, m.check_comp(comp), "u")
+        m.add_exposed_layer(at, 0, 0.0, d, 1.0, comp, m.check_comp(comp), "u", ns=ns)
         at = m._done(at)
         if top:
             at["B"] = at["B"] + m.b_top_extra
@@ -151,7 +154,7 @@ class FastCTR:
             n_max = max(n for n, _ in nw)
             ks, z, _, top, _, _ = m.film_layers(n_max)
             K = ks.size
-            on_b, ex_b, on_t, ex_t, e_raw = (np.zeros((K, len(nw))) for _ in range(5))
+            blk = {b: np.zeros((K, len(nw))) for b in BLOCKS}
             for j, (n, _) in enumerate(nw):
                 ks_n, z_n, _, top_n, occ, e = m.film_layers(n)
                 kk = ks_n.size
@@ -160,13 +163,18 @@ class FastCTR:
                 keep = occ >= OCC_MIN
                 on = np.where(keep & (occ - e > PART_MIN), occ - e, 0.0)
                 ex = np.where(keep & (e > PART_MIN), e, 0.0)
-                on_b[:kk, j], ex_b[:kk, j] = np.where(top_n, 0.0, on), np.where(top_n, 0.0, ex)
-                on_t[:kk, j], ex_t[:kk, j] = np.where(top_n, on, 0.0), np.where(top_n, ex, 0.0)
-                e_raw[:kk, j] = e
+                ns = m.near_surface(ks_n, n)
+                for reg, rmask in (("b", ~top_n), ("t", top_n)):
+                    for tag, nmask in (("", ~ns), ("n", ns)):
+                        blk[f"on_{reg}{tag}"][:kk, j] = np.where(rmask & nmask, on, 0.0)
+                        blk[f"ex_{reg}{tag}"][:kk, j] = np.where(rmask & nmask, ex, 0.0)
+                blk["e"][:kk, j] = e
+            top_any = blk["on_t"] + blk["ex_t"] + blk["on_tn"] + blk["ex_tn"]
+            ns_any = blk["on_bn"] + blk["ex_bn"] + blk["on_tn"] + blk["ex_tn"]
             out.append(dict(relaxed=relaxed, nw=nw, ks=ks, z=z, top=top,
-                            C=np.hstack([on_b, ex_b, on_t, ex_t, e_raw]),
-                            has_top=[bool(np.any(on_t[:, j] > 0) or np.any(ex_t[:, j] > 0))
-                                     for j in range(len(nw))]))
+                            C=np.hstack([blk[b] for b in BLOCKS]),
+                            has_top=[bool(np.any(top_any[:, j] > 0)) for j in range(len(nw))],
+                            has_ns=bool(np.any(ns_any > 0))))
         return out
 
     def _phase_sums(self, m, lay):
@@ -189,15 +197,24 @@ class FastCTR:
         A = {"b": self._sf_cached("Ab", self._unit_bulk(m, False), "b", m)}
         weights = m.film_n_weights()
         layers = self._cached("layers", _key([(int(n), float(w)) for n, w in weights], m.sigma_rough, m.n_coherent,
-                                             m.relax_001, m.Z_INT, m.D_FILM, m.D_TOP),
+                                             m.relax_001, m.Z_INT, m.D_FILM, m.D_TOP, m.ns_tl, m.ns_on),
                               lambda: self._layers(m, weights))
+        has_ns = any(lay["has_ns"] for lay in layers)
         if any(any(lay["has_top"]) for lay in layers):
             A["t"] = self._sf_cached("At", self._unit_bulk(m, True), "t", m)
+        if has_ns:
+            A["bn"] = self._sf_cached("Abn", self._unit_bulk(m, False, True), "b", m)
+            if "t" in A:
+                A["tn"] = self._sf_cached("Atn", self._unit_bulk(m, True, True), "t", m)
         S = []
         for i, (c, _) in enumerate(states):
             s = {"b": self._sf_cached(f"Sb{i}", self._unit_exposed(m, False, c), "b", m)}
             if "t" in A:
                 s["t"] = self._sf_cached(f"St{i}", self._unit_exposed(m, True, c), "t", m)
+            if has_ns:
+                s["bn"] = self._sf_cached(f"Sbn{i}", self._unit_exposed(m, False, c, True), "b", m)
+                if "t" in A:
+                    s["tn"] = self._sf_cached(f"Stn{i}", self._unit_exposed(m, True, c, True), "t", m)
             S.append(s)
         E = m.electrolyte
         el_on = E["on"] and pts.spec.any()
@@ -211,13 +228,18 @@ class FastCTR:
         for lay in layers:
             U = self._phase_sums(m, lay)
             nn = len(lay["nw"])
-            Uon_b, Uex_b, Uon_t, Uex_t, Ue = (U[:, i * nn:(i + 1) * nn] for i in range(5))
+            Ub = {b: U[:, i * nn:(i + 1) * nn] for i, b in enumerate(BLOCKS)}
+            ns = lay["has_ns"]
             for j, (_, wn) in enumerate(lay["nw"]):
-                Fel = amp * Ue[:, j] if el_on else 0.0
+                Fel = amp * Ub["e"][:, j] if el_on else 0.0
                 for (_, ws), s in zip(states, S):
-                    Fb = A["b"] * Uon_b[:, j] + s["b"] * Uex_b[:, j] + Fel
+                    Fb = A["b"] * Ub["on_b"][:, j] + s["b"] * Ub["ex_b"][:, j] + Fel
+                    if ns:
+                        Fb = Fb + A["bn"] * Ub["on_bn"][:, j] + s["bn"] * Ub["ex_bn"][:, j]
                     if lay["has_top"][j]:
-                        Ft = A["t"] * Uon_t[:, j] + s["t"] * Uex_t[:, j]
+                        Ft = A["t"] * Ub["on_t"][:, j] + s["t"] * Ub["ex_t"][:, j]
+                        if ns:
+                            Ft = Ft + A["tn"] * Ub["on_tn"][:, j] + s["tn"] * Ub["ex_tn"][:, j]
                         Ib = np.abs(Fs + Fb) ** 2
                         inc = Ib + np.abs(Ft) ** 2 if integrated else Ib
                         Ij = np.where(pts.h0, np.abs(Fs + Fb + Ft) ** 2, inc)

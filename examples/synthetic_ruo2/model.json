@@ -139,6 +139,28 @@
    "expr": null
   },
   {
+   "name": "ns_B_O",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 30.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "Extra B factor of lattice O in the near-surface region (top ns_tl trilayers, a fixed setting)",
+   "group": "film",
+   "expr": null
+  },
+  {
+   "name": "ns_du",
+   "value": 0.0,
+   "min": -0.03,
+   "max": 0.03,
+   "fit": false,
+   "unit": "",
+   "description": "Change of the rutile O parameter u in the near-surface region (top ns_tl trilayers)",
+   "group": "film",
+   "expr": null
+  },
+  {
    "name": "b_surf_Ru",
    "value": 0.6,
    "min": 0.0,

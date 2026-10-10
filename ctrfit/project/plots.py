@@ -528,6 +528,8 @@ def draw_echem_model(fig, r, pm=None):
         for i, (nm, c) in enumerate(zip(names, cols)):
             if np.any(r.coverage.fractions[ok, i] > 0):
                 b.plot(r.V[ok], r.coverage.fractions[ok, i], ".", ms=2, color=c, alpha=0.4, label=f"{nm} (from data)")
+    if sim.get("ns_extent") is not None:
+        b.plot(sim["V"], sim["ns_extent"], color="k", lw=1, ls="--", label="near-surface O change (extent)")
     b.set_ylabel("fraction of CUS sites")
     b.set_xlabel("potential (V)")
     b.set_ylim(-0.05, 1.05)

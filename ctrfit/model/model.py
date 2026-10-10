@@ -33,6 +33,13 @@ class Model:
             params = ParameterSet(Parameter(name=n, value=vals[n], min=lo, max=hi, fit=fit, unit=u,
                                             description=d, group=g)
                                   for n, u, lo, hi, fit, g, d in self.template.specs())
+        else:                                  # files saved before a parameter existed: add it, fixed
+            vals = None
+            for n, u, lo, hi, fit, g, d in self.template.specs():
+                if n not in params:
+                    if vals is None:
+                        vals = self.template.values_from_settings(settings or {})
+                    params.add(name=n, value=vals[n], min=lo, max=hi, fit=False, unit=u, description=d, group=g)
         self.params = params
 
     @classmethod

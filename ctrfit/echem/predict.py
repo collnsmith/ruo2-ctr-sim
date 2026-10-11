@@ -437,6 +437,40 @@ def coverage_from_intensity(pm, I_rel, states, theta=1.0, start_p=0.0, sigma=Non
     return res
 
 
+def stationary_cv(params, hkl, states, E0, widths, theta=1.0, cathodic_shift=0.0, ns=None, E_lower=0.0,
+                  E_upper=0.7, rate=0.005, cycles=2, t_hold=30.0, pm=None):
+    """Expected stationary-CV response at one HKL: a hold at the lower vertex, then `cycles` CVs
+    E_lower -> E_upper -> E_lower at `rate` (V/s). Returns time, potential, sweep direction, the
+    intensity and its change relative to the hold, the CUS fractions, and the change at the upper
+    vertex. ns: NearSurface (or None)."""
+    from .ec import make_cv
+    if E_upper <= E_lower:
+        raise ValueError("the upper vertex must be above the lower vertex")
+    pm = pm or PointModel(params, hkl)
+    ec = make_cv(E_lower, t_hold, E_upper, E_lower, rate, int(cycles), "up", dt=min(0.5, 2e-3 / rate))
+    t, V = ec.time, ec.potential
+    dEdt = np.gradient(V, t)
+    branch = np.where(dEdt > 1e-9, 1, np.where(dEdt < -1e-9, -1, 0))
+    I = simulate_path(pm, V, states, E0, widths, theta, branch, cathodic_shift, ns)
+    I0 = float(I[0])
+    rel = I / I0 - 1 if I0 > 0 else np.full_like(I, np.nan)
+    top = np.argmax(V)
+    return dict(hkl=tuple(hkl), t=t, V=V, branch=branch, I=I, rel=rel, I_hold=I0, states=list(states),
+                fractions=path_fractions(V, states, E0, widths, theta, branch, cathodic_shift),
+                change_at_upper=float(rel[top]), max_rise=float(np.nanmax(rel)), max_drop=float(np.nanmin(rel)),
+                E_lower=E_lower, E_upper=E_upper, rate=rate, ns=ns)
+
+
+def stationary_cv_from_settings(params, hkl):
+    """stationary_cv with the path, CV and near-surface change taken from the simulator settings."""
+    states = parse_states(params["cvp_states"])
+    E0, w = parse_transitions(params["cvp_transitions"], len(states) - 1)
+    ns = NearSurface(params["cvp_ns_dB"]) if params["cvp_ns_dB"] else None
+    return stationary_cv(params, hkl, states, E0, w, params["theta"], params["cvp_shift"] / 1e3, ns,
+                         params["cvp_lower"], params["cvp_upper"], params["cvp_rate"] / 1e3, params["cvp_cycles"],
+                         params["cvp_hold"])
+
+
 def scale_from_reference(pm, I_ref, comp_ref):
     """Scale (counts per model intensity) that puts the relaxation-period intensity on a known state."""
     m = pm.of_comp(comp_ref)
@@ -446,4 +480,5 @@ def scale_from_reference(pm, I_ref, comp_ref):
 
 
 __all__ = ["STATES", "parse_states", "parse_transitions", "PointModel", "NearSurface", "path_fractions", "simulate_path",
-           "PathFit", "fit_path", "CoverageResult", "coverage_from_intensity", "path_grid", "scale_from_reference"]
+           "PathFit", "fit_path", "CoverageResult", "coverage_from_intensity", "path_grid", "scale_from_reference",
+           "stationary_cv", "stationary_cv_from_settings"]

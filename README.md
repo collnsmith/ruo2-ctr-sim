@@ -66,6 +66,10 @@ Without a CUDA GPU it falls back to the CPU at lower resolution.
 - Run with the button, Ctrl+R or F5. The same button stops a run.
   A yellow note appears when settings changed since the last run.
 - Sensitivity map: hover a rod for its values, click it to open its curves in the Ranking tab.
+- OH vs H2O: click an L position to predict the stationary CV there (Stationary CV tab): intensity
+  change vs time and vs potential (anodic / cathodic) with the CUS fractions, for the path, CV
+  program and near-surface change in the sidebar group "Stationary CV prediction" (coverage: "CUS
+  coverage for comparison"). Any H K L can also be typed in that tab.
 - Parameter study: a table of settings to vary (roughness, Ru_cus shifts, adsorbate heights, B factors,
   strain, electrolyte, ...), each with a min, max and number of steps. "Run parameter study" varies one
   setting at a time, the rest as in the sidebar, on the sidebar's rods and surface state. The ranking

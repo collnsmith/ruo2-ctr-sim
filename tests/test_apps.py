@@ -127,3 +127,52 @@ def test_parameter_study_tab(tmp_path, monkeypatch):
     assert win.ps_in.rowCount() == 3
     win.close()
     app.processEvents()
+
+
+def test_stationary_cv_prediction(tmp_path, monkeypatch):
+    """Engine: rise / drop and the near-surface change; GUI: a click on the OH vs H2O plot predicts it."""
+    from types import SimpleNamespace
+    from ctr_params import DEFAULTS
+    from ctrfit.echem.predict import stationary_cv_from_settings
+    d = stationary_cv_from_settings(dict(DEFAULTS), (0, 1, 3.16))
+    assert d["change_at_upper"] > 0.1 and abs(d["rel"][0]) < 1e-12 and d["V"].max() == pytest.approx(0.7)
+    assert d["change_at_upper"] == pytest.approx(stationary_cv_from_settings(dict(DEFAULTS, cvp_rate=25.0),
+                                                                             (0, 1, 3.16))["change_at_upper"], abs=1e-3)
+    drop = stationary_cv_from_settings(dict(DEFAULTS, cvp_ns_dB=2.0, ns_tl=2), (0, 1, 3.25))
+    assert drop["change_at_upper"] < stationary_cv_from_settings(dict(DEFAULTS), (0, 1, 3.25))["change_at_upper"]
+    with pytest.raises(ValueError):
+        stationary_cv_from_settings(dict(DEFAULTS, cvp_upper=-0.1), (0, 1, 3.16))
+    pytest.importorskip("PyQt5")
+    import ctr_gui
+    from ctr_gui import QtCore, QtWidgets
+    monkeypatch.setattr(ctr_gui, "SETTINGS_FILE", tmp_path / "settings.ini")
+    errors = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: errors.append(a[1:3])))
+    monkeypatch.setattr(ctr_gui.QtCore.QTimer, "singleShot", staticmethod(lambda *a, **k: None))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    win = ctr_gui.MainWindow()
+    win.show()
+    win.panel.set_values(dict(win.panel.values(), rods="0 1", L_step=0.02))
+    win.chk_scan.setChecked(False)
+    win.chk_study.setChecked(False)
+
+    def wait(cond):
+        t0 = time.time()
+        while not cond() and time.time() - t0 < 120:
+            app.processEvents(QtCore.QEventLoop.AllEvents, 50)
+            time.sleep(0.01)
+    win.run_or_stop()
+    wait(lambda: win.result is not None and win.run_worker is None)
+    assert win._cmp_hk == (0, 1)
+    ax = win.p_cmp.figure.axes[0]
+    win._cmp_click(SimpleNamespace(inaxes=ax, xdata=3.16, ydata=1.0))
+    wait(lambda: win.scv_result is not None)
+    assert not errors, errors
+    assert win.scv_result["hkl"] == (0, 1, 3.16) and win.p_scv.figure.axes
+    assert win.tabs.currentIndex() == win.tabs.indexOf(win.p_scv.parentWidget())
+    assert any(getattr(ln, "_scv_mark", False) for ln in ax.lines)
+    win.scv_hkl.setText("0.5 1 2")
+    win.predict_stationary_cv()
+    assert "whole numbers" in win.log.toPlainText()
+    win.close()
+    app.processEvents()

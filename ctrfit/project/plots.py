@@ -575,3 +575,48 @@ def draw_echem_joint(fig, joint, values=None, ns_tl=None, bin_width=0.02):
     for ax in axs[n:]:
         ax.set_visible(False)
     axs[0].legend(fontsize=7)
+
+
+def draw_stationary_cv(fig, d):
+    """Expected stationary-CV response at one HKL: change vs time (potential on the right axis) and
+    change vs potential per sweep direction, with the CUS fractions."""
+    fig.clear()
+    if d is None:
+        message(fig, "Click an L position in the OH vs H2O tab (or enter H K L above) to predict its stationary CV.")
+        return
+    a, b = fig.subplots(1, 2, gridspec_kw=dict(width_ratios=[3, 2]))
+    a.plot(d["t"], 100 * d["rel"], color="k", lw=1.2)
+    a.axhline(0, color="0.5", lw=0.6)
+    a.set_xlabel("time (s)")
+    a.set_ylabel("intensity change vs hold (%)")
+    a2 = a.twinx()
+    a2.plot(d["t"], d["V"], color="tab:orange", lw=0.8, alpha=0.7)
+    a2.set_ylabel("potential (V)", color="tab:orange")
+    a2.tick_params(axis="y", colors="tab:orange")
+    for br in (1, -1):
+        m = d["branch"] == br
+        st = BRANCH_STYLE[br]
+        b.plot(d["V"][m], 100 * d["rel"][m], ".", ms=1.5, color=st["color"], label=st["label"])
+    b.axhline(0, color="0.5", lw=0.6)
+    b.set_xlabel("potential (V)")
+    b.set_ylabel("intensity change vs hold (%)")
+    b.legend(fontsize=7, loc="best")
+    bf = b.twinx()
+    names = ("H2O", "OH", "O")
+    cols = ("tab:cyan", "tab:orange", "tab:purple")
+    up = np.flatnonzero(d["branch"] == 1)
+    up = up[np.argsort(d["V"][up], kind="stable")]          # one curve, not one line per sweep
+    for i, (nm, c) in enumerate(zip(names, cols)):
+        if np.any(d["fractions"][:, i] > 0):
+            bf.plot(d["V"][up], d["fractions"][up, i], color=c, lw=0.8, ls=":", label=f"{nm} fraction (anodic)")
+    bf.set_ylim(-0.05, 1.05)
+    bf.set_ylabel("CUS fraction (dotted)", fontsize=8)
+    bf.legend(fontsize=7, loc="lower right")
+    H, K, L = d["hkl"]
+    ns = d.get("ns")
+    fig.suptitle(f"Stationary CV at ({H:g} {K:g} {L:.3f}): {' -> '.join(d['states'])}, {d['E_lower']:g} to "
+                 f"{d['E_upper']:g} V at {1e3 * d['rate']:g} mV/s"
+                 + (f", near-surface O +{ns.dB:g} Å²" if ns is not None else "")
+                 + f"; change at the upper vertex {100 * d['change_at_upper']:+.1f}%", fontsize=9)
+    for ax in (a, b):
+        ax.grid(alpha=0.25)

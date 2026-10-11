@@ -104,7 +104,7 @@ What the tests protect:
 | `test_physics.py` continuity | a film with TiO2's lattice (and Ti scattering) continues the substrate rod (< 1e-5) |
 | `test_physics.py` electrolyte | the analytic electrolyte term equals a direct numerical integral of the erfc profile |
 | `test_physics.py` near-surface O | off when ns_B_O = ns_du = 0 for any ns_tl; fast = reference with it on; odd-rod Bragg flanks both drop, no Ru contribution there, even rods barely change |
-| `test_apps.py` | the GUI starts offscreen and finishes one run; the notebook runs as a script; parameter study (row parser, ranking order, a setting with no effect gives 0, roughness lowers anti-Bragg intensity) and its tab (rows, run, plot, rod switch, bad input, settings round trip) |
+| `test_apps.py` | the GUI starts offscreen and finishes one run; the notebook runs as a script; parameter study (row parser, ranking order, a setting with no effect gives 0, roughness lowers anti-Bragg intensity) and its tab (rows, run, plot, rod switch, bad input, settings round trip); stationary CV prediction (rate independence, near-surface change, click on OH vs H2O opens it, bad input) |
 | `test_viewer.py` | the 3D scene builds; CPU and CUDA (simulator) renders agree; the kernel PTX has no f64 |
 | `test_package.py` | no Qt in `ctrfit`; `ctr_engine/params/plots` are the `ctrfit` modules |
 | `test_parameters.py`, `test_template.py` | safe links, scopes, bounds, JSON; settings -> parameters -> model equals the reference; every parameter changes the model; continuous thickness weights; composition mapping |

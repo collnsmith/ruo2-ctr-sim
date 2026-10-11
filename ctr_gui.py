@@ -1,4 +1,4 @@
-# @app title: CTR simulator | group: Simulate | order: 10 | kind: gui | needs: PyQt5 | desc: Rods, OH vs H2O comparison, sensitivity map and ranking, parameter study, thickness and relaxation study
+# @app title: CTR simulator | group: Simulate | order: 10 | kind: gui | needs: PyQt5 | desc: Rods, OH vs H2O comparison (click an L for its stationary CV), sensitivity map and ranking, parameter study, thickness and relaxation study
 """RuO2/TiO2 CTR simulator: desktop GUI.
 
 Run:  python ctr_gui.py
@@ -38,6 +38,7 @@ sys.path.insert(0, str(APP_DIR))
 import ctr_plots as plots                                                     # noqa: E402
 from ctr_engine import (CTRModel, film_spacing, oh_h2o, parameter_study, parse_inputs,  # noqa: E402
                         relaxation_study)
+from ctrfit.echem.predict import stationary_cv_from_settings  # noqa: E402
 from ctr_params import (DEFAULTS, GROUPS, SPECS, STUDY_DEFAULT, STUDY_KEYS, comp_label,  # noqa: E402
                         format_study_rows, parse_study_rows, read_ini, study_label, write_ini)
 
@@ -487,6 +488,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.p_cmp = PlotPanel()
         self.tabs.addTab(self._stack(self.cmp_pick, self.p_cmp), "OH vs H2O")
 
+        self.scv_hkl = QtWidgets.QLineEdit()
+        self.scv_hkl.setPlaceholderText("H K L (or click an L position in the OH vs H2O tab)")
+        b_scv = QtWidgets.QPushButton("Predict stationary CV")
+        scv_bar = QtWidgets.QWidget()
+        sl = QtWidgets.QHBoxLayout(scv_bar)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.addWidget(QtWidgets.QLabel("Position"))
+        sl.addWidget(self.scv_hkl, 1)
+        sl.addWidget(b_scv)
+        sl.addWidget(QtWidgets.QLabel("path, CV and near-surface change: sidebar 'Stationary CV prediction'"))
+        self.p_scv = PlotPanel("Click an L position in the OH vs H2O tab to predict its stationary CV response.")
+        self.tabs.addTab(self._stack(scv_bar, self.p_scv), "Stationary CV")
+        self.scv_result = None
+        self._cmp_hk = None
+        b_scv.clicked.connect(self.predict_stationary_cv)
+        self.scv_hkl.returnPressed.connect(self.predict_stationary_cv)
+
         self.p_map = PlotPanel("Tick 'Sensitivity scan' and press Run to see the map.")
         self.tabs.addTab(self.p_map, "Sensitivity map")
 
@@ -558,6 +576,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rank_table.itemSelectionChanged.connect(self.show_ranked_rod)
         b_rank_csv.clicked.connect(self.export_ranking)
         b_study_csv.clicked.connect(self.export_study)
+        self.p_cmp.canvas.mpl_connect("button_press_event", self._cmp_click)
         self.p_map.canvas.mpl_connect("motion_notify_event", self._map_hover)
         self.p_map.canvas.mpl_connect("button_press_event", self._map_click)
         for seq in ("Ctrl+R", "F5"):
@@ -888,6 +907,7 @@ class MainWindow(QtWidgets.QMainWindow):
         errors.append(self.p_struct.draw(plots.draw_structure, m, inp["comp_default"]))
         errors.append(self.p_rod.draw(plots.draw_rod_parts, out["rod"], comp_label(inp["comp_default"])))
         errors.append(self.p_cmp.draw(plots.draw_compare, out["compare"], prm["rel_min"], prm["bragg_excl"]))
+        self._cmp_hk = (out["compare"]["H"], out["compare"]["K"]) if out["compare"] else None
         labels = (comp_label(inp["sens_a"]), comp_label(inp["sens_b"]))
         if "scan" in out:
             res, peaks = out["scan"]
@@ -969,11 +989,54 @@ class MainWindow(QtWidgets.QMainWindow):
         self.say(f"Computing ({h} {k} L) comparison…")
         def done(d):
             err = self.p_cmp.draw(plots.draw_compare, d, prm["rel_min"], prm["bragg_excl"])
+            self._cmp_hk = (h, k) if d else None
             if err:
                 self.say(err, error=True)
             else:
                 self.say(f"Showing ({h} {k} L) comparison" if d else f"({h} {k} L) is beyond the reachable q range")
         self._start(lambda progress: m.compare(h, k, comps), on_done=done)
+
+    # ------------------------------------------------------------------ stationary CV prediction
+    def _cmp_click(self, event):
+        """A click on the OH vs H2O plot: predict the stationary CV at that L of the shown rod."""
+        if str(getattr(self.p_cmp.toolbar, "mode", "")) or event.inaxes is None or event.xdata is None:
+            return
+        if self._cmp_hk is None:
+            return
+        h, k = self._cmp_hk
+        self.scv_hkl.setText(f"{h} {k} {event.xdata:.3f}")
+        for ax in self.p_cmp.figure.axes:
+            for ln in [ln for ln in ax.lines if getattr(ln, "_scv_mark", False)]:
+                ln.remove()
+            ln = ax.axvline(event.xdata, color="tab:green", lw=1.2, alpha=0.8)
+            ln._scv_mark = True
+        self.p_cmp.canvas.draw_idle()
+        self.predict_stationary_cv()
+
+    def predict_stationary_cv(self):
+        try:
+            vals = [float(x) for x in self.scv_hkl.text().replace(",", " ").split()]
+            if len(vals) != 3:
+                raise ValueError("give H K L (three numbers)")
+            if any(abs(v - round(v)) > 1e-9 for v in vals[:2]):
+                raise ValueError("H and K must be whole numbers (a rod)")
+        except ValueError as ex:
+            self.say(f"Stationary CV: {ex}", error=True)
+            return
+        params = self.panel.values()                 # current sidebar (path, CV and structure)
+        hkl = (int(round(vals[0])), int(round(vals[1])), vals[2])
+        self.say(f"Predicting the stationary CV at ({hkl[0]} {hkl[1]} {hkl[2]:.3f})…")
+
+        def done(d):
+            self.scv_result = d
+            err = self.p_scv.draw(plots.draw_stationary_cv, d)
+            if err:
+                self.say(err, error=True)
+                return
+            self.tabs.setCurrentIndex(self.tabs.indexOf(self.p_scv.parentWidget()))
+            self.say(f"Stationary CV at ({hkl[0]} {hkl[1]} {hkl[2]:.3f}): {100 * d['change_at_upper']:+.1f}% at the "
+                     f"upper vertex (range {100 * d['max_drop']:+.1f}% to {100 * d['max_rise']:+.1f}%)")
+        self._start(lambda progress: stationary_cv_from_settings(params, hkl), on_done=done)
 
     def show_ranked_rod(self):
         if self.result is None or "scan" not in self.result:

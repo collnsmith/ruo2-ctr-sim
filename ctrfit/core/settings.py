@@ -143,6 +143,28 @@ GROUPS = [
              tip="Change of the rutile u parameter of the O in those trilayers (in-plane O at ±u, bridging O "
                  "at a height set by u); RuO2 u = 0.3058"),
     ]),
+    ("Stationary CV prediction", False, [
+        dict(key="cvp_states", label="Composition path", type="text", default="H2O -> OH",
+             tip="CUS states in order of potential, e.g. H2O -> OH -> O (empty = no adsorbate)"),
+        dict(key="cvp_transitions", label="Transitions (E0, width)", type="text", default="0.35, 0.05",
+             tip="One 'E0 (V), width (V)' per state change, separated by ';'. Coverage: 'CUS coverage for "
+                 "comparison' above"),
+        dict(key="cvp_lower", label="Lower vertex", type="float", default=0.0, min=-3.0, max=3.0, step=0.05,
+             decimals=3, unit="V"),
+        dict(key="cvp_upper", label="Upper vertex", type="float", default=0.7, min=-3.0, max=3.0, step=0.05,
+             decimals=3, unit="V"),
+        dict(key="cvp_rate", label="Scan rate", type="float", default=5.0, min=0.01, max=1000.0, step=1.0,
+             decimals=2, unit="mV/s"),
+        dict(key="cvp_cycles", label="Cycles", type="int", default=2, min=1, max=50),
+        dict(key="cvp_hold", label="Hold at the lower vertex first", type="float", default=30.0, min=0.0,
+             max=3600.0, step=10.0, decimals=1, unit="s"),
+        dict(key="cvp_shift", label="Cathodic shift (hysteresis)", type="float", default=0.0, min=-500.0,
+             max=500.0, step=5.0, decimals=1, unit="mV"),
+        dict(key="cvp_ns_dB", label="Near-surface O change (extra B)", type="float", default=0.0, min=0.0,
+             max=20.0, step=0.25, decimals=2, unit="Å²",
+             tip="Extra lattice-O disorder in the top 'Affected top trilayers' at full extent, switching on with "
+                 "the first transition"),
+    ]),
     ("Electrolyte and extra layers", False, [
         dict(key="water_on", label="Bulk electrolyte (00L only)", type="bool", default=True),
         dict(key="water_rho", label="Electron density", type="float", default=0.334, min=0.0, max=2.0,
@@ -217,7 +239,8 @@ DEFAULTS = {k: s["default"] for k, s in SPECS.items()}
 
 # Parameter study: every numeric physics setting can be varied (not the L grid or the scan settings)
 _NOT_STUDIED = {"two_theta_max", "L_min", "L_max", "L_step", "scan_h_max", "scan_k_max", "bragg_excl", "rel_min",
-                "i_bg", "top_n", "coherent_tol_pct", "alpha_abs"}
+                "i_bg", "top_n", "coherent_tol_pct", "alpha_abs", "cvp_lower", "cvp_upper", "cvp_rate", "cvp_hold",
+                "cvp_shift", "cvp_ns_dB"}
 STUDY_KEYS = [k for k, s in SPECS.items() if s["type"] == "float" and k not in _NOT_STUDIED]
 STUDY_DEFAULT = "roughness_nm, 0.05, 0.4, 5; oh_dz, -0.2, 0.2, 5"
 

@@ -272,6 +272,8 @@ class BeamlineWindow(QtWidgets.QMainWindow):
         b_clear = QtWidgets.QPushButton("Clear")
         b_load = QtWidgets.QPushButton("Load…")
         b_save = QtWidgets.QPushButton("Save…")
+        b_spec = QtWidgets.QPushButton("Export reflex file…")
+        b_spec.setToolTip("SPEC reflex file (_begUB / _addUB / _fitUB) of the reflections in use")
         b_lat = QtWidgets.QPushButton("Set the custom lattice to the refined one")
         self.rx_out = QtWidgets.QPlainTextEdit(readOnly=True)
         self.rx_out.setFont(_mono())
@@ -287,7 +289,7 @@ class BeamlineWindow(QtWidgets.QMainWindow):
                   self.rx_auto, b_refine):
             opts.addWidget(x)
         rows = QtWidgets.QHBoxLayout()
-        for x in (b_import, b_remove, b_clear, b_load, b_save):
+        for x in (b_import, b_remove, b_clear, b_load, b_save, b_spec):
             rows.addWidget(x)
         rows.addStretch(1)
         left = QtWidgets.QVBoxLayout()
@@ -316,6 +318,7 @@ class BeamlineWindow(QtWidgets.QMainWindow):
         b_clear.clicked.connect(self.clear_reflections)
         b_load.clicked.connect(lambda: self.load_reflections())
         b_save.clicked.connect(lambda: self.save_reflections())
+        b_spec.clicked.connect(lambda: self.export_reflex())
         self.rx_table.itemChanged.connect(self._reflex_edited)
         self.rx_free.currentIndexChanged.connect(lambda *_: self._auto_refine())
         return w
@@ -483,6 +486,18 @@ class BeamlineWindow(QtWidgets.QMainWindow):
             Path(path).write_text(json.dumps(d, indent=1), encoding="utf-8")
         self.say(f"Saved {Path(path).name}")
 
+    def export_reflex(self, path=None):
+        """Write the used reflections as a SPEC reflex file (_begUB / _addUB / _fitUB)."""
+        if not self.reflex.used:
+            self.say("No reflections in use to export", error=True)
+            return
+        path = path or QtWidgets.QFileDialog.getSaveFileName(self, "Export reflex file", "reflex",
+                                                             "All files (*)")[0]
+        if not path:
+            return
+        self.reflex.save_reflex(path)
+        self.say(f"Exported {len(self.reflex.used)} reflections as a reflex file: {Path(path).name}")
+
     def load_reflections(self, path=None):
         path = path or QtWidgets.QFileDialog.getOpenFileName(self, "Load reflections", "",
                                                              "Reflections (*.json *.txt);;All files (*)")[0]
@@ -490,7 +505,7 @@ class BeamlineWindow(QtWidgets.QMainWindow):
             return
 
         def go():
-            self.reflex = ReflectionList.load(path)
+            self.reflex = ReflectionList.load(path, self.energy.value())
             self.refine_result = None
             self.say(f"Loaded {len(self.reflex)} reflections from {Path(path).name}")
             self._auto_refine()

@@ -265,8 +265,10 @@ computation is in `ctrfit/beamline` and works from scripts too.
   all nine UB elements; motor zero offsets (e.g. `del`) can be refined too. The result gives the
   lattice with standard errors, the angle between measured and calculated Q for every reflection,
   outliers (usually a wrong HKL: untick "use" to leave one out), warnings about undetermined or
-  correlated parameters, and a `setlat` line. The list saves to JSON or text, the indexed peaks can
-  be added in one click, and the refined UB goes to the angle calculator. Lattice and offsets need a
+  correlated parameters, and a `setlat` line. The list saves to JSON or text, exports as a SPEC
+  reflex file ("Export reflex file…": a date line, `_begUB`, `H = ..;  K = ..;  L = ..` and
+  `A[del]= ..;` blocks with `_addUB`, then `_fitUB`; only the reflections in use, no energy) and
+  loads one back at the energy set at the top, the indexed peaks can be added in one click, and the refined UB goes to the angle calculator. Lattice and offsets need a
   spread of HKL directions and 2theta; with few reflections refine the orientation only. Command
   line: `python -m ctrfit refine reflex.txt --energy 16 --free abc --offsets del`.
 - **Angles.** UB from the indexer, the refinement or from two reflections (like `or0` / `or1`). Angles for an HKL in a

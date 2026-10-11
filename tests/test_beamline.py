@@ -10,7 +10,7 @@ import pytest
 from ctrfit.beamline import macros as mac
 from ctrfit.beamline import xtools
 from ctrfit.beamline.indexing import allowed_tio2_surface, candidate_reflections, index_peaks, symmetry_ops
-from ctrfit.beamline.refine import (Reflection, ReflectionList, lattice_from_ub, parse_reflection_lines,
+from ctrfit.beamline.refine import (Reflection, ReflectionList, lattice_from_ub, parse_reflection_lines, parse_reflex_file,
                                     refine_ub)
 from ctrfit.beamline.psic import (MODES, MOTORS, Lattice, Psic, angles_for_hkl, as_angles, energy_to_wavelength,
                                   mode_with_alpha, parse_angle_lines, rotation_from_vector, tio2_surface_lattice,
@@ -305,6 +305,50 @@ def test_refine_flags_wrong_hkl_and_free_ub_needs_3d():
         refine_ub(flat, LAT, "ub")
 
 
+REFLEX_EXAMPLE = """#Sun Oct 11 14:03:12 2026
+_begUB
+
+H = 0;  K = 0;  L = 4
+A[del]=   27.683;  A[eta]=   13.893;  A[chi]=   89.937;  A[phi]=   -0.001;  A[nu]=   -0.001;  A[mu]=   -0.008;  
+_addUB
+
+H = 2;  K = 0;  L = 2
+A[del]=   13.800;  A[eta]=    0.456;  A[chi]=   89.937;  A[phi]=  -20.468;  A[nu]=   30.957;  A[mu]=   -0.008;  
+_addUB
+
+H = 1;  K = 0;  L = 2
+A[del]=   13.841;  A[eta]=    0.570;  A[chi]=   89.939;  A[phi]=  -15.568;  A[nu]=   15.290;  A[mu]=    0.000;  
+_addUB
+
+H = 0;  K = 1;  L = 3
+A[del]=   21.077;  A[eta]=    0.458;  A[chi]=   89.948;  A[phi]=   52.989;  A[nu]=    6.062;  A[mu]=   -0.000;  
+_addUB
+
+_fitUB
+"""
+
+
+def test_reflex_file_export_matches_spec_format(tmp_path):
+    from datetime import datetime
+    rows = parse_reflex_file(REFLEX_EXAMPLE, 16.0)
+    assert [r["hkl"] for r in rows] == [(0, 0, 4), (2, 0, 2), (1, 0, 2), (0, 1, 3)]
+    assert rows[1]["angles"]["nu"] == 30.957 and rows[3]["energy_kev"] == 16.0
+    rl = ReflectionList()
+    for r in rows:
+        rl.add(r["hkl"], r["angles"], r["energy_kev"])
+    rl.add((1, 1, 1), rows[0]["angles"], 16.0, use=False)                      # unused rows are left out
+    when = datetime(2026, 10, 11, 14, 3, 12)
+    assert rl.reflex_text(when) == REFLEX_EXAMPLE                              # byte for byte
+    assert rl.reflex_text(when, used_only=False).count("_addUB") == 5
+    path = rl.save_reflex(tmp_path / "reflex", when)
+    back = ReflectionList.load(path, 16.0)
+    assert [r.to_dict() for r in back] == [r.to_dict() for r in rl.used]
+    with pytest.raises(ValueError):
+        ReflectionList.load(path)                                               # no energy in the file
+    with pytest.raises(ValueError):
+        parse_reflex_file("_begUB\nA[del]= 1;\n", 16.0)
+
+
 def test_reflection_list_io_and_hkl_guess(tmp_path):
     rl, UB = reflex_list(lattice=LAT, noise_deg=0.0)
     rl.items[2].use = False
@@ -479,6 +523,9 @@ def test_beamline_window(monkeypatch, tmp_path):
     w.clear_reflections()
     w.load_reflections(str(tmp_path / "reflex.json"))
     assert len(w.reflex) == 7 and not w.reflex[1].use
+    w.export_reflex(str(tmp_path / "reflex"))
+    spec_text = (tmp_path / "reflex").read_text()
+    assert spec_text.count("_addUB") == 6 and spec_text.rstrip().endswith("_fitUB")
     w.import_indexed()
     assert len(w.reflex) == 13 and not msgs, msgs
     w.peaks_in.setPlainText("1 2 3")

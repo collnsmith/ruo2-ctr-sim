@@ -129,18 +129,68 @@ class ReflectionList:
         return path
 
     @classmethod
-    def load(cls, path):
+    def load(cls, path, energy_kev=None):
+        """JSON, the plain text format, or a SPEC reflex file (which has no energy: give energy_kev)."""
         text = Path(path).read_text(encoding="utf-8")
         if text.lstrip().startswith("{"):
             return cls.from_dict(json.loads(text))
         out = cls()
-        for row in parse_reflection_lines(text, None):
+        rows = parse_reflex_file(text, energy_kev) if "_begUB" in text else parse_reflection_lines(text, None)
+        for row in rows:
             out.add(row["hkl"], row["angles"], row["energy_kev"], row["label"])
         return out
 
     def text(self):
         return "\n".join(["# H K L  del eta chi phi nu mu  energy_keV  # label"] +
                          [("" if r.use else "#off ") + r.line() for r in self.items])
+
+    def reflex_text(self, when=None, used_only=True):
+        """The list as a SPEC reflex file: a date line, _begUB, one 'H = ..' / 'A[mot]= ..' block with
+        _addUB per reflection, then _fitUB. Energies are not part of the format. Unused rows are left
+        out unless used_only is False."""
+        from datetime import datetime
+        when = when or datetime.now()
+        stamp = when if isinstance(when, str) else when.strftime("%a %b %d %H:%M:%S %Y")
+        lines = ["#" + stamp, "_begUB", ""]
+        for r in (self.used if used_only else self.items):
+            h, k, l = (f"{x:g}" for x in r.hkl)
+            lines.append(f"H = {h};  K = {k};  L = {l}")
+            lines.append("".join(f"A[{m}]={r.angles[m]:9.3f};  " for m in MOTORS))
+            lines += ["_addUB", ""]
+        lines.append("_fitUB")
+        return "\n".join(lines) + "\n"
+
+    def save_reflex(self, path, when=None, used_only=True):
+        Path(path).write_text(self.reflex_text(when, used_only), encoding="utf-8")
+        return path
+
+
+_REFLEX_HKL = re.compile(r"H\s*=\s*([-+.\deE]+)\s*;\s*K\s*=\s*([-+.\deE]+)\s*;\s*L\s*=\s*([-+.\deE]+)")
+_REFLEX_ANG = re.compile(r"A\[(\w+)\]\s*=\s*([-+.\deE]+)")
+
+
+def parse_reflex_file(text, energy_kev):
+    """Rows {hkl, angles, energy_kev, label} from a SPEC reflex file ('H = h;  K = k;  L = l' then
+    'A[del]= ..;  A[eta]= ..; ...'). The file has no energy, so energy_kev applies to every row."""
+    if energy_kev is None:
+        raise ValueError("a reflex file has no energy: give the energy (keV)")
+    rows, hkl = [], None
+    for raw in text.splitlines():
+        m = _REFLEX_HKL.search(raw)
+        if m:
+            hkl = tuple(float(x) for x in m.groups())
+            continue
+        found = dict((k, float(v)) for k, v in _REFLEX_ANG.findall(raw))
+        if found:
+            if hkl is None:
+                raise ValueError(f"angles before any 'H = ..; K = ..; L = ..' line: {raw.strip()}")
+            missing = [mot for mot in MOTORS if mot not in found]
+            if missing:
+                raise ValueError(f"reflex line for {hkl} lacks {', '.join(missing)}")
+            rows.append(dict(hkl=hkl, angles=as_angles({mot: found[mot] for mot in MOTORS}),
+                             energy_kev=float(energy_kev), label=""))
+            hkl = None
+    return rows
 
 
 def parse_reflection_lines(text, energy_kev):

@@ -219,6 +219,15 @@ or a phi scan that does not move (start = end), recorded while the potentiostat 
   (extra B, Δu at full extent; switching on with the first transition or at its own potential and
   width; affected trilayers) can be added to the prediction, fitted with the path ("fit the
   near-surface O disorder / u change"), and is taken into account in "Coverage from data".
+- **Joint fit of several scans.** Analyse each stationary scan (its own file, timing and HKL), press
+  "Add current scan" on the Joint fit tab, then "Fit jointly". All scans share the composition
+  path (E0 and width per transition, cathodic shift, coverage), the near-surface oxygen change (extra
+  B, switching with the first transition or at its own E0 / width) and any structure parameters you
+  add (any numeric simulator setting: `oh_z`, `oh_dz`, `h2o_z`, `h2o_dz`, B factors, top-layer
+  relaxations, ...); each scan has its own intensity scale. "Profile ns_tl" fits once per
+  near-surface depth. Film parameters (thickness, strain, roughness) stay fixed from the settings:
+  stationary points cannot determine them, fit them on rods. The set saves to JSON and fits from the
+  command line: `python -m ctrfit cv-joint set.json --free ns_dB,oh_z --profile 1,2,3,4`.
 - **Output.** The aligned data as CSV, the results as JSON, and the session (files and settings) as JSON.
   Command line: `python -m ctrfit cv scan.spec --ec cv.mpt --offset 7.3 --transitions 2 --fit-path`
   (or `--cv 0.5,300,0.4,1.4,10,3,up,60` instead of `--ec`).

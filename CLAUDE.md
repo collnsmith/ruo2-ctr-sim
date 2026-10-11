@@ -48,7 +48,8 @@ ctrfit/beamline  psic.py (SPEC psic geometry, UB, HKL <-> angles), indexing.py (
 ctrfit/echem     in-situ CV: spec.py (SPEC scans, point times), ec.py (EC-Lab .mpr via galvani, .mpt, tables,
                  hand-defined CV), sync.py (absolute / manual / events), analysis.py (background, cycles,
                  sigmoids), predict.py (CTR intensity at one HKL along a composition path), session.py,
-                 synthetic.py (known-truth experiment)
+                 joint.py (joint fit of several stationary scans: shared path / near-surface / structure,
+                 a scale per scan, ns_tl profile), synthetic.py (known-truth experiment)
 ctrfit/assistant agent.py (Claude fitting assistant: tool-use loop over the fitting API, no Qt)
 ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py, echem_window.py (Qt; the only Qt code in ctrfit)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
@@ -116,7 +117,7 @@ What the tests protect:
 | `test_fit_gui.py` | fitting window offscreen: load, table edits (values, bounds, links, fit flags), guided steps end to end, stop, global fit, project save/open, report export |
 | `test_geometry.py` | beam geometry (elastic, k_out - k_in = q, specular, unreachable cases); viewer draws the beams; occlusion test |
 | `test_beamline.py` | psic identities (|Q|, 2theta, bisecting, motor signs), HKL -> angles -> HKL in every mode, UB from two reflections, extinctions, indexing with and without the normal hint (forbidden and junk peaks), [H K L] tags (every equivalent reachable, stable as peaks are added, impossible and conflicting tags reported), UB refinement (exact UB, strained lattice in every mode, lattice scale, delta offset, wrong-HKL outlier, list I/O and HKL guess), macros, calculators (Si critical angle), CLI, window offscreen |
-| `test_echem.py` | SPEC scans and point times (epoch vs elapsed agree), stationary detection, .mpt / CSV / faked .mpr readers, hand-defined CV, sync modes (absolute and manual agree, events lag, typed onset), header-less scans, CV start/stop by point number (hold or sweep), loop-closing shift, transmission, rod rounding, cycles, background, sigmoid recovery, exact CTR quadratic, path fit recovers the synthetic truth (loopscan, phi scan, hand-defined CV), near-surface O (interpolated shortcut vs direct, fit recovers it, window fields), coverage, exports, CLI, window offscreen |
+| `test_echem.py` | SPEC scans and point times (epoch vs elapsed agree), stationary detection, .mpt / CSV / faked .mpr readers, hand-defined CV, sync modes (absolute and manual agree, events lag, typed onset), header-less scans, CV start/stop by point number (hold or sweep), loop-closing shift, transmission, rod rounding, cycles, background, sigmoid recovery, exact CTR quadratic, path fit recovers the synthetic truth (loopscan, phi scan, hand-defined CV), near-surface O (interpolated shortcut vs direct, fit recovers it, window fields), joint fit (exact quadratic incl. domains and relaxed top, four synthetic scans recover path, near-surface B, oh_z and the depth, save/load, CLI, tab), coverage, exports, CLI, window offscreen |
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |

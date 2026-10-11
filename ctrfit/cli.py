@@ -78,6 +78,12 @@ def build_parser():
     cv.add_argument("--fit-ns", action="store_true", help="fit the near-surface O disorder in the path fit")
     cv.add_argument("--fit-ns-u", action="store_true", help="fit the near-surface O u change in the path fit")
     cv.add_argument("--out", default="insitu_cv", help="output folder: data.csv, results.json, summary.txt, PNGs")
+    cj = sub.add_parser("cv-joint", help="joint fit of several stationary CV scans (a set saved by the CV window)")
+    cj.add_argument("set", help="joint set JSON (CV window: Joint fit -> Save set)")
+    cj.add_argument("--free", default=None, help="comma-separated parameters to free (others as saved)")
+    cj.add_argument("--ns-tl", type=int, default=None, help="near-surface trilayers (default: as saved)")
+    cj.add_argument("--profile", default=None, help="profile ns_tl over these values, e.g. '1,2,3,4'")
+    cj.add_argument("--out", default=None, help="write the fitted set here (JSON)")
     rf = sub.add_parser("refine", help="refine UB (and lattice, motor offsets) from a list of reflections")
     rf.add_argument("reflections", help="text file, one per line: H K L del eta chi phi nu mu [energy] (or reflex JSON)")
     rf.add_argument("--energy", type=float, default=None, help="photon energy (keV) for lines without one")
@@ -179,6 +185,35 @@ def cmd_cv(a):
         fig.savefig(out / f"{name}.png", dpi=110)
     print(s.summary())
     print(f"\nwrote data.csv, results.json, summary.txt and 5 plots to {out}")
+    return 0
+
+
+def cmd_cv_joint(a):
+    from .echem.joint import JointFit
+    j = JointFit.load(a.set)
+    if a.free:
+        names = [x.strip() for x in a.free.split(",") if x.strip()]
+        unknown = [n for n in names if n not in j.params]
+        if unknown:
+            raise SystemExit(f"--free: unknown parameters {unknown}; available: {', '.join(j.params)}")
+        for n in names:
+            j.params[n].free = True
+    try:
+        if a.profile:
+            prof = j.profile_ns_tl([int(x) for x in a.profile.replace(",", " ").split()])
+            for tl, r in prof:
+                print(f"ns_tl {tl:2d}: reduced chi2 {r.red_chi2:.3f}")
+            tl, res = min(prof, key=lambda p: p[1].red_chi2)
+        else:
+            res = j.fit(ns_tl=a.ns_tl)
+    except (ValueError, RuntimeError) as ex:
+        raise SystemExit(str(ex))
+    print(res.summary())
+    if a.out:
+        j.apply(res)
+        j.sim["ns_tl"] = res.ns_tl
+        j.save(a.out)
+        print(f"wrote {a.out}")
     return 0
 
 
@@ -324,7 +359,7 @@ def cmd_fit(a):
 def main(argv=None):
     a = build_parser().parse_args(argv)
     return {"fit": cmd_fit, "gui": cmd_gui, "beamline": cmd_beamline, "index": cmd_index, "refine": cmd_refine,
-            "echem": cmd_echem, "cv": cmd_cv,
+            "echem": cmd_echem, "cv": cmd_cv, "cv-joint": cmd_cv_joint,
             "macro": cmd_macro, "ask": cmd_ask, "launcher": cmd_launcher}[a.command](a)
 
 

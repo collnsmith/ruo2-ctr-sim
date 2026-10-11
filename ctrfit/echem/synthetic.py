@@ -13,7 +13,7 @@ from .spec import to_seconds
 
 TRUTH = dict(hkl=(0, 1, 1.5), states=("H2O", "OH", "O"), E0=(0.8, 1.1), widths=(0.03, 0.04), cathodic_shift=0.03,
              theta=1.0, clock_offset=7.3, cv_delay=60.0, hold=300.0, upper=1.4, lower=0.4, rate=0.01, cycles=3,
-             decay=0.05, tau=2500.0, counts=2.0e4, count_time=1.0, dead=0.1, ns_dB=0.0, ns_du=0.0)
+             decay=0.05, tau=2500.0, counts=2.0e4, count_time=1.0, dead=0.1, ns_dB=0.0, ns_du=0.0, sim=None)
 
 
 def make_experiment(kind="loopscan", seed=3, **over):
@@ -35,7 +35,7 @@ def make_experiment(kind="loopscan", seed=3, **over):
     V = np.interp(t_ec, ec.time, ec.potential, left=0.5, right=ec.potential[-1])
     dE = np.gradient(np.interp(t_ec, ec.time, ec.potential), t_ec)
     branch = np.where(dE > 1e-4, 1, np.where(dE < -1e-4, -1, 0))
-    pm = PointModel(hkl=tr["hkl"])
+    pm = PointModel(tr["sim"], hkl=tr["hkl"])
     Imod = simulate_path(pm, V, list(tr["states"]), tr["E0"], tr["widths"], tr["theta"], branch, tr["cathodic_shift"],
                          NearSurface(tr["ns_dB"], tr["ns_du"]))
     ref = pm.of_comp({tr["states"][0]: tr["theta"]})

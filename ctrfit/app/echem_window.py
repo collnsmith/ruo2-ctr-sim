@@ -26,6 +26,8 @@ from matplotlib.figure import Figure
 
 QShortcut = getattr(QtWidgets, "QShortcut", None) or QtGui.QShortcut
 
+from ..echem import joint as jt
+from ..echem import predict as pr
 from ..echem.session import Options, Session
 from ..project import plots
 
@@ -117,6 +119,9 @@ class EchemWindow(QtWidgets.QMainWindow):
         for w, name in ((self.p_sync, "Sync"), (self.p_bg, "Background"), (self.p_iv, "I vs V"),
                         (self.p_fit, "Transition fit"), (self.p_model, "CTR model"), (self.summary, "Summary")):
             self.tabs.addTab(w, name)
+        self.joint = None
+        self.joint_result = None
+        self.tabs.addTab(self._joint_tab(), "Joint fit")
         split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
         split.addWidget(left)
         split.addWidget(self.tabs)
@@ -712,6 +717,245 @@ class EchemWindow(QtWidgets.QMainWindow):
             self.apply_options(o)
             self._fill_scans()
             self.update_all()
+        self._run(go)
+
+    # ------------------------------------------------------------------ joint fit of several scans
+    PCOLS = ["Parameter", "Value", "Free", "Min", "Max", "Unit", "±"]
+
+    def _joint_tab(self):
+        w = QtWidgets.QWidget()
+        self.j_scans = QtWidgets.QTableWidget(0, 4)
+        self.j_scans.setHorizontalHeaderLabels(["Use", "Scan", "HKL", "Points"])
+        self.j_scans.horizontalHeader().setStretchLastSection(True)
+        self.j_scans.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.j_params = QtWidgets.QTableWidget(0, len(self.PCOLS))
+        self.j_params.setHorizontalHeaderLabels(self.PCOLS)
+        self.j_params.horizontalHeader().setStretchLastSection(True)
+        self.j_struct = QtWidgets.QComboBox()
+        self.j_struct.addItems(jt.STRUCTURE_KEYS)
+        self.j_struct.setToolTip("Any numeric simulator setting can be a shared structure parameter")
+        self.j_tl = QtWidgets.QSpinBox()
+        self.j_tl.setRange(0, 50)
+        self.j_tl.setValue(3)
+        self.j_tl.setToolTip("Near-surface trilayers for the fit (whole numbers: profile them)")
+        self.j_profile = QtWidgets.QLineEdit("1, 2, 3, 4, 5, 6")
+        self.j_out = QtWidgets.QPlainTextEdit(readOnly=True)
+        self.j_out.setFont(QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont))
+        self.p_joint = Plot()
+        buttons = {}
+        for key, text in (("add", "Add current scan"), ("remove", "Remove selected"), ("clear", "Clear"),
+                          ("save", "Save set…"), ("load", "Load set…"), ("addp", "Add structure parameter"),
+                          ("fit", "Fit jointly"), ("profile", "Profile ns_tl"), ("apply", "Use fitted values as start")):
+            buttons[key] = QtWidgets.QPushButton(text)
+        buttons["fit"].setStyleSheet("QPushButton { background: #1f77b4; color: white; font-weight: 600; }")
+        left = QtWidgets.QWidget()
+        ll = QtWidgets.QVBoxLayout(left)
+        ll.addWidget(QtWidgets.QLabel("<b>Scans</b> (each: Update with its own file, timing and HKL, then 'Add current "
+                                      "scan'; the composition path and CTR settings come from the left panel)"))
+        ll.addWidget(self.j_scans, 1)
+        row = QtWidgets.QHBoxLayout()
+        for k in ("add", "remove", "clear", "save", "load"):
+            row.addWidget(buttons[k])
+        ll.addLayout(row)
+        ll.addWidget(QtWidgets.QLabel("<b>Shared parameters</b> (tick Free to fit; each scan has its own scale)"))
+        ll.addWidget(self.j_params, 2)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(self.j_struct, 1)
+        row.addWidget(buttons["addp"])
+        ll.addLayout(row)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(QtWidgets.QLabel("Near-surface trilayers"))
+        row.addWidget(self.j_tl)
+        row.addWidget(buttons["fit"])
+        row.addWidget(QtWidgets.QLabel("Profile"))
+        row.addWidget(self.j_profile)
+        row.addWidget(buttons["profile"])
+        row.addWidget(buttons["apply"])
+        ll.addLayout(row)
+        ll.addWidget(self.j_out, 1)
+        split = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        split.addWidget(left)
+        split.addWidget(self.p_joint)
+        split.setSizes([620, 600])
+        lay = QtWidgets.QVBoxLayout(w)
+        lay.addWidget(split)
+        buttons["add"].clicked.connect(lambda: self.joint_add_scan())
+        buttons["remove"].clicked.connect(lambda: self.joint_remove())
+        buttons["clear"].clicked.connect(lambda: self.joint_clear())
+        buttons["save"].clicked.connect(lambda: self.joint_save())
+        buttons["load"].clicked.connect(lambda: self.joint_load())
+        buttons["addp"].clicked.connect(lambda: self.joint_add_param(self.j_struct.currentText()))
+        buttons["fit"].clicked.connect(lambda: self.joint_fit())
+        buttons["profile"].clicked.connect(lambda: self.joint_profile())
+        buttons["apply"].clicked.connect(lambda: self.joint_apply())
+        self.j_scans.itemChanged.connect(self._joint_scan_edited)
+        self.j_params.itemChanged.connect(self._joint_param_edited)
+        return w
+
+    def _joint_rebuild(self, scans):
+        """A new JointFit for these scans from the current path / CTR settings; keeps parameter values
+        and flags of the previous one where the names match."""
+        o = self.gather()
+        states = pr.parse_states(o.states)
+        E0, w = pr.parse_transitions(o.transitions, len(states) - 1)
+        old = self.joint.params if self.joint else {}
+        structure = [k for k in (self.joint.structure_keys if self.joint else jt.DEFAULT_STRUCTURE)]
+        j = jt.JointFit(scans, self.session.sim_params(), states, E0, w, o.theta, o.cathodic_shift, o.ns_dB,
+                        o.ns_E0, o.ns_width, structure)
+        for k, p in old.items():
+            if k in j.params:
+                j.params[k] = p
+            elif k in jt.STRUCTURE_KEYS:
+                j.params[k] = p
+        self.joint = j
+        self.j_tl.setValue(int(j.sim["ns_tl"]))
+        self._joint_fill()
+
+    def _joint_fill(self):
+        j = self.joint
+        t = self.j_scans
+        t.blockSignals(True)
+        t.setRowCount(0 if j is None else len(j.scans))
+        for i, s in enumerate(j.scans if j else []):
+            use = QtWidgets.QTableWidgetItem()
+            use.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
+            use.setCheckState(QtCore.Qt.Checked if s.use else QtCore.Qt.Unchecked)
+            t.setItem(i, 0, use)
+            for c, v in enumerate((s.label, " ".join(f"{x:g}" for x in s.hkl), str(s.V.size)), start=1):
+                it = QtWidgets.QTableWidgetItem(v)
+                it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
+                t.setItem(i, c, it)
+        t.blockSignals(False)
+        p = self.j_params
+        p.blockSignals(True)
+        p.setRowCount(0 if j is None else len(j.params))
+        err = self.joint_result.errors if self.joint_result else {}
+        for i, par in enumerate(j.params.values() if j else []):
+            tied = j.ns_tied and par.name in ("ns_E0", "ns_width")
+            cells = [par.name, f"{par.value:.6g}", None, f"{par.min:g}", f"{par.max:g}", par.unit,
+                     "tied to transition 1" if tied else (f"{err[par.name]:.3g}" if par.name in err else "")]
+            for c, v in enumerate(cells):
+                if c == 2:
+                    it = QtWidgets.QTableWidgetItem()
+                    it.setFlags(QtCore.Qt.ItemIsUserCheckable | QtCore.Qt.ItemIsEnabled)
+                    it.setCheckState(QtCore.Qt.Checked if par.free and not tied else QtCore.Qt.Unchecked)
+                else:
+                    it = QtWidgets.QTableWidgetItem(v)
+                    if c in (0, 5, 6) or tied:
+                        it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
+                    it.setToolTip(par.description)
+                p.setItem(i, c, it)
+        p.blockSignals(False)
+        self.p_joint.draw(plots.draw_echem_joint, j, self.joint_result.values if self.joint_result else None,
+                          self.joint_result.ns_tl if self.joint_result else None)
+
+    def _joint_scan_edited(self, item):
+        if item.column() == 0 and self.joint:
+            self.joint.scans[item.row()].use = item.checkState() == QtCore.Qt.Checked
+            self.joint._cache.clear()
+
+    def _joint_param_edited(self, item):
+        if not self.joint:
+            return
+        name = self.j_params.item(item.row(), 0).text()
+        par = self.joint.params[name]
+        try:
+            if item.column() == 1:
+                par.value = float(item.text())
+            elif item.column() == 2:
+                par.free = item.checkState() == QtCore.Qt.Checked
+            elif item.column() == 3:
+                par.min = float(item.text())
+            elif item.column() == 4:
+                par.max = float(item.text())
+        except ValueError:
+            self.say(f"{name}: '{item.text()}' is not a number", error=True)
+            self._joint_fill()
+
+    def joint_add_scan(self):
+        def go():
+            if self.session.res.I_corr is None:
+                self.update_all()
+            if self.session.res.I_corr is None:
+                raise ValueError("press Update for this scan first")
+            new = jt.JointScan.from_session(self.session)
+            scans = [s for s in (self.joint.scans if self.joint else []) if s.label != new.label] + [new]
+            self._joint_rebuild(scans)
+            self.say(f"joint fit: {len(scans)} scan(s); added {new.label}")
+            self.tabs.setCurrentIndex(self.tabs.count() - 1)
+        self._run(go)
+
+    def joint_remove(self):
+        if not self.joint:
+            return
+        rows = sorted({ix.row() for ix in self.j_scans.selectedIndexes()}, reverse=True)
+        scans = [s for i, s in enumerate(self.joint.scans) if i not in rows]
+        for i in rows:
+            self.joint.params.pop(f"scale:{self.joint.scans[i].label}", None)
+        self._run(lambda: self._joint_rebuild(scans))
+
+    def joint_clear(self):
+        self.joint, self.joint_result = None, None
+        self.j_out.clear()
+        self._joint_fill()
+
+    def joint_add_param(self, key):
+        if not self.joint:
+            self.say("Add a scan first.", error=True)
+            return
+        self._run(lambda: (self.joint.add_structure(key), self._joint_fill()))
+
+    def joint_fit(self):
+        def go():
+            if not self.joint:
+                raise ValueError("add scans to the joint fit first")
+            self.joint_result = self.joint.fit(ns_tl=self.j_tl.value())
+            self.j_out.setPlainText(self.joint_result.summary())
+            self._joint_fill()
+            self.say(f"joint fit: reduced chi2 {self.joint_result.red_chi2:.2f}")
+        self._run(go)
+
+    def joint_profile(self):
+        def go():
+            if not self.joint:
+                raise ValueError("add scans to the joint fit first")
+            tls = [int(x) for x in self.j_profile.text().replace(",", " ").split()]
+            if not tls:
+                raise ValueError("profile: give near-surface trilayer counts, e.g. 1, 2, 3")
+            prof = self.joint.profile_ns_tl(tls)
+            best = min(prof, key=lambda p: p[1].red_chi2)
+            self.joint_result = best[1]
+            self.j_tl.setValue(best[0])
+            lines = ["ns_tl profile (one fit each):"] + [f"  {tl:2d} TL: reduced chi2 {r.red_chi2:.3f}" + ("  <- best" if tl == best[0] else "")
+                                                         for tl, r in prof]
+            self.j_out.setPlainText("\n".join(lines) + "\n\n" + best[1].summary())
+            self._joint_fill()
+        self._run(go)
+
+    def joint_apply(self):
+        if self.joint and self.joint_result:
+            self.joint.apply(self.joint_result)
+            self._joint_fill()
+
+    def joint_save(self, path=None):
+        if not self.joint:
+            self.say("Nothing to save.", error=True)
+            return
+        path = path or QtWidgets.QFileDialog.getSaveFileName(self, "Save joint set", "joint_fit.json", "JSON (*.json)")[0]
+        if path:
+            self.joint.save(path)
+            self.say(f"Saved {Path(path).name}")
+
+    def joint_load(self, path=None):
+        path = path or QtWidgets.QFileDialog.getOpenFileName(self, "Load joint set", "", "JSON (*.json)")[0]
+        if not path:
+            return
+
+        def go():
+            self.joint = jt.JointFit.load(path)
+            self.joint_result = None
+            self.j_tl.setValue(int(self.joint.sim.get("ns_tl", 3)))
+            self._joint_fill()
         self._run(go)
 
 

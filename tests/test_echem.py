@@ -423,3 +423,120 @@ def test_window_near_surface_fields(files, tmp_path, monkeypatch):
     assert msgs and "width" in msgs[-1]
     w.close()
     w2.close()
+
+
+# ---------------------------------------------------------------------------- joint fit of several scans
+@pytest.fixture(scope="module")
+def joint_scans(tmp_path_factory):
+    """Four stationary CVs at different L on (0 1) from one truth: H2O -> OH at 0.8 V, near-surface O
+    B +2 A^2 in the top 2 trilayers, OH oxygen 2.1 A above Ru (default 2.0)."""
+    from ctrfit.echem.joint import JointScan
+    d = tmp_path_factory.mktemp("joint")
+    scans = []
+    for i, L in enumerate((2.75, 3.16, 3.25, 1.25)):
+        sp, mpt, _ = write_experiment(d / str(i), "loopscan", seed=10 + i, hkl=(0, 1, L), states=("H2O", "OH"),
+                                      E0=(0.8,), widths=(0.04,), ns_dB=2.0, sim=dict(oh_z=2.1, ns_tl=2))
+        s = Session(Options(monitor="Monitor", offset=TRUTH["clock_offset"], states="H2O -> OH",
+                            transitions="0.8, 0.04"))
+        s.load_spec(sp)
+        s.load_ec(mpt)
+        s.run()
+        scans.append(JointScan.from_session(s, f"L{L}"))
+    return scans, d
+
+
+def test_structure_point_is_exact():
+    from ctrfit.core.ctrmodel import CTRModel
+    from ctrfit.core.settings import DEFAULTS
+    from ctrfit.echem.joint import StructurePoint
+    for over, hkl in ((dict(ns_tl=2), (0, 1, 3.16)), (dict(ns_tl=3, mix_mode="domains"), (1, 0, 2.25)),
+                      (dict(ns_tl=4, relax_001=0.5, thickness_nm=10.0), (1, 0, 2.25))):
+        sp = StructurePoint(CTRModel(dict(DEFAULTS, **over)), hkl)
+        c = np.array([0.2, 0.5, 0.1])
+        assert sp.intensity(c, 1.7)[0] == pytest.approx(sp.direct(c, 1.7), rel=1e-8)
+        assert sp.check_error < 1e-8
+    assert len(StructurePoint(CTRModel(dict(DEFAULTS, ns_tl=4, relax_001=0.5, thickness_nm=10.0)), (1, 0, 2.25)).Q) == 2
+
+
+def test_joint_fit_recovers_shared_parameters(joint_scans, tmp_path):
+    from ctrfit.echem.joint import JointFit
+    scans, _ = joint_scans
+    j = JointFit(scans, dict(ns_tl=2), states=("H2O", "OH"), E0=(0.75,), widths=(0.05,))
+    j.set("cathodic_shift", free=True)
+    j.set("ns_dB", 1.0, free=True)
+    j.set("oh_z", free=True)
+    r = j.fit()
+    truth = dict(E0_1=0.8, width_1=0.04, cathodic_shift=TRUTH["cathodic_shift"], ns_dB=2.0, oh_z=2.1)
+    for k, v in truth.items():
+        assert abs(r.values[k] - v) < max(4 * r.errors[k], 1e-3), (k, r.values[k], r.errors[k])
+    assert 0.8 < r.red_chi2 < 1.3 and set(r.chi2_per_scan) == {s.label for s in scans}
+    assert "tied to transition 1" in r.summary()
+    prof = j.profile_ns_tl((1, 2, 3))
+    assert min(prof, key=lambda p: p[1].red_chi2)[0] == 2                      # the true depth
+    j.apply(r)
+    back = JointFit.load(j.save(tmp_path / "set.json"))
+    assert back.params["oh_z"].value == pytest.approx(r.values["oh_z"]) and len(back.scans) == 4
+    assert back.fit().red_chi2 == pytest.approx(r.red_chi2, rel=1e-3)
+    j2 = JointFit(scans, dict(ns_tl=0), states=("H2O", "OH"), E0=(0.8,), widths=(0.04,))
+    j2.set("ns_dB", 1.0, free=True)
+    with pytest.raises(ValueError, match="ns_tl"):
+        j2.fit()
+
+
+def test_cli_cv_joint(joint_scans, tmp_path):
+    from ctrfit.echem.joint import JointFit
+    scans, _ = joint_scans
+    j = JointFit(scans[:2], dict(ns_tl=2), states=("H2O", "OH"), E0=(0.78,), widths=(0.05,))
+    j.save(tmp_path / "set.json")
+    code = "import sys; sys.modules['xraydb'] = None; from ctrfit.cli import main; sys.exit(main())"
+    env = dict(__import__("os").environ, PYTHONPATH=str(ROOT))
+    r = subprocess.run([sys.executable, "-c", code, "cv-joint", str(tmp_path / "set.json"), "--free", "ns_dB",
+                        "--profile", "1,2", "--out", str(tmp_path / "fit.json")], capture_output=True, text=True,
+                       env=env, timeout=300)
+    assert r.returncode == 0, r.stderr
+    assert "ns_tl  2" in r.stdout and "Joint fit of 2 scans" in r.stdout and (tmp_path / "fit.json").exists()
+    r = subprocess.run([sys.executable, "-c", code, "cv-joint", str(tmp_path / "set.json"), "--free", "nope"],
+                       capture_output=True, text=True, env=env, timeout=120)
+    assert r.returncode != 0 and "unknown parameters" in r.stderr
+
+
+def test_joint_fit_tab(joint_scans, tmp_path, monkeypatch):
+    pytest.importorskip("PyQt5")
+    from PyQt5 import QtWidgets
+    from ctrfit.app.echem_window import EchemWindow
+    _, d = joint_scans
+    msgs = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: msgs.append(a[2])))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    w = EchemWindow()
+    w.joint_fit()
+    assert msgs and "add scans" in msgs[-1]
+    msgs.clear()
+    w.states.setText("H2O -> OH")
+    w.transitions.setText("0.78, 0.05")
+    w.monitor.setCurrentText("Monitor")
+    for i in (0, 1):
+        w.open_spec(str(d / str(i) / "insitu.spec"))
+        w.monitor.setCurrentText("Monitor")
+        w.open_ec(str(d / str(i) / "cv.mpt"))
+        w.offset.setValue(TRUTH["clock_offset"])
+        w.update_all()
+        w.session.opt.hkl = None
+        w.joint_add_scan()
+    assert not msgs, msgs
+    assert w.j_scans.rowCount() == 2 and "oh_z" in w.joint.params
+    w.joint_add_param("relax_Obr")
+    assert "relax_Obr" in w.joint.params
+    w.j_tl.setValue(2)
+    w.joint_fit()
+    assert not msgs, msgs
+    assert "Joint fit of 2 scans" in w.j_out.toPlainText() and w.p_joint.figure.axes
+    w.j_profile.setText("1, 2")
+    w.joint_profile()
+    assert "ns_tl profile" in w.j_out.toPlainText()
+    w.joint_apply()
+    w.joint_save(str(tmp_path / "j.json"))
+    w.joint_clear()
+    w.joint_load(str(tmp_path / "j.json"))
+    assert w.j_scans.rowCount() == 2 and not msgs
+    w.close()

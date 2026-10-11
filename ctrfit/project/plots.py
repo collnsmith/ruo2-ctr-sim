@@ -536,3 +536,42 @@ def draw_echem_model(fig, r, pm=None):
     b.legend(fontsize=7, ncol=2)
     for ax in (a, b):
         ax.grid(alpha=0.25)
+
+
+def draw_echem_joint(fig, joint, values=None, ns_tl=None, bin_width=0.02):
+    """Every scan of a joint fit: data binned in potential per sweep direction, and the model."""
+    fig.clear()
+    scans = [s for s in (joint.scans if joint else []) if s.use]
+    if not scans:
+        message(fig, "Add scans to the joint fit ('Add current scan' after Update on each scan).")
+        return
+    n = len(scans)
+    ncol = 2 if n > 1 else 1
+    nrow = int(np.ceil(n / ncol))
+    axs = np.atleast_1d(fig.subplots(nrow, ncol, squeeze=False)).ravel()
+    for ax, s in zip(axs, scans):
+        for br in (1, -1):
+            m = s.branch == br
+            if not m.any():
+                continue
+            st = BRANCH_STYLE[br]
+            V, I = s.V[m], s.I[m]
+            lo = np.floor(V.min() / bin_width) * bin_width
+            idx = np.floor((V - lo) / bin_width).astype(int)
+            cnt = np.bincount(idx)
+            ok = cnt > 0
+            ax.plot(np.bincount(idx, V)[ok] / cnt[ok], np.bincount(idx, I)[ok] / cnt[ok], "o", ms=3,
+                    color=st["color"], mfc=st["color"] if br > 0 else "none", label=st["label"])
+            if values is not None:
+                v = np.linspace(s.V.min(), s.V.max(), 200)
+                try:
+                    ax.plot(v, joint.curve(s, values, v, np.full(v.size, br), ns_tl), color=st["color"], lw=1.4)
+                except Exception as ex:  # noqa: BLE001  (a bad parameter set: show the data anyway)
+                    ax.set_title(f"{s.label}: {ex}", fontsize=8)
+        ax.set_title(s.label, fontsize=9)
+        ax.set_xlabel("potential (V)")
+        ax.set_ylabel("intensity")
+        ax.grid(alpha=0.25)
+    for ax in axs[n:]:
+        ax.set_visible(False)
+    axs[0].legend(fontsize=7)

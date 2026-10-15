@@ -2,6 +2,9 @@ numpy
 scipy
 matplotlib>=3.5
 PyQt5
+# SXRD data tools: Eiger .h5 images (tifffile for .tif images is optional)
+h5py
+# tifffile
 # fitting: MCMC uncertainties (ctrfit.fit.mcmc)
 emcee
 # fitting assistant (Ask Claude panel): needs an API key, ANTHROPIC_API_KEY or `ant auth login`

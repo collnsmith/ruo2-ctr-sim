@@ -50,12 +50,17 @@ ctrfit/echem     in-situ CV: spec.py (SPEC scans, point times), ec.py (EC-Lab .m
                  sigmoids), predict.py (CTR intensity at one HKL along a composition path), session.py,
                  joint.py (joint fit of several stationary scans: shared path / near-surface / structure,
                  a scale per scan, ns_tl profile), synthetic.py (known-truth experiment)
+ctrfit/datatools SXRD data processing (no Qt): images.py (Eiger .h5/.tif, ROI, ROIConfig, background methods),
+                 bgfind.py (background ROI finder statistics), specfile.py (SPEC reader with motors),
+                 peaks.py (peak models and fits, bgsub sums), hkl.py (append HKL, smooth, combine, GenX),
+                 h5meta.py, ctrmodels.py (quick CTR models), paths.py (settings folder)
 ctrfit/assistant agent.py (Claude fitting assistant: tool-use loop over the fitting API, no Qt)
-ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py, echem_window.py (Qt; the only Qt code in ctrfit)
+ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py, echem_window.py, data_tools_window.py
+                 (tabs over datatools/: one window per old tool) (Qt; the only Qt code in ctrfit)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
-ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py, ctr_echem.py launch the ctrfit windows
+ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py, ctr_echem.py, ctr_data_tools.py launch the ctrfit windows
 ctr_launcher.py  launcher: finds every file with an '# @app' tag (ctrfit/apps.py, ctrfit/app/launcher_window.py)
 ```
 
@@ -87,6 +92,7 @@ python -m pytest -m slow      # long tests (direct combined fit, example fit, po
 
 - The cloud environment has no GPU and no display. GUI tests run with `QT_QPA_PLATFORM=offscreen`
   (set in `tests/conftest.py`), plots use the Agg backend.
+- `tests/conftest.py` points `CTRFIT_SETTINGS_DIR` (data tools settings) at a temp folder.
 - `tests/conftest.py` blocks `xraydb`, so "auto" anomalous terms always come from the built-in
   table and the pinned numbers are machine independent.
 - Viewer tests: the CPU renderer is compared with the CUDA kernel run in Numba's CUDA simulator,
@@ -120,6 +126,7 @@ What the tests protect:
 | `test_echem.py` | SPEC scans and point times (epoch vs elapsed agree), stationary detection, .mpt / CSV / faked .mpr readers, hand-defined CV, sync modes (absolute and manual agree, events lag, typed onset), header-less scans, CV start/stop by point number (hold or sweep), loop-closing shift, transmission, rod rounding, cycles, background, sigmoid recovery, exact CTR quadratic, path fit recovers the synthetic truth (loopscan, phi scan, hand-defined CV), near-surface O (interpolated shortcut vs direct, fit recovers it, window fields), joint fit (exact quadratic incl. domains and relaxed top, four synthetic scans recover path, near-surface B, oh_z and the depth, save/load, CLI, tab), coverage, exports, CLI, window offscreen |
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
+| `test_datatools.py` | data tools on synthetic files: SPEC columns and motors, HKL append (snapped H K) / smooth (exclusion zones) / combine / GenX, h5 images, ROI file round trip, every background method, ROI finder avoids signal and hot spots, peak fit with a centre hint and its area, quick CTR models, no Qt in the logic; the tabbed window (tabs, CTR button switches tab, arrow keys only on the visible tab, combiner end to end, settings saved), the in-process ROI finder hand-off, the launcher entry point |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

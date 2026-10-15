@@ -286,3 +286,32 @@ Geometry: You, J. Appl. Cryst. 32, 614 (1999), as in SPEC psic: beam along +y, x
 about the vertical axis, eta, delta and phi about the horizontal one. If a motor at your beamline
 turns the other way, set its sign (e.g. `eta=-1`). Check the convention once against a known
 reflection before trusting the indexer at a new beamline.
+
+## SXRD data tools
+
+`python ctr_data_tools.py` (or "SXRD data tools" in the launcher) opens the data processing tools
+in one window, one tab per step of the chain:
+
+- **Metadata.** HDF5 structure and metadata per scan of an image folder; SPEC columns per scan.
+- **Background subtraction.** Eiger 500K `.h5` (h5py) or `.tif` (tifffile) images named
+  `<prefix>_<scan>_<image>_data_<n>`: signal and background ROIs, per-image overrides, ROIs that
+  follow a master ROI or track the peak, average / median / polynomial background, a pixel mask,
+  batch ROI sums and subtracted images. "Find background ROIs" opens the ROI finder on the same
+  folder and scan range and merges its background boxes. Manual: `docs/data_tools_bgsub_manual.txt`.
+- **Background ROI finder.** Per-scan pixel statistics (on the GPU with CuPy if installed), a mask of
+  persistent bright spots (powder rings, hot pixels), background boxes around a clicked signal centre.
+- **Plotter.** SPEC scans with the ROI sums, figure options, peak fits of rocking curves (Gaussian,
+  Lorentzian, pseudo-Voigt with a linear background; fitted or numerical areas), smoothing, per-scan
+  Y columns, exports. "CTR fitting" switches to the CTR fit tab.
+- **CTR fit.** Quick kinematic rods (substrate, film, adlayer, liquid, three layers) on integrated
+  intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.
+- **HKL appender.** H, K, L from the SPEC scan added to plotter exports and peak-fit tables
+  (constant H and K snapped), and GenX export.
+- **Smoother.** HKL files smoothed (Savitzky-Golay, moving average, Gaussian, Lowess, spline) with
+  Bragg exclusion zones.
+- **Combiner.** Several HKL files into one `H K L I` table (drop NaN or non-positive rows, sort, dedupe).
+
+The logic is in `ctrfit.datatools` (no Qt), the windows in `ctrfit.app.datatools`; one tool alone:
+`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `ctr_fit`, `appender`, `smoother`,
+`combiner`, `meta_viewer`). Settings are saved in `~/.ctrfit/data_tools` (or `$CTRFIT_SETTINGS_DIR`);
+copy the old `.ini` files there to keep them.

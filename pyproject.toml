@@ -17,6 +17,7 @@ mcmc = ["emcee"]
 assistant = ["anthropic"]
 anomalous = ["xraydb"]
 echem = ["galvani"]
+data = ["PyQt5", "h5py", "tifffile"]
 test = ["pytest"]
 
 [project.scripts]

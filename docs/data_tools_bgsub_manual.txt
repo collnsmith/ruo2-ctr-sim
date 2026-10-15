@@ -1,0 +1,616 @@
+# ============================================================================
+# SXRD Background Subtraction GUI — User Manual
+# ============================================================================
+# Version: 1.0
+# For: Eiger 500K area detector at synchrotron beamlines
+# Author: Generated for NSLS-II SXRD beamtime
+# ============================================================================
+
+
+# ----------------------------------------------------------------------------
+# 1. OVERVIEW
+# ----------------------------------------------------------------------------
+#
+# This program performs background subtraction on area detector images from
+# surface X-ray diffraction (SXRD) experiments. It is designed for the
+# Eiger 500K detector and handles both HDF5 (.h5) and TIFF (.tif) image
+# formats.
+#
+# Core capabilities:
+#   - Load and browse detector images by scan/image number
+#   - Define signal and background ROIs (regions of interest)
+#   - Apply ROI presets across all images, with per-image overrides
+#   - Live preview of background-subtracted images
+#   - Three background subtraction methods
+#   - ROI tracking for drifting features
+#   - Dead pixel masking (auto-detect or manual painting)
+#   - Batch processing with integrated intensity output
+#   - Session persistence (all settings remembered between runs)
+
+
+# ----------------------------------------------------------------------------
+# 2. INSTALLATION
+# ----------------------------------------------------------------------------
+#
+# Requirements:
+#   - Python 3.8 or later
+#   - PyQt5
+#   - h5py
+#   - numpy
+#   - scipy
+#   - tifffile
+#
+# Install (any OS), from the repository folder:
+#   pip install -r requirements.txt        (PyQt5, numpy, scipy, h5py, ...)
+#   pip install tifffile                   (only for .tif images)
+#
+# Launch: open "SXRD data tools" from the launcher (python ctr_launcher.py),
+# or run  python ctr_data_tools.py  and pick the "Background subtraction"
+# tab. This tool alone:  python -m ctrfit.app.datatools.bgsub
+#
+# Settings (window state, last folders) are kept in ~/.ctrfit/data_tools
+# (or $CTRFIT_SETTINGS_DIR), no longer next to the script.
+
+
+# ----------------------------------------------------------------------------
+# 3. FILE FORMAT
+# ----------------------------------------------------------------------------
+#
+# The program expects Eiger 500K files with this naming convention:
+#
+#   {prefix}_{scan:03d}_{image:03d}_data_000001.h5
+#   {prefix}_{scan:03d}_{image:03d}_master.h5
+#
+#   or
+#
+#   {prefix}_{scan:03d}_{image:03d}_data_000001.tif
+#   {prefix}_{scan:03d}_{image:03d}_master.metafile
+#
+# Example:
+#   smith_exper_13mar26_042_003_data_000001.h5   (scan 42, image 3)
+#   smith_exper_13mar26_042_003_master.h5         (metadata, not loaded)
+#
+# Scan and image numbers are zero-padded to 3 digits.
+# Master files are recognized but skipped during image loading.
+# The _data_ files contain the actual detector images.
+#
+# For HDF5 files, the program searches these dataset paths:
+#   entry/data/data
+#   entry/instrument/detector/data
+#   data
+
+
+# ----------------------------------------------------------------------------
+# 4. INTERFACE LAYOUT
+# ----------------------------------------------------------------------------
+#
+# The window has three resizable panels separated by draggable dividers:
+#
+#   +---------------------+-------------------------------------------+
+#   |                     |  Original image (top)                     |
+#   |  Control panel      |  - Displays raw detector image            |
+#   |  (left, scrollable) |  - ROIs are drawn here and can be dragged |
+#   |                     +-------------------------------------------+
+#   |                     |  Subtracted image (bottom)                |
+#   |                     |  - Live preview of background subtraction |
+#   |                     |  - Updates on any change                  |
+#   +---------------------+-------------------------------------------+
+#   | Pixel info: x, y, value    | ROIs (orig) | ROIs (sub) |
+#   +---------------------+-------------------------------------------+
+#
+# All panel sizes are saved between sessions. Drag the dividers to resize.
+# The left panel scrolls vertically if the window is too short.
+
+
+# ----------------------------------------------------------------------------
+# 5. LOADING DATA
+# ----------------------------------------------------------------------------
+#
+# Data Directory:
+#   Click "Browse" to select the folder containing your detector images.
+#   The program scans for files matching the naming pattern.
+#
+# File Type:
+#   Filter by "h5", "tif", or "All". Only matching files are shown.
+#
+# Scan Range:
+#   Set the scan number range (e.g., 10 to 25) and click "Apply filter"
+#   to restrict which images are loaded. This is useful when a directory
+#   contains thousands of images from multiple experiments.
+#
+# The file count and number of scans are shown below the filter.
+# The last used directory and filter settings are restored on next launch.
+
+
+# ----------------------------------------------------------------------------
+# 6. NAVIGATION
+# ----------------------------------------------------------------------------
+#
+# Keyboard:
+#   Left/Right arrow    Move to previous/next image
+#   Ctrl+Left/Right     Jump to first image of previous/next scan
+#
+# Buttons:
+#   "Prev" / "Next"     Same as arrow keys
+#
+# The current scan number, image number, and position in the file list
+# are shown in the Navigation section.
+#
+# Note: Arrow keys work globally. They are intercepted before reaching
+# spinboxes and combo boxes. Arrow keys still work inside text fields
+# and spinboxes when those widgets have focus (for editing values).
+
+
+# ----------------------------------------------------------------------------
+# 7. ROIS (REGIONS OF INTEREST)
+# ----------------------------------------------------------------------------
+#
+# 7.1 Adding and Removing
+# ........................
+#
+#   Click "+" to add a new ROI (default 100x100 at position 50,50)
+#   Click "−" to remove the selected ROI
+#   There is no limit on the number of ROIs.
+#
+# 7.2 ROI Types
+# .............
+#
+#   signal      — Green outline. The region containing your diffraction feature.
+#                  Integrated intensity is computed from this region.
+#
+#   background  — Red outline. Used to estimate the background level.
+#                  The background subtraction methods use these regions.
+#
+#   You need at least one signal ROI and one background ROI for subtraction
+#   to work. Multiple background ROIs are averaged together.
+#
+# 7.3 Editing ROIs
+# ................
+#
+#   Select an ROI in the list to edit it. You can change:
+#     Name    — Descriptive label (used in output column headers)
+#     Type    — signal or background
+#     X, Y    — Top-left corner in pixel coordinates
+#     W, H    — Width and height in pixels
+#
+#   Or drag directly on the original image:
+#     Drag interior     — Move the ROI
+#     Drag corners      — Resize from that corner
+#     Drag edges        — Resize from that edge
+#
+#   The edit fields update in real-time during dragging.
+#
+# 7.4 Applying ROIs to All Images
+# ................................
+#
+#   Click "Apply ROIs to all images" to set the current ROI configuration
+#   as the default for every image. Then navigate through images and adjust
+#   individual ones as needed. Only the differences (overrides) are stored.
+#
+#   Workflow:
+#     1. Navigate to a representative image
+#     2. Set up your ROIs (signal + background)
+#     3. Click "Apply ROIs to all images"
+#     4. Navigate through the dataset with arrow keys
+#     5. Adjust ROIs on images where the feature has moved
+#     6. Save the ROI file
+#
+# 7.5 ROI Visibility
+# ..................
+#
+#   Two checkboxes at the bottom of the image area:
+#     "ROIs (orig)"   — Toggle ROI overlay on the original image
+#     "ROIs (sub)"    — Toggle ROI overlay on the subtracted image
+#
+#   These are independent. Hiding ROIs does not affect subtraction —
+#   it only hides the visual overlay.
+
+
+# ----------------------------------------------------------------------------
+# 8. ROI TRACKING
+# ----------------------------------------------------------------------------
+#
+# When the diffraction feature drifts on the detector between images
+# (due to slight sample misalignment during a scan), tracking
+# automatically repositions the ROI to follow the feature.
+#
+# 8.1 Setup
+# .........
+#
+#   1. Navigate to a well-aligned image where the feature is centered
+#   2. Position your ROI precisely on the feature
+#   3. Click "Set ref" to capture the reference template
+#   4. Check "Track this ROI"
+#   5. Select the tracking method and search margin
+#
+# 8.2 Tracking Methods
+# ....................
+#
+#   Cross-correlation
+#     Matches the reference template against a search region around the ROI.
+#     The position with the highest correlation is the new ROI position.
+#     Best for: consistent peak shapes that translate without changing shape.
+#     Most robust of the three methods. Recommended default.
+#
+#   Center of mass
+#     Computes the intensity-weighted centroid within the search region.
+#     Does not require a reference template (but Set ref is still recommended
+#     for defining the initial position).
+#     Best for: isolated peaks with uniform background.
+#     Fast but sensitive to background gradients and nearby features.
+#
+#   Gaussian fit
+#     Fits a 2D Gaussian to the intensity within the search region.
+#     Most precise for symmetric, isolated peaks.
+#     Falls back to Center of mass if the fit fails.
+#     Best for: well-defined single peaks. Slowest method.
+#
+# 8.3 Parameters
+# ..............
+#
+#   Margin    — Search area in pixels beyond the ROI edges (default 20).
+#               The tracker looks within ROI ± margin for the feature.
+#               Increase if the drift is large (>20 pixels between images).
+#               Too large slows processing and risks false matches.
+#
+#   Confidence — Displayed after each tracked image (0 to 1).
+#                Below 0.1, the ROI stays at its last known position
+#                rather than jumping to noise.
+#
+# 8.4 Indicators
+# ..............
+#
+#   Tracked ROIs show "⟳" in the ROI list.
+#   The confidence value updates when you navigate to a new image.
+#   The status bar shows the displacement (Δx, Δy) after each tracking.
+#
+# 8.5 Per-ROI Control
+# ...................
+#
+#   Tracking is enabled independently for each ROI. You might track your
+#   signal ROI but leave background ROIs fixed (backgrounds don't drift).
+#   Or track all ROIs if the entire diffraction pattern shifts.
+#
+# 8.6 Tracking During Batch Processing
+# .....................................
+#
+#   When you click RUN, tracking is applied to each image before
+#   subtraction and integration. The ROI positions adjust frame-by-frame.
+
+
+# ----------------------------------------------------------------------------
+# 9. DEAD PIXEL MASKING
+# ----------------------------------------------------------------------------
+#
+# The Eiger 500K has dead/hot pixels that read anomalous values (often 1e9
+# or similar). These must be masked before analysis.
+#
+# 9.1 Auto-detect
+# ...............
+#
+#   Check "Auto threshold" and set the value (default 1e7).
+#   Any pixel above this value is masked. Applied per-image.
+#
+# 9.2 Load Mask File
+# ..................
+#
+#   Click "Load mask" to load a pre-made mask:
+#     .npy   — NumPy boolean array (True = dead pixel)
+#     .tif   — TIFF image (nonzero = dead pixel)
+#
+#   The mask must match the detector dimensions (512 x 1030 for Eiger 500K).
+#
+# 9.3 Create Mask by Clicking
+# ...........................
+#
+#   1. Check "Create mask (click pixels)"
+#   2. Zoom in on the image (drag a box to zoom)
+#   3. Click or drag on dead pixels — they turn red
+#   4. Adjust brush size (1–20 pixels) for larger bad regions
+#   5. Uncheck the toggle when done
+#   6. Click "Save mask" to export as .npy or .tif
+#
+#   The mask persists across images. Clear it with "Clear mask".
+#   When mask paint mode is active, ROI dragging is disabled.
+#
+# 9.4 Combining Methods
+# .....................
+#
+#   Auto-detect and manual painting can be combined. Auto-detect runs
+#   on each image (catching intermittent hot pixels), while the loaded
+#   or painted mask catches persistent dead pixels.
+#
+# The masked pixel count is shown next to the Clear button.
+
+
+# ----------------------------------------------------------------------------
+# 10. BACKGROUND SUBTRACTION METHODS
+# ----------------------------------------------------------------------------
+#
+# Select the method from the "BG method" dropdown. The subtracted preview
+# updates immediately when you change the method.
+#
+# 10.1 Average
+# ............
+#
+#   Computes the mean pixel value across all background ROI pixels.
+#   Subtracts this constant from every pixel in the image.
+#
+#   result = image - mean(background_pixels)
+#
+#   Best for: uniform background across the detector.
+#   Fastest method.
+#
+# 10.2 Median
+# ...........
+#
+#   Same as Average but uses the median instead of the mean.
+#   More robust against outliers (cosmic rays, hot pixels that
+#   escaped the mask).
+#
+#   result = image - median(background_pixels)
+#
+#   Best for: background with occasional outlier pixels.
+#
+# 10.3 Polynomial
+# ...............
+#
+#   Fits a 2nd-order polynomial surface (6 parameters) to the
+#   background ROI pixels as a function of (x, y) position.
+#   Subtracts the fitted surface from the entire image.
+#
+#   result = image - poly_surface(x, y)
+#
+#   Best for: background with spatial gradients (e.g., fluorescence
+#   that varies across the detector, air scatter gradient).
+#   Requires background ROIs spread across different parts of the
+#   detector for a good fit. Falls back to Average if there aren't
+#   enough background pixels for the polynomial fit.
+
+
+# ----------------------------------------------------------------------------
+# 11. DISPLAY OPTIONS
+# ----------------------------------------------------------------------------
+#
+# Log scale
+#   Toggle logarithmic intensity scaling. Recommended for diffraction
+#   data where intensities span many orders of magnitude.
+#
+# Full detector view
+#   When checked, the subtracted preview shows the entire detector image
+#   with background subtracted everywhere.
+#   When unchecked, only the signal ROI regions are shown (everything
+#   else is black). Useful for focusing on the feature.
+#
+# Colormap
+#   Choose from: gray, hot, viridis, inferno, coolwarm, jet.
+#   Applied to both original and subtracted images.
+#
+# Min / Max
+#   Set manual intensity limits for the color scale.
+#   Value of 0 means "auto" (determined from percentiles).
+#   Click "Auto min/max" to reset both to auto.
+
+
+# ----------------------------------------------------------------------------
+# 12. IMAGE INTERACTION
+# ----------------------------------------------------------------------------
+#
+# 12.1 Zoom
+# .........
+#
+#   Drag a box on either image to zoom into that region.
+#   A yellow dashed rectangle shows the selection while dragging.
+#   The zoom is independent for original and subtracted images.
+#
+# 12.2 Zoom Out
+# .............
+#
+#   Double-click on the image to reset to full view.
+#
+# 12.3 Pan
+# ........
+#
+#   Hold Space and drag to pan around a zoomed image.
+#   The cursor changes to a hand icon while panning.
+#   Release Space to return to normal mode.
+#
+# 12.4 Pixel Readout
+# ..................
+#
+#   The bottom bar shows the pixel coordinates (x, y) and intensity
+#   value under the cursor. When hovering over the subtracted image,
+#   it shows "(subtracted)" to indicate the value is post-subtraction.
+
+
+# ----------------------------------------------------------------------------
+# 13. ROI FILE FORMAT
+# ----------------------------------------------------------------------------
+#
+# ROI configurations are saved as human-readable text files.
+# The format uses compression: ROI geometries that are shared across
+# images are defined once and referenced by ID.
+#
+# Example file (ROIs_myexperiment.txt):
+#
+#   # SXRD ROI Configuration
+#   # ROI_DEF: id, x, y, w, h, type, name
+#   ROI_DEF, 0, 245, 310, 40, 40, signal, CTR_peak
+#   ROI_DEF, 1, 100, 310, 40, 40, background, BG_left
+#   ROI_DEF, 2, 400, 310, 40, 40, background, BG_right
+#   ROI_DEF, 3, 248, 315, 40, 40, signal, CTR_peak_shifted
+#   DEFAULT, 0, 1, 2
+#   OVERRIDE, 015, 020, 3, 1, 2
+#   OVERRIDE, 015, 021, 3, 1, 2
+#
+# Explanation:
+#   ROI_DEF    — Defines a unique ROI geometry with an ID number.
+#   DEFAULT    — The ROI IDs applied to all images by default.
+#   OVERRIDE   — Per-image exceptions. Format: scan, image, roi_id, ...
+#
+# In this example:
+#   - Most images use ROIs 0, 1, 2 (default)
+#   - Scan 15, images 20-21 use ROI 3 instead of 0 (shifted signal)
+#   - ROIs 1 and 2 (background) are the same everywhere
+#
+# This means thousands of images can share the same ROI file with
+# only a few override lines for images where the feature moved.
+
+
+# ----------------------------------------------------------------------------
+# 14. BATCH PROCESSING (RUN)
+# ----------------------------------------------------------------------------
+#
+# Click "RUN — Process all images" to batch-process the entire dataset.
+#
+# Steps:
+#   1. Select an output directory when prompted
+#   2. The program processes each image in the filtered range:
+#      a. Load image
+#      b. Apply dead pixel mask
+#      c. Apply ROI tracking (if enabled)
+#      d. Perform background subtraction with the selected method
+#      e. Save subtracted image as *_sub.tif (float32)
+#      f. Compute integrated intensity for each ROI
+#   3. A progress bar shows completion
+#   4. Two outputs are produced:
+#
+# Output files:
+#
+#   {output_dir}/{original_name}_sub.tif
+#     Background-subtracted detector images (one per input image).
+#     Float32 TIFF format. Can be opened in ImageJ, PyMca, etc.
+#
+#   {output_dir}/roi_sums.txt
+#     Tab-separated text file with integrated intensities.
+#     Columns: scan  image  ROI1_name  ROI2_name  ROI3_name ...
+#     Example:
+#       # scan  image  CTR_peak  BG_left  BG_right
+#       015  001  1234.56  45.23  43.87
+#       015  002  1198.34  44.91  44.12
+#       ...
+#
+#     The ROI sums are computed on the subtracted image, so the signal
+#     ROI sum gives the background-corrected integrated intensity.
+
+
+# ----------------------------------------------------------------------------
+# 15. SESSION PERSISTENCE
+# ----------------------------------------------------------------------------
+#
+# All settings are saved automatically when the program closes and
+# restored on the next launch:
+#
+#   - Data directory and file type filter
+#   - Scan range
+#   - Auto-threshold toggle and value
+#   - Background subtraction method
+#   - Log scale, full detector view toggles
+#   - Colormap selection
+#   - Mask brush size
+#   - Window position, size, and panel divider positions
+#   - Last loaded mask file path (mask is reloaded automatically)
+#
+# Settings are stored in:
+#   Linux:    ~/.config/SXRD_BGSub/sxrd_bgsub.conf
+#   macOS:    ~/Library/Preferences/com.sxrd_bgsub.SXRD_BGSub.plist
+#   Windows:  Registry under HKEY_CURRENT_USER\Software\SXRD_BGSub
+#
+# To reset all settings, delete the config file or registry key.
+# ROI files are NOT auto-saved — use Save/Load ROIs explicitly.
+
+
+# ----------------------------------------------------------------------------
+# 16. TYPICAL WORKFLOW
+# ----------------------------------------------------------------------------
+#
+# Step-by-step for CTR background subtraction:
+#
+#   1. Launch the program
+#      $ python ctr_data_tools.py   (Background subtraction tab)
+#
+#   2. Browse to your data directory
+#
+#   3. Set scan range to your experiment (e.g., scan 10 to 50)
+#      Click "Apply filter"
+#
+#   4. Navigate to a representative image (e.g., mid-scan)
+#
+#   5. Add ROIs:
+#      Click "+" to add a signal ROI — position it on the CTR peak
+#      Click "+" twice more for two background ROIs — place them
+#        on either side of the peak, in regions with no diffraction
+#
+#   6. (Optional) Set up tracking:
+#      Select the signal ROI
+#      Click "Set ref" to capture the reference template
+#      Check "Track this ROI"
+#
+#   7. Click "Apply ROIs to all images"
+#
+#   8. Scan through images with arrow keys
+#      Check that ROIs are well-positioned on each image
+#      Adjust if needed (these become overrides in the ROI file)
+#      If tracking is on, the signal ROI adjusts automatically
+#
+#   9. Save your ROI configuration: click "Save" in the ROI file section
+#      Use a descriptive name like "ROIs_02L_rod.txt"
+#
+#  10. Choose your background subtraction method
+#      Preview looks good? Click "RUN"
+#
+#  11. Select output directory
+#      Wait for processing to complete
+#
+#  12. The roi_sums.txt file contains your integrated intensities
+#      Plot scan number vs. signal ROI sum for your CTR profile
+
+
+# ----------------------------------------------------------------------------
+# 17. KEYBOARD SHORTCUTS
+# ----------------------------------------------------------------------------
+#
+#   Left arrow          Previous image
+#   Right arrow         Next image
+#   Ctrl+Left arrow     Jump to previous scan
+#   Ctrl+Right arrow    Jump to next scan
+#   Space (hold)+drag   Pan zoomed image
+#   Double-click        Reset zoom to full view
+
+
+# ----------------------------------------------------------------------------
+# 18. TROUBLESHOOTING
+# ----------------------------------------------------------------------------
+#
+# "No image dataset found in {file}"
+#   The HDF5 file doesn't contain data at any of the expected paths.
+#   Check your Eiger configuration. You may need to add the correct
+#   dataset path to the load_image() function.
+#
+# ROIs jump when selecting a different ROI in the list
+#   This was a known bug (fixed). If it recurs, ensure you're running
+#   the latest version. The fix involves blocking Qt signals during
+#   field updates in the ROI editor.
+#
+# Tracking confidence is always 0
+#   You may not have clicked "Set ref" to capture a reference template.
+#   The cross-correlation method requires a reference.
+#
+# Tracking jumps to wrong position
+#   Increase the confidence threshold (currently hardcoded at 0.1 in
+#   the apply_tracking function). Or reduce the search margin to limit
+#   the search area. If the peak shape changes significantly along the
+#   scan, re-capture the reference template periodically.
+#
+# Images don't load
+#   Check that tifffile is installed (for .tif) or h5py (for .h5).
+#   Run "python ctr_data_tools.py" from a terminal to see error messages.
+#
+# Arrow keys don't navigate
+#   Click on the image area first to ensure focus is not in a text field.
+#   Arrow keys are passed through to spinboxes and text fields when
+#   those widgets have focus.
+#
+# Settings not saving
+#   Check write permissions for the config location (see Section 15).
+#   On Linux, ensure ~/.config is writable.

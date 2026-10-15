@@ -15,7 +15,7 @@ from pathlib import Path
 
 TAG = re.compile(r"^#\s*@app\b(.*)$")
 KINDS = ("gui", "script")
-GROUP_ORDER = ("Simulate", "Fit", "Electrochemistry", "Beamline")
+GROUP_ORDER = ("Simulate", "Fit", "Electrochemistry", "Beamline", "Data")
 SKIP_DIRS = {".git", "__pycache__", ".pytest_cache", "build", "dist", "tests", "node_modules", ".venv", "venv"}
 
 

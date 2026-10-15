@@ -1,0 +1,2245 @@
+"""SXRD Background Subtraction GUI
+=================================
+For Eiger 500K area detector images (.h5 / .tif)
+Designed for CTR and surface diffraction data at synchrotrons.
+
+Usage:
+    python ctr_data_tools.py   (or python -m ctrfit.app.datatools.bgsub)
+
+Requirements:
+    h5py for .h5 (Eiger) images, tifffile for .tif
+
+Qt window of the data tools (ctr_data_tools.py); the logic is in ctrfit.datatools.
+"""
+import configparser
+import os
+import re
+import tempfile
+
+import numpy as np
+from PyQt5.QtCore import Qt, QEvent, QEventLoop, QObject
+from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QBrush, QFont
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+                             QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit,
+                             QFileDialog, QGroupBox, QCheckBox, QSplitter, QListWidget, QStatusBar,
+                             QMessageBox, QProgressDialog, QSizePolicy, QScrollArea)
+
+from ctrfit.app.datatools.common import run_tool
+from ctrfit.datatools.images import (BG_METHODS, HAS_TIFF, ROI, ROIConfig, apply_offsets, load_image,
+                                     lock_offset, scan_directory, tifffile)
+from ctrfit.datatools.paths import settings_file
+
+
+class ImageCanvas(QLabel):
+    def __init__(self, parent=None, interactive=True):
+        super().__init__(parent)
+        self.setMinimumSize(400, 300)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setAlignment(Qt.AlignCenter)
+        self.setStyleSheet("background-color: #1a1a1a; border: 1px solid #333;")
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.StrongFocus)  # Accept keyboard focus for space/pan
+
+        self._img_data = None
+        self._display_pixmap = None
+        self._rois = []
+        self._interactive = interactive
+        self._scale = 1.0
+        self._offset_x = 0
+        self._offset_y = 0
+        self._log_scale = True
+        self._vmin = None
+        self._vmax = None
+        self._colormap = 'gray'
+
+        self._drag_roi_idx = -1
+        self._drag_mode = None
+        self._drag_start = None
+        self._drag_roi_start = None
+
+        # Zoom/pan state (in image coordinates)
+        self._zoom_rect = None  # (x1, y1, x2, y2) in image coords when zoomed
+        self._is_zoomed = False
+        self._zoom_drag_start = None  # widget coords for zoom-box drawing
+        self._zoom_drag_end = None
+        self._is_drawing_zoom = False
+
+        # Pan state
+        self._is_panning = False
+        self._pan_start_widget = None
+        self._pan_start_offset = None
+        self._space_held = False
+
+        # Mask painting
+        self._mask_paint_mode = False
+        self._mask_data = None  # reference to the mask array
+        self._on_mask_painted = None  # callback when mask changes
+        self._mask_brush_size = 1  # pixels
+        self._mask_paint_value = True  # True=mask, False=unmask, set on click
+
+        self._on_roi_changed = None
+        self._on_cursor_moved = None  # callback(x, y, value)
+
+        # Cursor position
+        self._cursor_x = -1
+        self._cursor_y = -1
+
+    def set_roi_changed_callback(self, cb):
+        self._on_roi_changed = cb
+
+    def set_cursor_callback(self, cb):
+        self._on_cursor_moved = cb
+
+    def set_mask_paint_mode(self, enabled):
+        self._mask_paint_mode = enabled
+        if enabled:
+            self.setCursor(Qt.CrossCursor)
+
+    def set_mask_data(self, mask):
+        """Set reference to mask array for painting."""
+        self._mask_data = mask
+
+    def set_mask_painted_callback(self, cb):
+        self._on_mask_painted = cb
+
+    def _paint_mask_at(self, wx, wy, determine_mode=False):
+        """Paint or unpaint mask pixels near the widget position.
+        If determine_mode is True, sets the paint value based on the
+        center pixel (toggle: if already masked → unmask, else → mask)."""
+        if self._mask_data is None or self._img_data is None:
+            return
+        ix, iy = self._widget_to_img(wx, wy)
+        ix, iy = int(round(ix)), int(round(iy))
+        h, w = self._mask_data.shape
+        if not (0 <= iy < h and 0 <= ix < w):
+            return
+
+        if determine_mode:
+            # Toggle: if center pixel is already masked, we unmask; else mask
+            self._mask_paint_value = not self._mask_data[iy, ix]
+
+        bs = self._mask_brush_size
+        for dy in range(-bs+1, bs):
+            for dx in range(-bs+1, bs):
+                px, py = ix + dx, iy + dy
+                if 0 <= py < h and 0 <= px < w:
+                    self._mask_data[py, px] = self._mask_paint_value
+        if self._on_mask_painted:
+            self._on_mask_painted()
+
+    def set_image(self, data, vmin=None, vmax=None):
+        self._img_data = data
+        if vmin is not None:
+            self._vmin = vmin
+        if vmax is not None:
+            self._vmax = vmax
+        self._update_display()
+
+    def set_rois(self, rois):
+        self._rois = rois
+        self.update()
+
+    def set_log_scale(self, enabled):
+        self._log_scale = enabled
+        self._update_display()
+
+    def set_colormap(self, name):
+        self._colormap = name
+        self._update_display()
+
+    def set_clim(self, vmin, vmax):
+        self._vmin = vmin
+        self._vmax = vmax
+        self._update_display()
+
+    @staticmethod
+    def _build_lut(name):
+        """Build a 256-entry RGB lookup table for the given colormap name."""
+        x = np.linspace(0, 1, 256)
+        lut = np.zeros((256, 3), dtype=np.uint8)
+        if name == 'gray':
+            lut[:, 0] = lut[:, 1] = lut[:, 2] = (x * 255).astype(np.uint8)
+        elif name == 'hot':
+            r = np.clip(x * 3, 0, 1)
+            g = np.clip(x * 3 - 1, 0, 1)
+            b = np.clip(x * 3 - 2, 0, 1)
+            lut[:, 0] = (r * 255).astype(np.uint8)
+            lut[:, 1] = (g * 255).astype(np.uint8)
+            lut[:, 2] = (b * 255).astype(np.uint8)
+        elif name == 'viridis':
+            # Simplified viridis approximation
+            r = np.clip(0.267004 + x * (0.282327 + x * (-1.964 + x * 1.596)), 0, 1)
+            g = np.clip(0.004874 + x * (1.015 + x * (-0.474 + x * 0.153)), 0, 1)
+            b = np.clip(0.329415 + x * (1.406 + x * (-3.192 + x * 1.820)), 0, 1)
+            lut[:, 0] = (r * 255).astype(np.uint8)
+            lut[:, 1] = (g * 255).astype(np.uint8)
+            lut[:, 2] = (b * 255).astype(np.uint8)
+        elif name == 'inferno':
+            r = np.clip(x * 2.8 - 0.15, 0, 1)
+            g = np.clip(x * 2.0 - 0.6, 0, 1)
+            b = np.clip(0.45 + x * 1.2 - x * x * 2.8, 0, 1)
+            lut[:, 0] = (r * 255).astype(np.uint8)
+            lut[:, 1] = (g * 255).astype(np.uint8)
+            lut[:, 2] = (b * 255).astype(np.uint8)
+        elif name == 'coolwarm':
+            r = np.clip(0.23 + x * 1.5 - (1 - x) * 0.0, 0, 1)
+            g = np.clip(0.3 + 2.0 * (0.5 - np.abs(x - 0.5)), 0, 1)
+            b = np.clip(1.0 - x * 1.5 + (1 - x) * 0.0, 0, 1)
+            lut[:, 0] = (r * 255).astype(np.uint8)
+            lut[:, 1] = (g * 255).astype(np.uint8)
+            lut[:, 2] = (b * 255).astype(np.uint8)
+        elif name == 'jet':
+            r = np.clip(1.5 - np.abs(x - 0.75) * 4, 0, 1)
+            g = np.clip(1.5 - np.abs(x - 0.5) * 4, 0, 1)
+            b = np.clip(1.5 - np.abs(x - 0.25) * 4, 0, 1)
+            lut[:, 0] = (r * 255).astype(np.uint8)
+            lut[:, 1] = (g * 255).astype(np.uint8)
+            lut[:, 2] = (b * 255).astype(np.uint8)
+        else:
+            lut[:, 0] = lut[:, 1] = lut[:, 2] = (x * 255).astype(np.uint8)
+        return lut
+
+    def _update_display(self):
+        if self._img_data is None:
+            self.setText("No image")
+            self._display_pixmap = None
+            return
+        img = self._img_data.copy()
+        if self._log_scale:
+            img = np.where(img > 0, np.log10(img + 1), 0)
+
+        # Determine display range
+        pos = img[img > 0] if np.any(img > 0) else img.ravel()
+        if self._vmin is not None:
+            vmin = np.log10(self._vmin + 1) if self._log_scale and self._vmin > 0 else self._vmin
+        else:
+            vmin = np.percentile(pos, 1) if pos.size > 0 else 0
+        if self._vmax is not None:
+            vmax = np.log10(self._vmax + 1) if self._log_scale and self._vmax > 0 else self._vmax
+        else:
+            vmax = np.percentile(pos, 99.5) if pos.size > 0 else 1
+
+        idx = np.clip((img - vmin) / (vmax - vmin + 1e-10) * 255, 0, 255).astype(np.uint8)
+
+        # Apply colormap LUT
+        lut = self._build_lut(self._colormap)
+        h, w = idx.shape
+        rgb = lut[idx.ravel()].reshape(h, w, 3)
+
+        # Convert to QImage (RGB888)
+        bytes_per_line = w * 3
+        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        self._display_pixmap = QPixmap.fromImage(qimg.copy())
+        self._fit_to_widget()
+        self.update()
+
+    def _fit_to_widget(self):
+        if self._display_pixmap is None:
+            return
+        pw = self._display_pixmap.width()
+        ph = self._display_pixmap.height()
+        ww = self.width() - 4
+        wh = self.height() - 4
+        if pw == 0 or ph == 0:
+            return
+
+        if self._is_zoomed and self._zoom_rect is not None:
+            # Zoom to the selected rectangle in image coordinates
+            zx1, zy1, zx2, zy2 = self._zoom_rect
+            zw = max(zx2 - zx1, 1)
+            zh = max(zy2 - zy1, 1)
+            self._scale = min(ww / zw, wh / zh)
+            self._offset_x = -zx1 * self._scale + (ww - zw * self._scale) / 2 + 2
+            self._offset_y = -zy1 * self._scale + (wh - zh * self._scale) / 2 + 2
+        else:
+            self._scale = min(ww / pw, wh / ph)
+            self._offset_x = (ww - pw * self._scale) / 2 + 2
+            self._offset_y = (wh - ph * self._scale) / 2 + 2
+
+    def reset_zoom(self):
+        """Reset to full image view."""
+        self._is_zoomed = False
+        self._zoom_rect = None
+        self._fit_to_widget()
+        self.update()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_to_widget()
+        self.update()
+
+    def _img_to_widget(self, x, y):
+        return (x * self._scale + self._offset_x,
+                y * self._scale + self._offset_y)
+
+    def _widget_to_img(self, wx, wy):
+        return ((wx - self._offset_x) / self._scale,
+                (wy - self._offset_y) / self._scale)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.fillRect(self.rect(), QColor('#1a1a1a'))
+        if self._display_pixmap is not None:
+            pw = self._display_pixmap.width() * self._scale
+            ph = self._display_pixmap.height() * self._scale
+            painter.drawPixmap(
+                int(self._offset_x), int(self._offset_y),
+                int(pw), int(ph), self._display_pixmap)
+
+        for i, roi in enumerate(self._rois):
+            if roi.roi_type == 'signal':
+                color = QColor(0, 255, 0, 180)
+                fill = QColor(0, 255, 0, 30)
+            else:
+                color = QColor(255, 80, 80, 180)
+                fill = QColor(255, 80, 80, 30)
+
+            pen = QPen(color, 2)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(fill))
+            wx, wy = self._img_to_widget(roi.x, roi.y)
+            ww = roi.w * self._scale
+            wh = roi.h * self._scale
+            painter.drawRect(int(wx), int(wy), int(ww), int(wh))
+
+            painter.setPen(QPen(color, 1))
+            font = QFont('monospace', 9)
+            painter.setFont(font)
+            label = f"{roi.name} ({roi.roi_type[0].upper()})"
+            painter.drawText(int(wx + 3), int(wy - 4), label)
+
+            if self._interactive:
+                hs = 6
+                painter.setBrush(QBrush(color))
+                for hx, hy in [(wx, wy), (wx+ww, wy), (wx, wy+wh), (wx+ww, wy+wh)]:
+                    painter.drawRect(int(hx-hs/2), int(hy-hs/2), hs, hs)
+
+        # Draw zoom selection box
+        if self._is_drawing_zoom and self._zoom_drag_start and self._zoom_drag_end:
+            pen = QPen(QColor(255, 255, 0, 200), 1, Qt.DashLine)
+            painter.setPen(pen)
+            painter.setBrush(QBrush(QColor(255, 255, 0, 30)))
+            x1, y1 = self._zoom_drag_start
+            x2, y2 = self._zoom_drag_end
+            painter.drawRect(int(min(x1,x2)), int(min(y1,y2)),
+                             int(abs(x2-x1)), int(abs(y2-y1)))
+
+        # Draw mask overlay when in mask paint mode
+        if self._mask_paint_mode and self._mask_data is not None and self._display_pixmap is not None:
+            h, w = self._mask_data.shape
+            # Only draw visible region for performance
+            ww = self.width()
+            wh = self.height()
+            ix1, iy1 = self._widget_to_img(0, 0)
+            ix2, iy2 = self._widget_to_img(ww, wh)
+            ix1 = max(0, int(ix1)); iy1 = max(0, int(iy1))
+            ix2 = min(w, int(ix2)+1); iy2 = min(h, int(iy2)+1)
+
+            n_visible = (ix2 - ix1) * (iy2 - iy1)
+            # Draw individual pixels if not too many (performance guard)
+            if n_visible < 500000 and self._scale >= 0.5:
+                pixel_w = max(1, int(self._scale))
+                pixel_h = max(1, int(self._scale))
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(QColor(255, 40, 40, 150)))
+                for py in range(iy1, iy2):
+                    for px in range(ix1, ix2):
+                        if self._mask_data[py, px]:
+                            wx_p, wy_p = self._img_to_widget(px, py)
+                            painter.drawRect(int(wx_p), int(wy_p), pixel_w, pixel_h)
+                # Draw crosshair on masked pixels when zoomed in
+                if self._scale > 4:
+                    painter.setPen(QPen(QColor(255, 255, 255, 100), 1))
+                    for py in range(iy1, iy2):
+                        for px in range(ix1, ix2):
+                            if self._mask_data[py, px]:
+                                wx_p, wy_p = self._img_to_widget(px, py)
+                                cx = int(wx_p + pixel_w / 2)
+                                cy = int(wy_p + pixel_h / 2)
+                                painter.drawLine(cx - 3, cy, cx + 3, cy)
+                                painter.drawLine(cx, cy - 3, cx, cy + 3)
+            else:
+                painter.setPen(QPen(QColor(255, 80, 80), 1))
+                font = QFont('monospace', 10)
+                painter.setFont(font)
+                painter.drawText(10, 20, "MASK PAINT MODE — zoom in to see/edit pixels")
+
+            # Mode indicator
+            painter.setPen(QPen(QColor(255, 80, 80, 200), 1))
+            font = QFont('monospace', 9)
+            painter.setFont(font)
+            n_masked = int(self._mask_data[iy1:iy2, ix1:ix2].sum()) if n_visible < 500000 else -1
+            mode_text = "MASK: click=add, click masked=remove"
+            if n_masked >= 0:
+                mode_text += f"  ({n_masked} masked in view)"
+            painter.drawText(10, self.height() - 8, mode_text)
+
+        painter.end()
+
+    def _hit_test(self, wx, wy):
+        hs = 10
+        for i in range(len(self._rois) - 1, -1, -1):
+            roi = self._rois[i]
+            rx, ry = self._img_to_widget(roi.x, roi.y)
+            rw = roi.w * self._scale
+            rh = roi.h * self._scale
+            corners = {
+                'resize_tl': (rx, ry), 'resize_tr': (rx+rw, ry),
+                'resize_bl': (rx, ry+rh), 'resize_br': (rx+rw, ry+rh),
+            }
+            for mode, (cx, cy) in corners.items():
+                if abs(wx-cx) < hs and abs(wy-cy) < hs:
+                    return i, mode
+            if abs(wx-rx) < hs and ry < wy < ry+rh:
+                return i, 'resize_l'
+            if abs(wx-(rx+rw)) < hs and ry < wy < ry+rh:
+                return i, 'resize_r'
+            if abs(wy-ry) < hs and rx < wx < rx+rw:
+                return i, 'resize_t'
+            if abs(wy-(ry+rh)) < hs and rx < wx < rx+rw:
+                return i, 'resize_b'
+            if rx < wx < rx+rw and ry < wy < ry+rh:
+                return i, 'move'
+        return -1, None
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            self._space_held = True
+            self.setCursor(Qt.OpenHandCursor)
+        else:
+            super().keyPressEvent(event)
+
+    def keyReleaseEvent(self, event):
+        if event.key() == Qt.Key_Space:
+            self._space_held = False
+            self.setCursor(Qt.ArrowCursor)
+        else:
+            super().keyReleaseEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.LeftButton:
+            return
+
+        # Pan mode: space held
+        if self._space_held:
+            self._is_panning = True
+            self._pan_start_widget = (event.x(), event.y())
+            self._pan_start_offset = (self._offset_x, self._offset_y)
+            self.setCursor(Qt.ClosedHandCursor)
+            return
+
+        # Mask paint mode: click to toggle mask pixels
+        if self._mask_paint_mode and self._mask_data is not None:
+            self._paint_mask_at(event.x(), event.y(), determine_mode=True)
+            self.update()
+            return
+
+        # Interactive canvas: check ROI hit first
+        if self._interactive:
+            idx, mode = self._hit_test(event.x(), event.y())
+            if idx >= 0:
+                self._drag_roi_idx = idx
+                self._drag_mode = mode
+                self._drag_start = (event.x(), event.y())
+                roi = self._rois[idx]
+                self._drag_roi_start = (roi.x, roi.y, roi.w, roi.h)
+                return
+
+        # No ROI hit — start zoom box
+        self._is_drawing_zoom = True
+        self._zoom_drag_start = (event.x(), event.y())
+        self._zoom_drag_end = (event.x(), event.y())
+
+    def mouseMoveEvent(self, event):
+        # Always track cursor position for pixel readout
+        ix, iy = self._widget_to_img(event.x(), event.y())
+        ix, iy = int(ix), int(iy)
+        if (self._img_data is not None and
+                0 <= iy < self._img_data.shape[0] and
+                0 <= ix < self._img_data.shape[1]):
+            self._cursor_x = ix
+            self._cursor_y = iy
+            val = self._img_data[iy, ix]
+            if self._on_cursor_moved:
+                self._on_cursor_moved(ix, iy, val)
+        else:
+            self._cursor_x = -1
+            self._cursor_y = -1
+            if self._on_cursor_moved:
+                self._on_cursor_moved(-1, -1, 0)
+
+        # Pan
+        if self._is_panning and self._pan_start_widget:
+            dx = event.x() - self._pan_start_widget[0]
+            dy = event.y() - self._pan_start_widget[1]
+            self._offset_x = self._pan_start_offset[0] + dx
+            self._offset_y = self._pan_start_offset[1] + dy
+            self.update()
+            return
+
+        # Mask painting (drag to paint)
+        if self._mask_paint_mode and self._mask_data is not None and event.buttons() & Qt.LeftButton:
+            self._paint_mask_at(event.x(), event.y())
+            self.update()
+            return
+
+        # Zoom box drawing
+        if self._is_drawing_zoom:
+            self._zoom_drag_end = (event.x(), event.y())
+            self.update()
+            return
+
+        # ROI drag (interactive only)
+        if not self._interactive:
+            return
+        if self._drag_roi_idx >= 0 and self._drag_start is not None:
+            dx = (event.x() - self._drag_start[0]) / self._scale
+            dy = (event.y() - self._drag_start[1]) / self._scale
+            roi = self._rois[self._drag_roi_idx]
+            ox, oy, ow, oh = self._drag_roi_start
+            if self._drag_mode == 'move':
+                roi.x = int(ox + dx); roi.y = int(oy + dy)
+            elif self._drag_mode == 'resize_br':
+                roi.w = max(1, int(ow + dx)); roi.h = max(1, int(oh + dy))
+            elif self._drag_mode == 'resize_tl':
+                roi.x = int(ox + dx); roi.y = int(oy + dy)
+                roi.w = max(1, int(ow - dx)); roi.h = max(1, int(oh - dy))
+            elif self._drag_mode == 'resize_tr':
+                roi.y = int(oy + dy)
+                roi.w = max(1, int(ow + dx)); roi.h = max(1, int(oh - dy))
+            elif self._drag_mode == 'resize_bl':
+                roi.x = int(ox + dx)
+                roi.w = max(1, int(ow - dx)); roi.h = max(1, int(oh + dy))
+            elif self._drag_mode == 'resize_l':
+                roi.x = int(ox + dx); roi.w = max(1, int(ow - dx))
+            elif self._drag_mode == 'resize_r':
+                roi.w = max(1, int(ow + dx))
+            elif self._drag_mode == 'resize_t':
+                roi.y = int(oy + dy); roi.h = max(1, int(oh - dy))
+            elif self._drag_mode == 'resize_b':
+                roi.h = max(1, int(oh + dy))
+            self.update()
+            if self._on_roi_changed:
+                self._on_roi_changed()
+        else:
+            # Update cursor based on hover
+            if self._space_held:
+                self.setCursor(Qt.OpenHandCursor)
+            else:
+                idx, mode = self._hit_test(event.x(), event.y())
+                if mode in ('resize_tl', 'resize_br'):
+                    self.setCursor(Qt.SizeFDiagCursor)
+                elif mode in ('resize_tr', 'resize_bl'):
+                    self.setCursor(Qt.SizeBDiagCursor)
+                elif mode in ('resize_l', 'resize_r'):
+                    self.setCursor(Qt.SizeHorCursor)
+                elif mode in ('resize_t', 'resize_b'):
+                    self.setCursor(Qt.SizeVerCursor)
+                elif mode == 'move':
+                    self.setCursor(Qt.SizeAllCursor)
+                else:
+                    self.setCursor(Qt.CrossCursor)
+
+    def mouseReleaseEvent(self, event):
+        # Pan release
+        if self._is_panning:
+            self._is_panning = False
+            self._pan_start_widget = None
+            self._pan_start_offset = None
+            if self._space_held:
+                self.setCursor(Qt.OpenHandCursor)
+            else:
+                self.setCursor(Qt.ArrowCursor)
+            # Update zoom_rect to reflect the new view after panning
+            if self._is_zoomed:
+                # Recalculate zoom_rect from current offset/scale
+                ww = self.width() - 4
+                wh = self.height() - 4
+                ix1, iy1 = self._widget_to_img(2, 2)
+                ix2, iy2 = self._widget_to_img(ww + 2, wh + 2)
+                self._zoom_rect = (ix1, iy1, ix2, iy2)
+            return
+
+        # Zoom box release
+        if self._is_drawing_zoom and self._zoom_drag_start and self._zoom_drag_end:
+            self._is_drawing_zoom = False
+            x1w, y1w = self._zoom_drag_start
+            x2w, y2w = self._zoom_drag_end
+            # Only zoom if box is big enough (>10 pixels)
+            if abs(x2w - x1w) > 10 and abs(y2w - y1w) > 10:
+                ix1, iy1 = self._widget_to_img(min(x1w, x2w), min(y1w, y2w))
+                ix2, iy2 = self._widget_to_img(max(x1w, x2w), max(y1w, y2w))
+                self._zoom_rect = (ix1, iy1, ix2, iy2)
+                self._is_zoomed = True
+                self._fit_to_widget()
+            self._zoom_drag_start = None
+            self._zoom_drag_end = None
+            self.update()
+            return
+
+        # ROI drag release
+        if self._drag_roi_idx >= 0:
+            self._drag_roi_idx = -1
+            self._drag_mode = None
+            self._drag_start = None
+            self._drag_roi_start = None
+            if self._on_roi_changed:
+                self._on_roi_changed()
+
+    def mouseDoubleClickEvent(self, event):
+        """Double-click to reset zoom."""
+        if event.button() == Qt.LeftButton:
+            self.reset_zoom()
+
+
+class ROIListWidget(QWidget):
+    def __init__(self, parent=None, on_change=None):
+        super().__init__(parent)
+        self._rois = []
+        self._on_change = on_change
+        self._current_image = None
+        self._current_mask = None
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        header = QHBoxLayout()
+        header.addWidget(QLabel("ROIs:"))
+        header.addStretch()
+        btn_add = QPushButton("+")
+        btn_add.setFixedSize(28, 28)
+        btn_add.clicked.connect(self._add_roi)
+        header.addWidget(btn_add)
+        btn_rm = QPushButton("−")
+        btn_rm.setFixedSize(28, 28)
+        btn_rm.clicked.connect(self._remove_roi)
+        header.addWidget(btn_rm)
+        layout.addLayout(header)
+
+        self._list = QListWidget()
+        self._list.setMaximumHeight(180)
+        self._list.currentRowChanged.connect(self._on_selection)
+        layout.addWidget(self._list)
+
+        edit = QGroupBox("Edit ROI")
+        g = QGridLayout(edit)
+        g.addWidget(QLabel("Name:"), 0, 0)
+        self._name = QLineEdit()
+        self._name.editingFinished.connect(self._update_from_fields)
+        g.addWidget(self._name, 0, 1, 1, 3)
+
+        g.addWidget(QLabel("Type:"), 1, 0)
+        self._type = QComboBox()
+        self._type.addItems(["signal", "background"])
+        self._type.currentTextChanged.connect(self._update_from_fields)
+        g.addWidget(self._type, 1, 1, 1, 3)
+
+        for row, (lbl, attr) in enumerate([(("X:", "Y:"), ("_x", "_y")),
+                                            (("W:", "H:"), ("_w", "_h"))], start=2):
+            for col, (l, a) in enumerate(zip(lbl, attr)):
+                g.addWidget(QLabel(l), row, col * 2)
+                sb = QSpinBox()
+                sb.setRange(0 if 'x' in a or 'y' in a else 1, 9999)
+                sb.editingFinished.connect(self._update_from_fields)
+                setattr(self, a, sb)
+                g.addWidget(sb, row, col * 2 + 1)
+
+        # Constant-offset following
+        g.addWidget(QLabel(""), 4, 0)  # spacer row
+
+        g.addWidget(QLabel("Follow ROI:"), 5, 0)
+        self._follow_combo = QComboBox()
+        # Items will be populated dynamically based on current ROI list
+        self._follow_combo.currentIndexChanged.connect(self._update_from_fields)
+        self._follow_combo.setToolTip(
+            "Lock this ROI's position relative to another ROI.\n"
+            "When the master moves, this ROI moves with it (rigid offset).\n"
+            "Set to '(none)' to position this ROI independently.")
+        g.addWidget(self._follow_combo, 5, 1, 1, 3)
+
+        self._btn_lock_offset = QPushButton("Lock current offset")
+        self._btn_lock_offset.setFixedHeight(24)
+        self._btn_lock_offset.setToolTip(
+            "Snapshot this ROI's current position relative to the master.\n"
+            "After this, moving the master will rigidly translate this ROI.")
+        g.addWidget(self._btn_lock_offset, 6, 0, 1, 2)
+
+        self._lbl_offset = QLabel("offset: —")
+        self._lbl_offset.setStyleSheet("color: #888;")
+        g.addWidget(self._lbl_offset, 6, 2, 1, 2)
+
+        layout.addWidget(edit)
+
+        self._btn_apply = QPushButton("Apply all ROIs to all images")
+        layout.addWidget(self._btn_apply)
+        self._btn_apply_one = QPushButton("Apply selected ROI to all images")
+        layout.addWidget(self._btn_apply_one)
+        self._btn_apply_scan = QPushButton("Apply all ROIs to current scan only")
+        layout.addWidget(self._btn_apply_scan)
+        self._btn_apply_one_scan = QPushButton("Apply selected ROI to current scan only")
+        layout.addWidget(self._btn_apply_one_scan)
+        # Offset-only applies (preserve manual master tracking)
+        self._btn_apply_offset = QPushButton("Apply selected ROI offset to all images")
+        self._btn_apply_offset.setToolTip(
+            "Reposition only the selected follower ROI in every override\n"
+            "to (master + saved offset), using each frame's own master\n"
+            "position. Does not touch master ROIs or other followers.")
+        layout.addWidget(self._btn_apply_offset)
+        self._btn_apply_offset_scan = QPushButton("Apply selected ROI offset to current scan")
+        self._btn_apply_offset_scan.setToolTip(
+            "Same as above but limited to the currently-displayed scan.")
+        layout.addWidget(self._btn_apply_offset_scan)
+
+    def set_apply_callback(self, cb):
+        self._btn_apply.clicked.connect(cb)
+
+    def set_apply_one_callback(self, cb):
+        self._btn_apply_one.clicked.connect(cb)
+
+    def set_apply_scan_callback(self, cb):
+        self._btn_apply_scan.clicked.connect(cb)
+
+    def set_apply_one_scan_callback(self, cb):
+        self._btn_apply_one_scan.clicked.connect(cb)
+
+    def set_apply_offset_callback(self, cb):
+        self._btn_apply_offset.clicked.connect(cb)
+
+    def set_apply_offset_scan_callback(self, cb):
+        self._btn_apply_offset_scan.clicked.connect(cb)
+
+    def set_lock_offset_callback(self, cb):
+        self._btn_lock_offset.clicked.connect(cb)
+
+    def update_offset_label(self, dx, dy):
+        """Update offset display (called after lock or selection change)."""
+        self._lbl_offset.setText(f"offset: ({dx:+d}, {dy:+d})")
+
+    def set_rois(self, rois):
+        self._rois = rois
+        self._refresh()
+
+    def set_image(self, img, mask=None):
+        """Set the current image for max pixel readout."""
+        self._current_image = img
+        self._current_mask = mask
+
+    def get_rois(self):
+        return self._rois
+
+    def _refresh(self):
+        cur = self._list.currentRow()
+        self._list.clear()
+        for r in self._rois:
+            # Indicator: → if this ROI follows another
+            follow = ""
+            if r.follow_id is not None and 0 <= r.follow_id < len(self._rois):
+                master = self._rois[r.follow_id]
+                follow = f" →{master.name}"
+            # Compute max pixel value in this ROI
+            max_str = ""
+            if self._current_image is not None:
+                region = r.extract(self._current_image)
+                if region.size > 0:
+                    if self._current_mask is not None:
+                        m = r.extract(self._current_mask)
+                        if m.size == region.size:
+                            valid = region[~m]
+                            max_val = valid.max() if valid.size > 0 else 0
+                        else:
+                            max_val = region.max()
+                    else:
+                        max_val = region.max()
+                    max_str = f" max:{max_val:.0f}"
+            self._list.addItem(
+                f"{r.name} [{r.roi_type[0].upper()}] ({r.x},{r.y} {r.w}x{r.h}){max_str}{follow}")
+        if 0 <= cur < len(self._rois):
+            self._list.setCurrentRow(cur)
+        # Repopulate follow combobox so users see all current ROIs as candidates
+        self._populate_follow_combo()
+
+    def _add_roi(self):
+        n = len(self._rois) + 1
+        self._rois.append(ROI(50, 50, 100, 100, 'signal', f'ROI{n}'))
+        self._refresh()
+        self._list.setCurrentRow(len(self._rois) - 1)
+        if self._on_change:
+            self._on_change()
+
+    def _remove_roi(self):
+        idx = self._list.currentRow()
+        if 0 <= idx < len(self._rois):
+            self._rois.pop(idx)
+            self._refresh()
+            if self._on_change:
+                self._on_change()
+
+    def _populate_follow_combo(self):
+        """Refresh the Follow ROI dropdown with current ROI list (excluding the
+        currently-selected one). Format: "(none)", "0: ROI1", "2: ROI3", ..."""
+        cur = self._list.currentRow()
+        self._follow_combo.blockSignals(True)
+        self._follow_combo.clear()
+        self._follow_combo.addItem("(none)", userData=None)
+        for i, r in enumerate(self._rois):
+            if i == cur:
+                continue  # can't follow itself
+            self._follow_combo.addItem(f"{i}: {r.name}", userData=i)
+        # Restore current selection's follow_id
+        if 0 <= cur < len(self._rois):
+            target_id = self._rois[cur].follow_id
+            for j in range(self._follow_combo.count()):
+                if self._follow_combo.itemData(j) == target_id:
+                    self._follow_combo.setCurrentIndex(j)
+                    break
+        self._follow_combo.blockSignals(False)
+
+    def _on_selection(self, row):
+        if 0 <= row < len(self._rois):
+            r = self._rois[row]
+            # Block signals to prevent _update_from_fields firing mid-update
+            for w in (self._name, self._type, self._x, self._y, self._w, self._h):
+                w.blockSignals(True)
+            self._name.setText(r.name)
+            self._type.setCurrentText(r.roi_type)
+            self._x.setValue(r.x)
+            self._y.setValue(r.y)
+            self._w.setValue(r.w)
+            self._h.setValue(r.h)
+            for w in (self._name, self._type, self._x, self._y, self._w, self._h):
+                w.blockSignals(False)
+            # Repopulate the follow combo (different ROI list now relative to selection)
+            self._populate_follow_combo()
+            # Show stored offset
+            if r.follow_id is not None:
+                self._lbl_offset.setText(f"offset: ({r.offset_dx:+d}, {r.offset_dy:+d})")
+            else:
+                self._lbl_offset.setText("offset: —")
+
+    def _update_from_fields(self):
+        idx = self._list.currentRow()
+        if 0 <= idx < len(self._rois):
+            r = self._rois[idx]
+            r.name = self._name.text()
+            r.roi_type = self._type.currentText()
+            r.x = self._x.value()
+            r.y = self._y.value()
+            r.w = self._w.value()
+            r.h = self._h.value()
+            # follow_id from combobox
+            new_follow = self._follow_combo.currentData()
+            if new_follow != r.follow_id:
+                r.follow_id = new_follow
+                if new_follow is None:
+                    r.offset_dx = 0
+                    r.offset_dy = 0
+                    self._lbl_offset.setText("offset: —")
+                else:
+                    # Auto-lock current offset when starting to follow
+                    if 0 <= new_follow < len(self._rois):
+                        master = self._rois[new_follow]
+                        lock_offset(r, master)
+                        self._lbl_offset.setText(
+                            f"offset: ({r.offset_dx:+d}, {r.offset_dy:+d})")
+            self._refresh()
+            self._list.setCurrentRow(idx)
+            if self._on_change:
+                self._on_change()
+
+    def sync_from_canvas(self):
+        idx = self._list.currentRow()
+        if 0 <= idx < len(self._rois):
+            r = self._rois[idx]
+            for w in (self._x, self._y, self._w, self._h):
+                w.blockSignals(True)
+            self._x.setValue(r.x)
+            self._y.setValue(r.y)
+            self._w.setValue(r.w)
+            self._h.setValue(r.h)
+            for w in (self._x, self._y, self._w, self._h):
+                w.blockSignals(False)
+            self._refresh()
+            self._list.setCurrentRow(idx)
+
+
+class _ScrollBlockFilter(QObject):
+    """Prevents scroll wheel from changing spinbox/combobox values
+    unless the widget has explicit focus (was clicked on)."""
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Wheel:
+            if isinstance(obj, (QSpinBox, QDoubleSpinBox, QComboBox)):
+                if not obj.hasFocus():
+                    event.ignore()
+                    return True
+        return False
+
+
+class _ArrowKeyFilter(QObject):
+    """Intercepts arrow keys at the application level so they
+    navigate images instead of moving through widgets."""
+    def __init__(self, main_window):
+        super().__init__()
+        self._mw = main_window
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress:
+            key = event.key()
+            if key in (Qt.Key_Left, Qt.Key_Right) and self._mw.isVisible():
+                # Let QLineEdit and QSpinBox keep arrows for editing
+                focus = QApplication.focusWidget()
+                if isinstance(focus, (QLineEdit, QDoubleSpinBox, QSpinBox)):
+                    return False
+                if self._mw._handle_arrow(key, event.modifiers()):
+                    return True  # consumed
+        return False
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("SXRD Background Subtraction — Eiger 500K")
+        self.setMinimumSize(1400, 800)
+
+        self._files = []
+        self._all_files = []
+        self._current_idx = 0
+        self._current_image = None
+        self._mask = None
+        self._roi_config = ROIConfig()
+        self._show_full_sub = True
+
+        self._setup_ui()
+        self._install_key_filter()
+        self._install_scroll_blocker()
+        self._load_settings()
+
+    def closeEvent(self, event):
+        """Save settings on close."""
+        self._save_settings()
+        super().closeEvent(event)
+
+    @staticmethod
+    def _settings_path():
+        """Settings file in the data tools settings folder."""
+        return settings_file("sxrd_bgsub_settings.ini")
+
+    def _save_settings(self):
+        c = configparser.ConfigParser()
+
+        c['directory'] = {
+            'path': self._dir.text(),
+            'file_type': self._ftype.currentText(),
+            'scan_from': str(self._sf.value()),
+            'scan_to': str(self._st.value()),
+        }
+
+        c['mask'] = {
+            'auto_threshold': str(self._chk_auto.isChecked()),
+            'threshold': str(self._thresh.value()),
+            'brush_size': str(self._mask_brush.value()),
+            'mask_path': getattr(self, '_last_mask_path', ''),
+        }
+
+        c['background'] = {
+            'method': self._method.currentText(),
+            'clip_negatives': str(self._chk_clip_neg.isChecked()),
+        }
+
+        c['display'] = {
+            'log_scale': str(self._chk_log.isChecked()),
+            'full_detector': str(self._chk_full.isChecked()),
+            'colormap': self._cmap_combo.currentText(),
+            'vmin': str(self._vmin_spin.value()),
+            'vmax': str(self._vmax_spin.value()),
+            'roi_visible_orig': str(self._chk_roi_orig.isChecked()),
+            'roi_visible_sub': str(self._chk_roi_sub.isChecked()),
+        }
+
+        c['navigation'] = {
+            'current_idx': str(self._current_idx),
+        }
+
+        c['window'] = {
+            'geometry': self.saveGeometry().toBase64().data().decode(),
+            'state': self.saveState().toBase64().data().decode(),
+            'hsplitter': self._hsplitter.saveState().toBase64().data().decode(),
+            'vsplitter': self._vsplitter.saveState().toBase64().data().decode(),
+        }
+
+        c['roi'] = {
+            'roi_path': getattr(self, '_last_roi_path', ''),
+        }
+
+        try:
+            with open(self._settings_path(), 'w') as f:
+                c.write(f)
+        except Exception:
+            pass
+
+    def _load_settings(self):
+        path = self._settings_path()
+        if not os.path.isfile(path):
+            return
+
+        c = configparser.ConfigParser()
+        try:
+            c.read(path)
+        except Exception:
+            return
+
+        def get(section, key, default=''):
+            try:
+                return c.get(section, key)
+            except (configparser.NoSectionError, configparser.NoOptionError):
+                return default
+
+        def getbool(section, key, default=True):
+            val = get(section, key, str(default))
+            return val.lower() in ('true', '1', 'yes')
+
+        def getfloat(section, key, default=0.0):
+            try:
+                return float(get(section, key, str(default)))
+            except ValueError:
+                return default
+
+        def getint(section, key, default=0):
+            try:
+                return int(float(get(section, key, str(default))))
+            except ValueError:
+                return default
+
+        # Directory and filter
+        d = get('directory', 'path')
+        if d:
+            self._dir.setText(d)
+        ft = get('directory', 'file_type', 'h5')
+        idx = self._ftype.findText(ft)
+        if idx >= 0:
+            self._ftype.setCurrentIndex(idx)
+        self._sf.setValue(getint('directory', 'scan_from', 0))
+        self._st.setValue(getint('directory', 'scan_to', 999))
+
+        # Mask
+        self._chk_auto.setChecked(getbool('mask', 'auto_threshold', True))
+        self._thresh.setValue(getfloat('mask', 'threshold', 1e7))
+        self._mask_brush.setValue(getint('mask', 'brush_size', 1))
+
+        # Background
+        m = get('background', 'method', 'Average')
+        idx = self._method.findText(m)
+        if idx >= 0:
+            self._method.setCurrentIndex(idx)
+        self._chk_clip_neg.setChecked(getbool('background', 'clip_negatives', False))
+
+        # Display
+        self._chk_log.setChecked(getbool('display', 'log_scale', True))
+        self._chk_full.setChecked(getbool('display', 'full_detector', True))
+        cm = get('display', 'colormap', 'gray')
+        idx = self._cmap_combo.findText(cm)
+        if idx >= 0:
+            self._cmap_combo.setCurrentIndex(idx)
+        self._vmin_spin.setValue(getfloat('display', 'vmin', 0))
+        self._vmax_spin.setValue(getfloat('display', 'vmax', 0))
+        self._chk_roi_orig.setChecked(getbool('display', 'roi_visible_orig', True))
+        self._chk_roi_sub.setChecked(getbool('display', 'roi_visible_sub', True))
+
+        # Window geometry and splitters
+        from PyQt5.QtCore import QByteArray
+        geo_str = get('window', 'geometry')
+        if geo_str:
+            self.restoreGeometry(QByteArray.fromBase64(geo_str.encode()))
+        state_str = get('window', 'state')
+        if state_str:
+            self.restoreState(QByteArray.fromBase64(state_str.encode()))
+        hs_str = get('window', 'hsplitter')
+        if hs_str:
+            self._hsplitter.restoreState(QByteArray.fromBase64(hs_str.encode()))
+        vs_str = get('window', 'vsplitter')
+        if vs_str:
+            self._vsplitter.restoreState(QByteArray.fromBase64(vs_str.encode()))
+
+        # Reload files if directory was set
+        if d and os.path.isdir(d):
+            self._reload()
+            saved_idx = getint('navigation', 'current_idx', 0)
+            if 0 <= saved_idx < len(self._files):
+                self._current_idx = saved_idx
+                self._load_current()
+
+        # Reload mask if path saved
+        mask_path = get('mask', 'mask_path')
+        if mask_path and os.path.isfile(mask_path):
+            try:
+                if mask_path.endswith('.npy'):
+                    self._mask = np.load(mask_path).astype(bool)
+                elif HAS_TIFF:
+                    self._mask = tifffile.imread(mask_path) > 0
+                self._last_mask_path = mask_path
+                self._update_mask_label()
+                self._status.showMessage(f"Mask restored: {mask_path}", 3000)
+            except Exception:
+                pass
+
+        # Reload ROI file if path saved
+        roi_path = get('roi', 'roi_path')
+        if roi_path and os.path.isfile(roi_path):
+            try:
+                self._roi_config.load(roi_path)
+                self._last_roi_path = roi_path
+                if self._files:
+                    self._load_current()
+                self._status.showMessage(f"ROIs restored: {roi_path}", 3000)
+            except Exception:
+                pass
+
+    def _setup_ui(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        main = QHBoxLayout(central)
+
+        # --- Left panel (scrollable) ---
+        left_inner = QWidget()
+        lv = QVBoxLayout(left_inner)
+        lv.setContentsMargins(4, 4, 4, 4)
+
+        # Directory
+        dg = QGroupBox("Data directory")
+        dl = QVBoxLayout(dg)
+        dr = QHBoxLayout()
+        self._dir = QLineEdit()
+        self._dir.setPlaceholderText("Select directory...")
+        dr.addWidget(self._dir)
+        bb = QPushButton("Browse")
+        bb.clicked.connect(self._browse)
+        dr.addWidget(bb)
+        dl.addLayout(dr)
+
+        fr = QHBoxLayout()
+        fr.addWidget(QLabel("Type:"))
+        self._ftype = QComboBox()
+        self._ftype.addItems(["h5", "tif", "All"])
+        self._ftype.currentTextChanged.connect(self._reload)
+        fr.addWidget(self._ftype)
+        dl.addLayout(fr)
+
+        sr = QHBoxLayout()
+        sr.addWidget(QLabel("Scan:"))
+        self._sf = QSpinBox(); self._sf.setRange(0, 999)
+        sr.addWidget(self._sf)
+        sr.addWidget(QLabel("to"))
+        self._st = QSpinBox(); self._st.setRange(0, 999); self._st.setValue(999)
+        sr.addWidget(self._st)
+        dl.addLayout(sr)
+
+        bf = QPushButton("Apply filter")
+        bf.clicked.connect(self._apply_filter)
+        dl.addWidget(bf)
+        self._lbl_count = QLabel("No files")
+        dl.addWidget(self._lbl_count)
+        lv.addWidget(dg)
+
+        # Navigation
+        ng = QGroupBox("Navigation")
+        nl = QVBoxLayout(ng)
+        self._lbl_cur = QLabel("—")
+        self._lbl_cur.setFont(QFont('monospace', 10))
+        nl.addWidget(self._lbl_cur)
+        nr = QHBoxLayout()
+        bp = QPushButton("◀ Prev"); bp.clicked.connect(lambda: self._nav(-1))
+        nr.addWidget(bp)
+        bn = QPushButton("Next ▶"); bn.clicked.connect(lambda: self._nav(1))
+        nr.addWidget(bn)
+        nl.addLayout(nr)
+        nl.addWidget(QLabel("← → : image  |  Ctrl+← → : scan"))
+        lv.addWidget(ng)
+
+        # Mask
+        mg = QGroupBox("Dead pixel mask")
+        ml = QVBoxLayout(mg)
+        mr = QHBoxLayout()
+        self._chk_auto = QCheckBox("Auto threshold:")
+        self._chk_auto.setChecked(True)
+        mr.addWidget(self._chk_auto)
+        self._thresh = QDoubleSpinBox()
+        self._thresh.setRange(1e3, 1e12); self._thresh.setValue(1e7)
+        self._thresh.setDecimals(0); self._thresh.setSingleStep(1e6)
+        mr.addWidget(self._thresh)
+        ml.addLayout(mr)
+
+        mr2 = QHBoxLayout()
+        bm = QPushButton("Load mask")
+        bm.clicked.connect(self._load_mask)
+        mr2.addWidget(bm)
+        bm_save = QPushButton("Save mask")
+        bm_save.clicked.connect(self._save_mask)
+        mr2.addWidget(bm_save)
+        ml.addLayout(mr2)
+
+        mr3 = QHBoxLayout()
+        self._chk_mask_paint = QCheckBox("Create mask (click pixels)")
+        self._chk_mask_paint.toggled.connect(self._on_mask_paint_toggle)
+        mr3.addWidget(self._chk_mask_paint)
+        mr3.addWidget(QLabel("Brush:"))
+        self._mask_brush = QSpinBox()
+        self._mask_brush.setRange(1, 20)
+        self._mask_brush.setValue(1)
+        self._mask_brush.setToolTip("Brush radius in pixels")
+        self._mask_brush.valueChanged.connect(self._on_mask_brush_change)
+        mr3.addWidget(self._mask_brush)
+        ml.addLayout(mr3)
+
+        mr4 = QHBoxLayout()
+        bm_clear = QPushButton("Clear mask")
+        bm_clear.clicked.connect(self._clear_mask)
+        mr4.addWidget(bm_clear)
+        self._lbl_mask_count = QLabel("0 masked pixels")
+        mr4.addWidget(self._lbl_mask_count)
+        ml.addLayout(mr4)
+
+        lv.addWidget(mg)
+
+        # ROI list
+        self._roi_w = ROIListWidget(on_change=self._on_rois_changed)
+        self._roi_w.set_apply_callback(self._apply_rois_all)
+        self._roi_w.set_apply_one_callback(self._apply_one_roi_all)
+        self._roi_w.set_apply_scan_callback(self._apply_rois_scan)
+        self._roi_w.set_apply_one_scan_callback(self._apply_one_roi_scan)
+        self._roi_w.set_lock_offset_callback(self._lock_selected_offset)
+        self._roi_w.set_apply_offset_callback(self._apply_offset_all)
+        self._roi_w.set_apply_offset_scan_callback(self._apply_offset_scan)
+        lv.addWidget(self._roi_w)
+
+        # ROI I/O (right below ROI settings)
+        ig = QGroupBox("ROI file")
+        il = QHBoxLayout(ig)
+        bs = QPushButton("Save"); bs.clicked.connect(self._save_rois)
+        il.addWidget(bs)
+        bl2 = QPushButton("Load"); bl2.clicked.connect(self._load_rois)
+        il.addWidget(bl2)
+        bf = QPushButton("Find BG..."); bf.clicked.connect(self._launch_bg_finder)
+        bf.setToolTip("Launch the background ROI finder tool. "
+                      "When it exits, proposed ROIs are loaded as defaults.")
+        il.addWidget(bf)
+        lv.addWidget(ig)
+
+        # BG method
+        bg = QGroupBox("BG method")
+        bl = QVBoxLayout(bg)
+        self._method = QComboBox()
+        self._method.addItems(list(BG_METHODS.keys()))
+        self._method.currentTextChanged.connect(self._update_sub)
+        bl.addWidget(self._method)
+        self._chk_clip_neg = QCheckBox("Clip negative pixels to 0")
+        self._chk_clip_neg.setChecked(False)
+        self._chk_clip_neg.toggled.connect(self._update_sub)
+        bl.addWidget(self._chk_clip_neg)
+        lv.addWidget(bg)
+
+        # Display
+        dg2 = QGroupBox("Display")
+        dl2 = QVBoxLayout(dg2)
+        self._chk_log = QCheckBox("Log scale"); self._chk_log.setChecked(True)
+        self._chk_log.toggled.connect(self._on_log)
+        dl2.addWidget(self._chk_log)
+        self._chk_full = QCheckBox("Full detector view"); self._chk_full.setChecked(True)
+        self._chk_full.toggled.connect(self._on_view_toggle)
+        dl2.addWidget(self._chk_full)
+
+        # Colormap
+        cm_row = QHBoxLayout()
+        cm_row.addWidget(QLabel("Colormap:"))
+        self._cmap_combo = QComboBox()
+        self._cmap_combo.addItems(["gray", "hot", "viridis", "inferno", "coolwarm", "jet"])
+        self._cmap_combo.currentTextChanged.connect(self._on_cmap_change)
+        cm_row.addWidget(self._cmap_combo)
+        dl2.addLayout(cm_row)
+
+        # Vmin / Vmax
+        clim_row = QHBoxLayout()
+        clim_row.addWidget(QLabel("Min:"))
+        self._vmin_spin = QDoubleSpinBox()
+        self._vmin_spin.setRange(0, 1e12)
+        self._vmin_spin.setValue(0)
+        self._vmin_spin.setDecimals(1)
+        self._vmin_spin.setSpecialValueText("auto")
+        self._vmin_spin.editingFinished.connect(self._on_clim_change)
+        clim_row.addWidget(self._vmin_spin)
+        clim_row.addWidget(QLabel("Max:"))
+        self._vmax_spin = QDoubleSpinBox()
+        self._vmax_spin.setRange(0, 1e12)
+        self._vmax_spin.setValue(0)
+        self._vmax_spin.setDecimals(1)
+        self._vmax_spin.setSpecialValueText("auto")
+        self._vmax_spin.editingFinished.connect(self._on_clim_change)
+        clim_row.addWidget(self._vmax_spin)
+        dl2.addLayout(clim_row)
+
+        self._btn_auto_clim = QPushButton("Auto min/max")
+        self._btn_auto_clim.clicked.connect(self._reset_clim)
+        dl2.addWidget(self._btn_auto_clim)
+
+        lv.addWidget(dg2)
+
+        # Run
+        self._btn_run = QPushButton("▶  RUN — Process all images")
+        self._btn_run.setStyleSheet(
+            "QPushButton{background:#2d5a27;color:white;font-weight:bold;padding:8px;}"
+            "QPushButton:hover{background:#3a7a33;}")
+        self._btn_run.clicked.connect(self._run_batch)
+        lv.addWidget(self._btn_run)
+
+        lv.addStretch()
+
+        # Wrap in scroll area
+        left_scroll = QScrollArea()
+        left_scroll.setWidget(left_inner)
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setStyleSheet("QScrollArea { border: none; }")
+        left_scroll.setMinimumWidth(300)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+        # Use a horizontal splitter so left panel is resizable
+        self._hsplitter = QSplitter(Qt.Horizontal)
+        self._hsplitter.addWidget(left_scroll)
+
+        # --- Right panel ---
+        right_container = QWidget()
+        right_layout = QVBoxLayout(right_container)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+
+        self._vsplitter = QSplitter(Qt.Vertical)
+
+        oc = QWidget()
+        ol = QVBoxLayout(oc); ol.setContentsMargins(0, 0, 0, 0)
+        ol.addWidget(QLabel("Original (drag ROIs):"))
+        self._cv_orig = ImageCanvas(interactive=True)
+        self._cv_orig.set_roi_changed_callback(self._on_canvas_drag)
+        self._cv_orig.set_mask_painted_callback(self._on_mask_painted)
+        self._cv_orig.set_cursor_callback(self._on_cursor_orig)
+        ol.addWidget(self._cv_orig)
+        self._vsplitter.addWidget(oc)
+
+        sc = QWidget()
+        sl = QVBoxLayout(sc); sl.setContentsMargins(0, 0, 0, 0)
+        sl.addWidget(QLabel("Subtracted (preview):"))
+        self._cv_sub = ImageCanvas(interactive=False)
+        self._cv_sub.set_cursor_callback(self._on_cursor_sub)
+        sl.addWidget(self._cv_sub)
+        self._vsplitter.addWidget(sc)
+
+        right_layout.addWidget(self._vsplitter, stretch=1)
+
+        # Bottom bar: cursor info (left) + ROI visibility toggles (right)
+        bottom_bar = QHBoxLayout()
+        self._lbl_cursor = QLabel("  x: —  y: —  value: —")
+        self._lbl_cursor.setFont(QFont('monospace', 10))
+        self._lbl_cursor.setStyleSheet("color: #aaa;")
+        bottom_bar.addWidget(self._lbl_cursor)
+        bottom_bar.addStretch()
+        self._chk_roi_orig = QCheckBox("ROIs (orig)")
+        self._chk_roi_orig.setChecked(True)
+        self._chk_roi_orig.setStyleSheet("color: #aaa;")
+        self._chk_roi_orig.toggled.connect(self._toggle_roi_orig)
+        bottom_bar.addWidget(self._chk_roi_orig)
+        self._chk_roi_sub = QCheckBox("ROIs (sub)")
+        self._chk_roi_sub.setChecked(True)
+        self._chk_roi_sub.setStyleSheet("color: #aaa;")
+        self._chk_roi_sub.toggled.connect(self._toggle_roi_sub)
+        bottom_bar.addWidget(self._chk_roi_sub)
+        right_layout.addLayout(bottom_bar)
+
+        self._hsplitter.addWidget(right_container)
+        self._hsplitter.setStretchFactor(0, 0)  # left panel: don't stretch
+        self._hsplitter.setStretchFactor(1, 1)  # right panel: stretch
+        self._hsplitter.setSizes([360, 1040])   # initial sizes
+        main.addWidget(self._hsplitter)
+
+        self._status = QStatusBar()
+        self.setStatusBar(self._status)
+
+    # ---- Keys ----
+    # Use an event filter to intercept arrow keys globally,
+    # before child widgets (spinboxes, lists, combos) consume them.
+    def _install_key_filter(self):
+        self._key_filter = _ArrowKeyFilter(self)
+        QApplication.instance().installEventFilter(self._key_filter)
+
+    def _install_scroll_blocker(self):
+        """Disable scroll wheel on all spinboxes and combos unless focused."""
+        self._scroll_filter = _ScrollBlockFilter(self)
+        for widget in self.findChildren(QSpinBox):
+            widget.setFocusPolicy(Qt.StrongFocus)
+            widget.installEventFilter(self._scroll_filter)
+        for widget in self.findChildren(QDoubleSpinBox):
+            widget.setFocusPolicy(Qt.StrongFocus)
+            widget.installEventFilter(self._scroll_filter)
+        for widget in self.findChildren(QComboBox):
+            widget.setFocusPolicy(Qt.StrongFocus)
+            widget.installEventFilter(self._scroll_filter)
+
+    def _handle_arrow(self, key, modifiers):
+        """Called by the event filter when an arrow key is pressed."""
+        # Don't intercept if a QLineEdit or QSpinBox has focus and user is editing
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QDoubleSpinBox)):
+            return False
+        # Allow spinbox arrow keys only when the spinbox itself is focused
+        if isinstance(focus, QSpinBox):
+            return False
+
+        if key == Qt.Key_Left:
+            if modifiers & Qt.ControlModifier:
+                self._nav_scan(-1)
+            else:
+                self._nav(-1)
+            return True
+        elif key == Qt.Key_Right:
+            if modifiers & Qt.ControlModifier:
+                self._nav_scan(1)
+            else:
+                self._nav(1)
+            return True
+        return False
+
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key_Left, Qt.Key_Right):
+            self._handle_arrow(event.key(), event.modifiers())
+        else:
+            super().keyPressEvent(event)
+
+    # ---- Files ----
+    def _browse(self):
+        d = QFileDialog.getExistingDirectory(self, "Select data directory")
+        if d:
+            self._dir.setText(d)
+            self._reload()
+
+    def _reload(self):
+        d = self._dir.text()
+        if not os.path.isdir(d):
+            return
+        ft = self._ftype.currentText()
+        ext = None if ft == "All" else [ft]
+        self._all_files = scan_directory(d, ext)
+        self._apply_filter()
+
+    def _apply_filter(self):
+        s0, s1 = self._sf.value(), self._st.value()
+        self._files = [f for f in self._all_files if s0 <= f['scan'] <= s1]
+        n = len(self._files)
+        scans = len(set(f['scan'] for f in self._files))
+        self._lbl_count.setText(f"{n} images, {scans} scans")
+        if n > 0:
+            self._current_idx = 0
+            self._load_current()
+
+    # ---- Navigation ----
+    def _nav(self, step):
+        if not self._files:
+            return
+        self._save_cur_rois()
+        self._current_idx = max(0, min(len(self._files) - 1, self._current_idx + step))
+        self._load_current()
+
+    def _nav_scan(self, direction):
+        if not self._files:
+            return
+        self._save_cur_rois()
+        cur_info = self._files[self._current_idx]
+        cur_scan = cur_info['scan']
+        cur_image = cur_info['image']
+
+        # Find the target scan number
+        target_scan = None
+        if direction > 0:
+            for i in range(self._current_idx + 1, len(self._files)):
+                if self._files[i]['scan'] > cur_scan:
+                    target_scan = self._files[i]['scan']
+                    break
+        else:
+            for i in range(self._current_idx - 1, -1, -1):
+                if self._files[i]['scan'] < cur_scan:
+                    target_scan = self._files[i]['scan']
+                    break
+
+        if target_scan is None:
+            return
+
+        # Find all file indices belonging to target scan
+        target_indices = [i for i, f in enumerate(self._files)
+                          if f['scan'] == target_scan]
+        if not target_indices:
+            return
+
+        # Pick the one with the closest image number (prefer exact match)
+        best = min(target_indices,
+                   key=lambda i: abs(self._files[i]['image'] - cur_image))
+        self._current_idx = best
+        self._load_current()
+
+    def _load_current(self):
+        if not self._files:
+            return
+        info = self._files[self._current_idx]
+        self._lbl_cur.setText(
+            f"Scan {info['scan']:03d} / Img {info['image']:03d}  "
+            f"[{self._current_idx+1}/{len(self._files)}]")
+        try:
+            self._current_image = load_image(info['path'], info['ext'])
+        except Exception as e:
+            self._status.showMessage(f"Error: {e}", 5000)
+            self._current_image = None
+            return
+
+        if self._chk_auto.isChecked() and self._current_image is not None:
+            self._mask = self._current_image > self._thresh.value()
+
+        disp = self._current_image.copy()
+        if self._mask is not None and self._mask.shape == disp.shape:
+            disp[self._mask] = 0
+
+        self._cv_orig.set_log_scale(self._chk_log.isChecked())
+        self._cv_orig.set_colormap(self._cmap_combo.currentText())
+        vmin = self._vmin_spin.value() if self._vmin_spin.value() > 0 else None
+        vmax = self._vmax_spin.value() if self._vmax_spin.value() > 0 else None
+        self._cv_orig.set_clim(vmin, vmax)
+        self._cv_orig.set_image(disp)
+
+        rois = self._roi_config.get_rois(info['scan'], info['image'])
+        # Only auto-apply offsets when this image has no override yet (fresh
+        # defaults). If an override exists, the user has already positioned
+        # the ROIs for this frame - don't overwrite their manual edits.
+        if not self._roi_config.has_override(info['scan'], info['image']):
+            apply_offsets(rois)
+        self._roi_w.set_image(self._current_image, self._mask)
+        self._roi_w.set_rois(rois)
+        self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
+        self._update_sub()
+        self._status.showMessage(f"Loaded: {os.path.basename(info['path'])}", 3000)
+
+    def _save_cur_rois(self):
+        if not self._files:
+            return
+        info = self._files[self._current_idx]
+        self._roi_config.set_override(info['scan'], info['image'], self._roi_w.get_rois())
+
+    # ---- ROI callbacks ----
+    def _on_rois_changed(self):
+        rois = self._roi_w.get_rois()
+        # If the user is editing a MASTER (non-follower), propagate to followers.
+        # If the user is editing a follower (e.g. dodging a powder ring), leave
+        # everything else alone so the manual edit sticks.
+        sel_idx = self._roi_w._list.currentRow()
+        if 0 <= sel_idx < len(rois) and rois[sel_idx].follow_id is None:
+            apply_offsets(rois)
+        self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
+        self._update_sub()
+
+    def _on_canvas_drag(self):
+        self._roi_w.sync_from_canvas()
+        rois = self._roi_w.get_rois()
+        sel_idx = self._roi_w._list.currentRow()
+        if 0 <= sel_idx < len(rois) and rois[sel_idx].follow_id is None:
+            apply_offsets(rois)
+            self._roi_w.set_rois(rois)  # push back so widget display refreshes
+        self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
+        self._update_sub()
+
+    def _apply_rois_all(self):
+        """Set the current widget ROIs as the new defaults, and propagate to
+        every frame. For frames that already had overrides, preserve the
+        master ROI positions from the existing overrides (so per-frame manual
+        tracking is kept) but recompute follower positions from the new
+        offset values."""
+        n_overrides = len(self._roi_config.overrides)
+        n_files = len(self._files)
+        reply = QMessageBox.question(
+            self,
+            "Apply all ROIs to all images?",
+            f"This will overwrite ROI configuration for ALL {n_files} images, "
+            f"including {n_overrides} frames with existing overrides.\n\n"
+            f"Master ROI positions from existing overrides will be preserved, "
+            f"but all other ROIs will be replaced by the current widget config.\n\n"
+            f"Manual edits to non-master ROIs (e.g. powder ring dodges) WILL BE LOST.\n\n"
+            f"Use 'Apply selected ROI offset to all images' instead if you only "
+            f"want to update one follower.\n\n"
+            f"Continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            self._status.showMessage("Apply all cancelled", 3000)
+            return
+
+        widget_rois = self._roi_w.get_rois()
+        # Identify which slots are masters (no follow_id) vs followers
+        # in the current widget config.
+        n = len(widget_rois)
+
+        # Strategy:
+        # - For each frame:
+        #     - take its existing override (if any) and read out the masters'
+        #       positions; if no override, use widget master positions
+        #     - reconstruct rois from widget config but place each master at
+        #       the saved position, then call apply_offsets
+        new_overrides = {}
+        for f in self._files:
+            key = (f['scan'], f['image'])
+            existing = self._roi_config.overrides.get(key)
+            # Build fresh roi list from widget config
+            new_rois = [r.copy() for r in widget_rois]
+            # Carry over master positions from existing override
+            if existing is not None:
+                for i, r in enumerate(new_rois):
+                    if r.follow_id is None and i < len(existing):
+                        new_rois[i].x = existing[i].x
+                        new_rois[i].y = existing[i].y
+            apply_offsets(new_rois)
+            new_overrides[key] = new_rois
+
+        self._roi_config.set_default(widget_rois)
+        self._roi_config.overrides = new_overrides
+        self._status.showMessage(
+            f"Applied to all {len(new_overrides)} images "
+            f"(per-frame master positions preserved)", 4000)
+
+    def _apply_one_roi_all(self):
+        """Update only the selected ROI across all defaults and overrides."""
+        rois = self._roi_w.get_rois()
+        idx = self._roi_w._list.currentRow()
+        if not (0 <= idx < len(rois)):
+            self._status.showMessage("No ROI selected", 3000)
+            return
+        updated_roi = rois[idx]
+
+        # Update in defaults (by index position)
+        if idx < len(self._roi_config.default_rois):
+            self._roi_config.default_rois[idx] = updated_roi.copy()
+
+        # Update in all overrides that have this index
+        for key, override_rois in self._roi_config.overrides.items():
+            if idx < len(override_rois):
+                override_rois[idx] = updated_roi.copy()
+
+        self._status.showMessage(
+            f"'{updated_roi.name}' (ROI {idx+1}) applied to all images", 3000)
+
+    def _apply_rois_scan(self):
+        """Apply current widget ROIs as overrides for every image in the
+        CURRENT scan only. Preserves master positions from existing
+        overrides; recomputes follower positions from the new offsets."""
+        if not self._files:
+            self._status.showMessage("No files loaded", 3000)
+            return
+        widget_rois = self._roi_w.get_rois()
+        cur_scan = self._files[self._current_idx]['scan']
+        count = 0
+        for f in self._files:
+            if f['scan'] != cur_scan:
+                continue
+            key = (f['scan'], f['image'])
+            existing = self._roi_config.overrides.get(key)
+            new_rois = [r.copy() for r in widget_rois]
+            if existing is not None:
+                for i, r in enumerate(new_rois):
+                    if r.follow_id is None and i < len(existing):
+                        new_rois[i].x = existing[i].x
+                        new_rois[i].y = existing[i].y
+            apply_offsets(new_rois)
+            self._roi_config.overrides[key] = new_rois
+            count += 1
+        self._status.showMessage(
+            f"Applied to scan {cur_scan} ({count} images, masters preserved)", 4000)
+
+    def _apply_one_roi_scan(self):
+        """Update only the selected ROI in every image of the CURRENT scan."""
+        if not self._files:
+            self._status.showMessage("No files loaded", 3000)
+            return
+        rois = self._roi_w.get_rois()
+        idx = self._roi_w._list.currentRow()
+        if not (0 <= idx < len(rois)):
+            self._status.showMessage("No ROI selected", 3000)
+            return
+        updated_roi = rois[idx]
+        cur_scan = self._files[self._current_idx]['scan']
+        count = 0
+        for f in self._files:
+            if f['scan'] != cur_scan:
+                continue
+            key = (f['scan'], f['image'])
+            # Create override from current defaults if this image has none yet
+            if key not in self._roi_config.overrides:
+                self._roi_config.overrides[key] = [
+                    r.copy() for r in self._roi_config.default_rois]
+            if idx < len(self._roi_config.overrides[key]):
+                self._roi_config.overrides[key][idx] = updated_roi.copy()
+                count += 1
+        self._status.showMessage(
+            f"'{updated_roi.name}' applied to scan {cur_scan} ({count} images)", 3000)
+
+    def _apply_offset_all(self):
+        """Reposition the currently-selected follower ROI in every existing
+        override, placing it at (master_position + offset) using each frame's
+        own master position. Does not touch other ROIs.
+
+        Master is identified by NAME (not list index) so this works even if
+        the ROI list order has changed across overrides.
+        """
+        self._apply_offset_to_files(self._files, scope_label="frames")
+
+    def _apply_offset_scan(self):
+        """Same as _apply_offset_all but limited to the current scan."""
+        if not self._files:
+            self._status.showMessage("No files loaded", 3000)
+            return
+        cur_scan = self._files[self._current_idx]['scan']
+        scan_files = [f for f in self._files if f['scan'] == cur_scan]
+        self._apply_offset_to_files(
+            scan_files, scope_label=f"frames in scan {cur_scan}")
+
+    def _apply_offset_to_files(self, files, scope_label=""):
+        widget_rois = self._roi_w.get_rois()
+        idx = self._roi_w._list.currentRow()
+        if not (0 <= idx < len(widget_rois)):
+            self._status.showMessage("No ROI selected", 3000)
+            return
+        follower = widget_rois[idx]
+        if follower.follow_id is None:
+            self._status.showMessage(
+                f"'{follower.name}' has no master to follow - "
+                f"set 'Follow ROI' first", 4000)
+            return
+        if not (0 <= follower.follow_id < len(widget_rois)):
+            self._status.showMessage(
+                f"'{follower.name}': invalid follow target", 4000)
+            return
+        master_name = widget_rois[follower.follow_id].name
+        widget_master_pos = widget_rois[follower.follow_id].center()
+
+        applied = 0
+        no_master = 0
+        created = 0
+        for f in files:
+            key = (f['scan'], f['image'])
+            override = self._roi_config.overrides.get(key)
+            if override is None:
+                # No override yet - create one from defaults so this follower
+                # has a place to live. Master comes from defaults if present;
+                # otherwise from widget.
+                new_override = [r.copy() for r in self._roi_config.default_rois]
+                follower_idx = self._find_roi_index_by_name(new_override, follower.name)
+                if follower_idx is None:
+                    new_override.append(follower.copy())
+                    follower_idx = len(new_override) - 1
+                else:
+                    new_override[follower_idx] = follower.copy()
+                master_idx = self._find_roi_index_by_name(new_override, master_name)
+                if master_idx is None:
+                    new_override[follower_idx].set_center(*widget_master_pos)
+                    no_master += 1
+                else:
+                    new_override[follower_idx].follow_id = master_idx
+                    mcx, mcy = new_override[master_idx].center()
+                    new_override[follower_idx].set_center(
+                        mcx + follower.offset_dx,
+                        mcy + follower.offset_dy)
+                self._roi_config.overrides[key] = new_override
+                applied += 1
+                created += 1
+            else:
+                master_idx = self._find_roi_index_by_name(override, master_name)
+                if master_idx is None:
+                    no_master += 1
+                    continue
+                follower_idx = self._find_roi_index_by_name(override, follower.name)
+                if follower_idx is None:
+                    new_follower = follower.copy()
+                    new_follower.follow_id = master_idx
+                    override.append(new_follower)
+                    follower_idx = len(override) - 1
+                else:
+                    override[follower_idx].follow_id = master_idx
+                    override[follower_idx].offset_dx = follower.offset_dx
+                    override[follower_idx].offset_dy = follower.offset_dy
+                mcx, mcy = override[master_idx].center()
+                override[follower_idx].set_center(
+                    mcx + follower.offset_dx,
+                    mcy + follower.offset_dy)
+                applied += 1
+
+        msg = (f"'{follower.name}' applied to {applied} {scope_label} "
+               f"(master={master_name}, offset=("
+               f"{follower.offset_dx:+d},{follower.offset_dy:+d}))")
+        if created:
+            msg += f"; created {created} new overrides"
+        if no_master:
+            msg += f"; {no_master} frames missing master '{master_name}'"
+        self._status.showMessage(msg, 6000)
+        # Refresh display so user sees the result on the current frame
+        self._load_current()
+
+    @staticmethod
+    def _find_roi_index_by_name(rois, name):
+        for i, r in enumerate(rois):
+            if r.name == name:
+                return i
+        return None
+
+    def _lock_selected_offset(self):
+        """Capture the currently-selected ROI's offset relative to its master."""
+        rois = self._roi_w.get_rois()
+        idx = self._roi_w._list.currentRow()
+        if not (0 <= idx < len(rois)):
+            return
+        r = rois[idx]
+        if r.follow_id is None:
+            self._status.showMessage(
+                f"{r.name} has no master to follow - set 'Follow ROI' first", 3000)
+            return
+        if not (0 <= r.follow_id < len(rois)) or r.follow_id == idx:
+            self._status.showMessage(
+                f"{r.name}: invalid follow target", 3000)
+            return
+        master = rois[r.follow_id]
+        lock_offset(r, master)
+        self._roi_w.update_offset_label(r.offset_dx, r.offset_dy)
+        self._status.showMessage(
+            f"Locked {r.name} → {master.name} at offset "
+            f"({r.offset_dx:+d}, {r.offset_dy:+d})", 3000)
+        if hasattr(self._roi_w, '_on_change') and self._roi_w._on_change:
+            self._roi_w._on_change()
+
+    def _on_log(self, checked):
+        self._cv_orig.set_log_scale(checked)
+        self._cv_sub.set_log_scale(checked)
+        self._update_sub()
+
+    def _on_view_toggle(self, checked):
+        self._show_full_sub = checked
+        self._update_sub()
+
+    def _on_cmap_change(self, name):
+        self._cv_orig.set_colormap(name)
+        self._cv_sub.set_colormap(name)
+
+    def _on_clim_change(self):
+        vmin = self._vmin_spin.value() if self._vmin_spin.value() > 0 else None
+        vmax = self._vmax_spin.value() if self._vmax_spin.value() > 0 else None
+        self._cv_orig.set_clim(vmin, vmax)
+        self._cv_sub.set_clim(vmin, vmax)
+
+    def _reset_clim(self):
+        self._vmin_spin.setValue(0)
+        self._vmax_spin.setValue(0)
+        self._cv_orig.set_clim(None, None)
+        self._cv_sub.set_clim(None, None)
+        self._cv_orig._update_display()
+        self._cv_sub._update_display()
+
+    def _on_cursor_orig(self, x, y, val):
+        if x < 0:
+            self._lbl_cursor.setText("  x: —  y: —  value: —")
+        else:
+            self._lbl_cursor.setText(f"  x: {x}  y: {y}  value: {val:.4g}")
+
+    def _on_cursor_sub(self, x, y, val):
+        if x < 0:
+            self._lbl_cursor.setText("  x: —  y: —  value: —")
+        else:
+            self._lbl_cursor.setText(f"  x: {x}  y: {y}  value: {val:.4g}  (subtracted)")
+
+    def _toggle_roi_orig(self, checked):
+        if checked:
+            rois = self._roi_w.get_rois()
+            self._cv_orig.set_rois(rois)
+        else:
+            self._cv_orig.set_rois([])
+
+    def _toggle_roi_sub(self, checked):
+        if checked:
+            rois = self._roi_w.get_rois()
+            self._cv_sub.set_rois(rois)
+        else:
+            self._cv_sub.set_rois([])
+
+    def _set_rois_respecting_toggles(self, rois):
+        """Set ROIs on canvases respecting visibility toggles."""
+        self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
+        self._cv_sub.set_rois(rois if self._chk_roi_sub.isChecked() else [])
+
+    # ---- Subtraction ----
+    def _update_sub(self):
+        if self._current_image is None:
+            return
+        rois = self._roi_w.get_rois()
+        sig = [r for r in rois if r.roi_type == 'signal']
+        bg = [r for r in rois if r.roi_type == 'background']
+
+        if not sig or not bg:
+            disp = self._current_image.copy()
+            if self._mask is not None and self._mask.shape == disp.shape:
+                disp[self._mask] = 0
+            self._cv_sub.set_log_scale(self._chk_log.isChecked())
+            self._cv_sub.set_image(disp)
+            self._cv_sub.set_rois(rois if self._chk_roi_sub.isChecked() else [])
+            return
+
+        method = BG_METHODS[self._method.currentText()]
+        sub = method(self._current_image, sig, bg, self._mask)
+
+        if self._chk_clip_neg.isChecked():
+            sub = np.clip(sub, 0, None)
+
+        if self._show_full_sub:
+            disp = sub
+        else:
+            disp = np.zeros_like(sub)
+            for roi in sig:
+                y1 = max(0, roi.y); x1 = max(0, roi.x)
+                y2 = min(disp.shape[0], roi.y+roi.h)
+                x2 = min(disp.shape[1], roi.x+roi.w)
+                disp[y1:y2, x1:x2] = sub[y1:y2, x1:x2]
+
+        self._cv_sub.set_log_scale(self._chk_log.isChecked())
+        self._cv_sub.set_image(disp)
+        self._cv_sub.set_rois(rois if self._chk_roi_sub.isChecked() else [])
+
+    # ---- Mask ----
+    def _load_mask(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load mask", "", "NumPy (*.npy);;TIFF (*.tif);;All (*)")
+        if not path:
+            return
+        try:
+            if path.endswith('.npy'):
+                self._mask = np.load(path).astype(bool)
+            else:
+                self._mask = tifffile.imread(path) > 0
+            self._last_mask_path = path
+            self._update_mask_label()
+            self._cv_orig.set_mask_data(self._mask)
+            self._status.showMessage(f"Mask loaded: {self._mask.sum()} dead pixels", 5000)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+    def _save_mask(self):
+        if self._mask is None:
+            QMessageBox.warning(self, "Error", "No mask to save.")
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Save mask", "eiger_mask.npy",
+                                               "NumPy (*.npy);;TIFF (*.tif)")
+        if not path:
+            return
+        try:
+            if path.endswith('.npy'):
+                np.save(path, self._mask)
+            elif path.endswith(('.tif', '.tiff')):
+                if HAS_TIFF:
+                    tifffile.imwrite(path, self._mask.astype(np.uint8))
+                else:
+                    np.save(path.replace('.tif', '.npy'), self._mask)
+            self._status.showMessage(f"Mask saved: {path}", 5000)
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
+
+    def _clear_mask(self):
+        if self._mask is not None:
+            self._mask[:] = False
+            self._update_mask_label()
+            self._cv_orig.set_mask_data(self._mask)
+            self._load_current()
+            self._status.showMessage("Mask cleared", 3000)
+
+    def _on_mask_paint_toggle(self, enabled):
+        self._cv_orig.set_mask_paint_mode(enabled)
+        if enabled:
+            # Ensure mask array exists
+            if self._current_image is not None:
+                if self._mask is None or self._mask.shape != self._current_image.shape:
+                    self._mask = np.zeros(self._current_image.shape, dtype=bool)
+                    if self._chk_auto.isChecked():
+                        self._mask |= self._current_image > self._thresh.value()
+                self._cv_orig.set_mask_data(self._mask)
+            self._status.showMessage("Mask paint ON — click/drag on image to mark dead pixels", 5000)
+        else:
+            self._status.showMessage("Mask paint OFF", 3000)
+
+    def _on_mask_brush_change(self, val):
+        self._cv_orig._mask_brush_size = val
+
+    def _on_mask_painted(self):
+        """Called by canvas when mask pixels are painted."""
+        self._update_mask_label()
+        # Refresh display with updated mask
+        if self._current_image is not None:
+            disp = self._current_image.copy()
+            if self._mask is not None and self._mask.shape == disp.shape:
+                disp[self._mask] = 0
+            self._cv_orig.set_image(disp)
+        self._update_sub()
+
+    def _update_mask_label(self):
+        n = int(self._mask.sum()) if self._mask is not None else 0
+        self._lbl_mask_count.setText(f"{n} masked pixels")
+
+    # ---- ROI I/O ----
+    def _save_rois(self):
+        self._save_cur_rois()
+        default_name = self._last_roi_path if hasattr(self, '_last_roi_path') else "ROIs_default.txt"
+        path, _ = QFileDialog.getSaveFileName(self, "Save ROIs", default_name, "Text (*.txt)")
+        if path:
+            self._roi_config.save(path)
+            self._last_roi_path = path
+            self._status.showMessage(f"Saved: {path}", 5000)
+
+    def _load_rois(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Load ROIs", "", "Text (*.txt);;All (*)")
+        if path:
+            try:
+                self._roi_config.load(path)
+                self._last_roi_path = path
+                self._load_current()
+                self._status.showMessage(f"Loaded: {path}", 5000)
+            except Exception as e:
+                QMessageBox.warning(self, "Error", str(e))
+
+    def _launch_bg_finder(self):
+        """Open the background ROI finder (modal) on this directory and scan range. When it is
+        closed, load the ROI file it saved and merge it into the current config as defaults
+        (replacing background ROIs only, keeping signals)."""
+        d = self._dir.text() if hasattr(self, '_dir') else ''
+        if not d or not os.path.isdir(d):
+            QMessageBox.warning(self, "No directory",
+                                "Load an image directory in the main window first.")
+            return
+        s0 = self._sf.value() if hasattr(self, '_sf') else 0
+        s1 = self._st.value() if hasattr(self, '_st') else 99999
+        ext = self._ftype.currentText() if hasattr(self, '_ftype') else 'h5'
+        if ext == 'All':
+            ext = 'h5'
+        tmp = tempfile.NamedTemporaryFile(mode='w', suffix='_bg_rois.txt', delete=False)
+        tmp_path = tmp.name
+        tmp.close()
+        try:
+            os.unlink(tmp_path)  # the finder creates it when it saves
+        except OSError:
+            pass
+        from .bg_finder import BgFinderWindow
+        self._status.showMessage("Opening background ROI finder...", 3000)
+        finder = BgFinderWindow(init_dir=d, scan_min=s0, scan_max=s1, ext=ext, save_to=tmp_path)
+        finder.setAttribute(Qt.WA_DeleteOnClose)
+        finder.setWindowModality(Qt.ApplicationModal)
+        loop = QEventLoop()
+        finder.destroyed.connect(loop.quit)
+        finder.show()
+        loop.exec_()
+
+        # Check if a file was written
+        if not os.path.exists(tmp_path):
+            self._status.showMessage("Background finder closed without saving.", 5000)
+            return
+
+        # Load proposed ROIs
+        proposed = ROIConfig()
+        try:
+            proposed.load(tmp_path)
+        except Exception as e:
+            QMessageBox.warning(self, "Parse error",
+                                f"Could not parse output: {e}")
+            return
+        finally:
+            try: os.unlink(tmp_path)
+            except OSError: pass
+
+        if not proposed.default_rois:
+            self._status.showMessage("No background ROIs were proposed.", 5000)
+            return
+
+        # Merge: keep existing signal ROIs from defaults, replace background ROIs
+        # with the proposed ones
+        signal_rois = [r for r in self._roi_config.default_rois
+                       if r.roi_type == 'signal']
+        bg_rois = [r for r in proposed.default_rois
+                   if r.roi_type == 'background']
+
+        # Apply to current scan range as overrides too, so the user sees them
+        # right away in the main window
+        new_defaults = signal_rois + bg_rois
+        self._roi_config.default_rois = [r.copy() for r in new_defaults]
+
+        # Apply as overrides to all images in the current scan range
+        # so the new BG ROIs are visible immediately
+        for f in self._files:
+            self._roi_config.overrides[(f['scan'], f['image'])] = [
+                r.copy() for r in new_defaults]
+
+        self._load_current()
+        self._status.showMessage(
+            f"Loaded {len(bg_rois)} background ROIs from finder, "
+            f"applied to {len(self._files)} images", 5000)
+
+    # ---- Batch ----
+    def _run_batch(self):
+        if not self._files:
+            QMessageBox.warning(self, "Error", "No files loaded.")
+            return
+        self._save_cur_rois()
+
+        # Ask user for output text file name
+        default_name = "roi_sums.txt"
+        if hasattr(self, '_last_roi_path') and self._last_roi_path:
+            default_name = os.path.splitext(os.path.basename(self._last_roi_path))[0] + "_sums.txt"
+        sum_path, _ = QFileDialog.getSaveFileName(
+            self, "Save ROI sums as...", default_name, "Text files (*.txt);;All (*)")
+        if not sum_path:
+            return
+
+        out_dir = os.path.dirname(sum_path)
+        if not out_dir:
+            out_dir = '.'
+        txt_stem = os.path.splitext(os.path.basename(sum_path))[0]
+
+        # Image subdirectory named after the chosen text file
+        img_subdir = os.path.join(out_dir, txt_stem + "_images")
+        os.makedirs(img_subdir, exist_ok=True)
+
+        method = BG_METHODS[self._method.currentText()]
+        n = len(self._files)
+
+        progress = QProgressDialog("Processing...", "Cancel", 0, n, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+
+        # Collect all ROI names
+        all_names = set()
+        for info in self._files:
+            for r in self._roi_config.get_rois(info['scan'], info['image']):
+                all_names.add(r.name)
+        roi_names = sorted(all_names)
+
+        sum_rows = []
+        for i, info in enumerate(self._files):
+            if progress.wasCanceled():
+                break
+            progress.setValue(i)
+
+            try:
+                img = load_image(info['path'], info['ext'])
+            except Exception:
+                continue
+
+            mask = None
+            if self._chk_auto.isChecked():
+                mask = img > self._thresh.value()
+
+            # Combine with loaded/painted mask
+            if self._mask is not None and self._mask.shape == img.shape:
+                if mask is None:
+                    mask = self._mask.copy()
+                else:
+                    mask = mask | self._mask
+
+            rois = self._roi_config.get_rois(info['scan'], info['image'])
+            # Only auto-apply offsets when this image has no saved override.
+            # Saved overrides represent explicit user-edited positions and are
+            # the source of truth for batch processing.
+            if not self._roi_config.has_override(info['scan'], info['image']):
+                apply_offsets(rois)
+            sig = [r for r in rois if r.roi_type == 'signal']
+            bg = [r for r in rois if r.roi_type == 'background']
+
+            sub = method(img, sig, bg, mask) if sig and bg else img.copy()
+            if mask is not None:
+                sub[mask] = 0
+            if self._chk_clip_neg.isChecked():
+                sub = np.clip(sub, 0, None)
+
+            # Save subtracted image as colormapped PNG
+            base = os.path.basename(info['path'])
+            out_name = re.sub(r'\.(h5|tif|tiff)$', '_sub.png', base)
+            try:
+                # Apply same display transform as the preview
+                img_disp = sub.copy()
+                if self._chk_log.isChecked():
+                    img_disp = np.where(img_disp > 0, np.log10(img_disp + 1), 0)
+
+                pos = img_disp[img_disp > 0] if np.any(img_disp > 0) else img_disp.ravel()
+                vmin = self._vmin_spin.value()
+                vmax = self._vmax_spin.value()
+                if self._chk_log.isChecked():
+                    if vmin > 0:
+                        vmin = np.log10(vmin + 1)
+                    if vmax > 0:
+                        vmax = np.log10(vmax + 1)
+                if vmin == 0 and not self._chk_log.isChecked():
+                    vmin = np.percentile(pos, 1) if pos.size > 0 else 0
+                elif vmin == 0:
+                    vmin = np.percentile(pos, 1) if pos.size > 0 else 0
+                if vmax == 0:
+                    vmax = np.percentile(pos, 99.5) if pos.size > 0 else 1
+
+                idx_arr = np.clip((img_disp - vmin) / (vmax - vmin + 1e-10) * 255,
+                                  0, 255).astype(np.uint8)
+
+                # Apply colormap LUT
+                lut = ImageCanvas._build_lut(self._cmap_combo.currentText())
+                h_img, w_img = idx_arr.shape
+                rgb = lut[idx_arr.ravel()].reshape(h_img, w_img, 3)
+
+                try:
+                    from PIL import Image
+                    pil_img = Image.fromarray(rgb, 'RGB')
+                    pil_img.save(os.path.join(img_subdir, out_name), compress_level=6)
+                except ImportError:
+                    out_name = out_name.replace('.png', '_sub.tif')
+                    if HAS_TIFF:
+                        tifffile.imwrite(
+                            os.path.join(img_subdir, out_name),
+                            rgb, compression='zlib')
+            except Exception:
+                out_name = re.sub(r'\.(png|tif)$', '_sub.tif', out_name)
+                if HAS_TIFF:
+                    tifffile.imwrite(os.path.join(img_subdir, out_name), sub.astype(np.float32))
+
+            # ROI sums on subtracted image
+            sums = {}
+            for r in rois:
+                region = r.extract(sub)
+                if region.size > 0:
+                    if mask is not None:
+                        m = r.extract(mask)
+                        sums[r.name] = float(np.sum(region[~m])) if m.size == region.size else float(np.sum(region))
+                    else:
+                        sums[r.name] = float(np.sum(region))
+                else:
+                    sums[r.name] = 0.0
+
+            row = [info['scan'], info['image']] + [sums.get(n, 0.0) for n in roi_names]
+            sum_rows.append(row)
+
+        progress.setValue(n)
+
+        # Save sums to the user-chosen path (tab-separated for Excel)
+        with open(sum_path, 'w') as f:
+            header = ["scan", "image"] + roi_names
+            f.write("\t".join(header) + "\n")
+            for row in sum_rows:
+                parts = [f"{row[0]:03d}", f"{row[1]:03d}"]
+                parts += [f"{v:.6g}" for v in row[2:]]
+                f.write("\t".join(parts) + "\n")
+
+        QMessageBox.information(self, "Done",
+            f"Processed {len(sum_rows)} images.\n"
+            f"Images: {img_subdir}\nSums: {sum_path}")
+
+
+def main(argv=None):
+    return run_tool(MainWindow)
+
+
+if __name__ == '__main__':
+    main()

@@ -5,6 +5,7 @@ built-in table and the pinned numbers do not depend on what is installed.
 """
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,3 +15,5 @@ sys.path.insert(0, str(TESTS))
 sys.modules["xraydb"] = None          # import xraydb -> ImportError
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("MPLBACKEND", "Agg")
+# the data tools save their settings here, never in the home folder
+os.environ["CTRFIT_SETTINGS_DIR"] = tempfile.mkdtemp(prefix="ctrfit_settings_")

@@ -196,7 +196,11 @@ def test_data_tools_window(qapp, no_dialogs, tmp_path, monkeypatch):
     c._files = [str(tmp_path / "hkl.txt")]
     c._out.setText(str(tmp_path / "combined.txt"))
     c._combine()
-    assert no_dialogs[-1][0] == "information" and len((tmp_path / "combined.txt").read_text().splitlines()) == 12
+    assert c._status_label.text().startswith("Wrote 11 rows") and not no_dialogs                # status bar, no pop-up
+    assert len((tmp_path / "combined.txt").read_text().splitlines()) == 12
+    c._files = []
+    c._combine()
+    assert no_dialogs[-1][0] == "warning"                                              # errors still pop up
     w.close()
     assert {"sxrd_bgsub_settings.ini", "sxrd_plotter_settings.ini", "sxrd_ctr_settings.ini"} <= set(
         os.listdir(settings_dir()))
@@ -241,3 +245,34 @@ def test_background_finder_opens_from_the_subtraction_tab(qapp, no_dialogs, tmp_
     bg = [r for r in w._roi_config.default_rois if r.roi_type == "background"]
     assert [(r.x, r.y, r.w, r.h) for r in bg] == [(1, 2, 8, 8)]
     w._save_settings()
+
+
+def test_tools_follow_the_window_standard(qapp, no_dialogs, monkeypatch, tmp_path):
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtWidgets import QPushButton, QShortcut
+    from ctrfit.app.data_tools_window import DataToolsWindow
+    from ctrfit.app.datatools.common import PRIMARY_STYLE
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    w = DataToolsWindow()
+    w.show()
+    qapp.processEvents()
+    assert qapp.palette().window().color().lightness() > 150                          # the system (light) theme
+    for key, tool in w.tools.items():
+        primary = [b for b in tool.findChildren(QPushButton) if b.styleSheet() == PRIMARY_STYLE]
+        assert primary or key == "meta", key                                         # a blue main action (the viewer has none)
+        assert tool._status_label is not None and tool._status_label.text(), key        # a first hint in the status bar
+        for sc in tool.findChildren(QShortcut):
+            assert sc.context() == Qt.WidgetWithChildrenShortcut, key                   # shortcuts stay in their tab
+    # a dialog of the plotter reports in the plotter's status bar
+    plotter = w.tools["plotter"]
+    plotter._peak_fit_dialog.say("fitted 3 scans")
+    assert plotter._status_label.text() == "fitted 3 scans" and not no_dialogs
+    # the ROI copy grid is wired to the window
+    bg = w.tools["bgsub"]
+    calls = []
+    monkeypatch.setattr(bg, "_apply_rois_scan", lambda: calls.append("scan"))
+    bg._roi_w._btn_apply_scan.clicked.disconnect()
+    bg._roi_w.set_apply_scan_callback(bg._apply_rois_scan)
+    bg._roi_w._btn_apply_scan.click()
+    assert calls == ["scan"]
+    w.close()

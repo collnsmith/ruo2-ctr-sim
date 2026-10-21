@@ -11,7 +11,6 @@ import sys
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
 
-from .datatools.common import dark_palette
 
 # (key, tab title, module, window class, tooltip)
 TOOLS = [
@@ -72,7 +71,6 @@ class DataToolsWindow(QMainWindow):
 
 def main(argv=None):
     app = QApplication.instance() or QApplication(sys.argv if argv is None else argv)
-    dark_palette(app)
     win = DataToolsWindow()
     win.show()
     return app.exec_()

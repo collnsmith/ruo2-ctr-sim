@@ -56,7 +56,7 @@ ctrfit/datatools SXRD data processing (no Qt): images.py (Eiger .h5/.tif, ROI, R
                  h5meta.py, ctrmodels.py (quick CTR models), paths.py (settings folder)
 ctrfit/assistant agent.py (Claude fitting assistant: tool-use loop over the fitting API, no Qt)
 ctrfit/app       fit_window.py, assistant_panel.py, beamline_window.py, echem_window.py, data_tools_window.py
-                 (tabs over datatools/: one window per old tool) (Qt; the only Qt code in ctrfit)
+                 (tabs over datatools/: one window per old tool, shared look in datatools/common.py) (Qt; the only Qt code in ctrfit)
 ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
@@ -126,7 +126,7 @@ What the tests protect:
 | `test_echem.py` | SPEC scans and point times (epoch vs elapsed agree), stationary detection, .mpt / CSV / faked .mpr readers, hand-defined CV, sync modes (absolute and manual agree, events lag, typed onset), header-less scans, CV start/stop by point number (hold or sweep), loop-closing shift, transmission, rod rounding, cycles, background, sigmoid recovery, exact CTR quadratic, path fit recovers the synthetic truth (loopscan, phi scan, hand-defined CV), near-surface O (interpolated shortcut vs direct, fit recovers it, window fields), joint fit (exact quadratic incl. domains and relaxed top, four synthetic scans recover path, near-surface B, oh_z and the depth, save/load, CLI, tab), coverage, exports, CLI, window offscreen |
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
-| `test_datatools.py` | data tools on synthetic files: SPEC columns and motors, HKL append (snapped H K) / smooth (exclusion zones) / combine / GenX, h5 images, ROI file round trip, every background method, ROI finder avoids signal and hot spots, peak fit with a centre hint and its area, quick CTR models, no Qt in the logic; the tabbed window (tabs, CTR button switches tab, arrow keys only on the visible tab, combiner end to end, settings saved), the in-process ROI finder hand-off, the launcher entry point |
+| `test_datatools.py` | data tools on synthetic files: SPEC columns and motors, HKL append (snapped H K) / smooth (exclusion zones) / combine / GenX, h5 images, ROI file round trip, every background method, ROI finder avoids signal and hot spots, peak fit with a centre hint and its area, quick CTR models, no Qt in the logic; the tabbed window (tabs, CTR button switches tab, arrow keys only on the visible tab, combiner end to end, settings saved), the window standard (system theme, a blue main action per tool, status-bar messages, shortcuts scoped to their tab, dialogs report to their tool), the in-process ROI finder hand-off, the launcher entry point |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

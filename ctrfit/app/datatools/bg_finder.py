@@ -23,11 +23,12 @@ import sys
 import numpy as np
 from PyQt5.QtCore import Qt, QRect, QPoint, QPointF, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QPixmap, QPainter, QPen
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                             QPushButton, QFileDialog, QGroupBox, QLineEdit, QSpinBox, QDoubleSpinBox,
-                             QComboBox, QTextEdit, QMessageBox, QCheckBox, QProgressDialog, QSlider)
+from PyQt5.QtWidgets import (QFormLayout, QSplitter, QApplication, QMainWindow, QWidget, QVBoxLayout, QLabel,
+                             QPushButton, QFileDialog, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
+                             QTextEdit, QCheckBox, QProgressDialog, QSlider)
 
-from ctrfit.app.datatools.common import run_tool
+from ctrfit.app.datatools.common import (StatusMixin, group, hint, mono_font, primary_button, row, run_tool,
+                                         sidebar)
 from ctrfit.datatools.bgfind import (GPU_NAME, HAS_CUPY, compute_stats, fallback_find_rois,
                                      find_bg_rois_near_point, make_exclusion_mask)
 from ctrfit.datatools.images import ROI, ROIConfig, load_image, scan_directory
@@ -238,7 +239,7 @@ class BgImageView(QLabel):
         return int(img_x), int(img_y)
 
 
-class BgFinderWindow(QMainWindow):
+class BgFinderWindow(StatusMixin, QMainWindow):
     def __init__(self, init_dir=None, scan_min=None, scan_max=None,
                  ext='h5', save_to=None):
         super().__init__()
@@ -260,203 +261,154 @@ class BgFinderWindow(QMainWindow):
         self._current_image_idx = 0  # within current scan
         self._save_to = save_to
 
-        cw = QWidget(); self.setCentralWidget(cw)
-        outer = QHBoxLayout(cw)
-
-        # Left: controls
-        ctrl = QWidget(); ctrl.setMaximumWidth(380)
-        cv = QVBoxLayout(ctrl)
-
-        # Dir
-        dg = QGroupBox("Image directory")
-        dl = QHBoxLayout(dg)
-        self._dir = QLineEdit(); self._dir.setReadOnly(True)
-        if init_dir: self._dir.setText(init_dir)
-        dl.addWidget(self._dir)
-        bb = QPushButton("Browse...")
-        bb.clicked.connect(self._browse); dl.addWidget(bb)
-        cv.addWidget(dg)
-
-        # File type
-        fg = QGroupBox("File type")
-        fl = QHBoxLayout(fg)
+        # ---- left: the workflow, top to bottom
+        ig, il = group("Images")
+        self._dir = QLineEdit()
+        self._dir.setReadOnly(True)
+        if init_dir:
+            self._dir.setText(init_dir)
+        bb = QPushButton("Browse…")
+        bb.clicked.connect(self._browse)
+        il.addRow(row(self._dir, bb))
         self._ftype = QComboBox()
         self._ftype.addItems(['h5', 'tif', 'tiff', 'All'])
         idx = self._ftype.findText(ext)
-        if idx >= 0: self._ftype.setCurrentIndex(idx)
-        fl.addWidget(self._ftype)
-        br = QPushButton("Reload"); br.clicked.connect(self._reload_files)
-        fl.addWidget(br)
-        cv.addWidget(fg)
+        if idx >= 0:
+            self._ftype.setCurrentIndex(idx)
+        br = QPushButton("Reload")
+        br.clicked.connect(self._reload_files)
+        il.addRow("Type", row(self._ftype, br))
+        self._sf = QSpinBox()
+        self._sf.setRange(0, 99999)
+        if scan_min is not None:
+            self._sf.setValue(scan_min)
+        self._st = QSpinBox()
+        self._st.setRange(0, 99999)
+        if scan_max is not None:
+            self._st.setValue(scan_max)
+        ba = QPushButton("Apply")
+        ba.clicked.connect(self._apply_filter)
+        il.addRow("Scans", row(self._sf, QLabel("to"), self._st, ba, stretch_first=False))
+        self._lbl_count = hint("0 images, 0 scans")
+        il.addRow(self._lbl_count)
+        il.addRow(hint(f"GPU: {GPU_NAME}" if HAS_CUPY else "GPU not available (CuPy): statistics on the CPU"))
 
-        # Scan range
-        sg = QGroupBox("Scan range")
-        sl = QHBoxLayout(sg)
-        sl.addWidget(QLabel("From:"))
-        self._sf = QSpinBox(); self._sf.setRange(0, 99999)
-        if scan_min is not None: self._sf.setValue(scan_min)
-        sl.addWidget(self._sf)
-        sl.addWidget(QLabel("To:"))
-        self._st = QSpinBox(); self._st.setRange(0, 99999)
-        if scan_max is not None: self._st.setValue(scan_max)
-        sl.addWidget(self._st)
-        ba = QPushButton("Apply"); ba.clicked.connect(self._apply_filter)
-        sl.addWidget(ba)
-        cv.addWidget(sg)
+        seg, sel = group("1. Signal centre")
+        self._lbl_signal = QLabel("Not set: click the image")
+        self._lbl_signal.setStyleSheet("color: #b58900; font-weight: 600;")
+        bclear = QPushButton("Clear")
+        bclear.clicked.connect(self._clear_signal)
+        sel.addRow(row(self._lbl_signal, bclear))
 
-        self._lbl_count = QLabel("0 images, 0 scans")
-        cv.addWidget(self._lbl_count)
-
-        # GPU status
-        gpu_status = QLabel()
-        if HAS_CUPY:
-            gpu_status.setText(f"<b style='color:#2d8a4d'>GPU:</b> {GPU_NAME}")
-        else:
-            gpu_status.setText("<b style='color:#888'>GPU not available</b>")
-        gpu_status.setWordWrap(True)
-        cv.addWidget(gpu_status)
-
-        # Signal center
-        seg = QGroupBox("Signal center (click image to set)")
-        sel = QVBoxLayout(seg)
-        self._lbl_signal = QLabel("Not set - click the image")
-        self._lbl_signal.setStyleSheet("color:#ffdd00;")
-        sel.addWidget(self._lbl_signal)
-        brow = QHBoxLayout()
-        bclear = QPushButton("Clear signal")
-        bclear.clicked.connect(self._clear_signal); brow.addWidget(bclear)
-        sel.addLayout(brow)
-        cv.addWidget(seg)
-
-        # Compute
-        cg = QGroupBox("Compute (per scan)")
-        cl = QVBoxLayout(cg)
-        cl.addWidget(QLabel("Lower percentile:"))
-        self._pct = QSpinBox(); self._pct.setRange(1, 49); self._pct.setValue(20)
-        cl.addWidget(self._pct)
-        cl.addWidget(QLabel("Max images per scan:"))
-        self._max_per_scan = QSpinBox(); self._max_per_scan.setRange(2, 5000); self._max_per_scan.setValue(500)
-        cl.addWidget(self._max_per_scan)
-        self._chk_gpu = QCheckBox("Use GPU")
-        self._chk_gpu.setChecked(HAS_CUPY); self._chk_gpu.setEnabled(HAS_CUPY)
-        cl.addWidget(self._chk_gpu)
-
+        cg, cl = group("2. Pixel statistics per scan")
+        self._pct = QSpinBox()
+        self._pct.setRange(1, 49)
+        self._pct.setValue(20)
+        self._pct.setSuffix(" %")
+        self._max_per_scan = QSpinBox()
+        self._max_per_scan.setRange(2, 5000)
+        self._max_per_scan.setValue(500)
+        self._chk_gpu = QCheckBox("Use the GPU")
+        self._chk_gpu.setChecked(HAS_CUPY)
+        self._chk_gpu.setEnabled(HAS_CUPY)
+        cl.addRow("Lower percentile", self._pct)
+        cl.addRow("Max images per scan", self._max_per_scan)
+        cl.addRow(self._chk_gpu)
         btn_compute = QPushButton("Compute all scans")
-        btn_compute.setStyleSheet(
-            "QPushButton{background:#2a5a8a;color:white;font-weight:bold;padding:8px;}")
         btn_compute.clicked.connect(self._compute_all)
-        cl.addWidget(btn_compute)
-        cv.addWidget(cg)
+        cl.addRow(btn_compute)
 
-        # ROI options
-        rg = QGroupBox("ROI placement")
-        rl = QVBoxLayout(rg)
-        rl.addWidget(QLabel("Box size (px):"))
-        self._box_size = QSpinBox(); self._box_size.setRange(5, 500); self._box_size.setValue(30)
-        rl.addWidget(self._box_size)
-        rl.addWidget(QLabel("Signal exclusion radius:"))
-        self._sig_radius = QSpinBox(); self._sig_radius.setRange(5, 500); self._sig_radius.setValue(40)
-        rl.addWidget(self._sig_radius)
-        rl.addWidget(QLabel("Search radius:"))
-        self._search_r = QSpinBox(); self._search_r.setRange(20, 2000); self._search_r.setValue(200)
-        rl.addWidget(self._search_r)
-        rl.addWidget(QLabel("Number of BG ROIs per scan:"))
-        self._n_boxes = QSpinBox(); self._n_boxes.setRange(1, 12); self._n_boxes.setValue(4)
-        rl.addWidget(self._n_boxes)
-        rl.addWidget(QLabel("Min clean fill fraction:"))
-        self._min_fill = QDoubleSpinBox(); self._min_fill.setRange(0.1, 1.0)
-        self._min_fill.setSingleStep(0.05); self._min_fill.setValue(0.7)
-        rl.addWidget(self._min_fill)
-
-        btn_find = QPushButton("Place ROIs (all scans)")
-        btn_find.setStyleSheet(
-            "QPushButton{background:#2d5a27;color:white;font-weight:bold;padding:8px;}")
+        rg, rl = group("3. Background boxes")
+        self._box_size = QSpinBox()
+        self._box_size.setRange(5, 500)
+        self._box_size.setValue(30)
+        self._sig_radius = QSpinBox()
+        self._sig_radius.setRange(5, 500)
+        self._sig_radius.setValue(40)
+        self._search_r = QSpinBox()
+        self._search_r.setRange(20, 2000)
+        self._search_r.setValue(200)
+        self._n_boxes = QSpinBox()
+        self._n_boxes.setRange(1, 12)
+        self._n_boxes.setValue(4)
+        self._min_fill = QDoubleSpinBox()
+        self._min_fill.setRange(0.1, 1.0)
+        self._min_fill.setSingleStep(0.05)
+        self._min_fill.setValue(0.7)
+        self._min_fill.setToolTip("Smallest share of a box's pixels that must be clean (not excluded)")
+        for w in (self._box_size, self._sig_radius, self._search_r):
+            w.setSuffix(" px")
+        rl.addRow("Box size", self._box_size)
+        rl.addRow("Keep away from signal", self._sig_radius)
+        rl.addRow("Search radius", self._search_r)
+        rl.addRow("Boxes per scan", self._n_boxes)
+        rl.addRow("Min clean fill", self._min_fill)
+        btn_find = QPushButton("Place boxes (all scans)")
         btn_find.clicked.connect(self._place_rois_all)
-        rl.addWidget(btn_find)
-        cv.addWidget(rg)
+        rl.addRow(btn_find)
 
-        # Display options
-        dg2 = QGroupBox("Display")
-        dl2 = QVBoxLayout(dg2)
-        dl2.addWidget(QLabel("Show:"))
+        dg2, dl2 = group("Display")
         self._view_mode = QComboBox()
-        self._view_mode.addItems(['raw image', 'median', 'percentile_low',
-                                   'percentile_high', 'mad', 'max'])
+        self._view_mode.addItems(['raw image', 'median', 'percentile_low', 'percentile_high', 'mad', 'max'])
         self._view_mode.setCurrentText('max')
         self._view_mode.currentTextChanged.connect(self._update_display)
-        dl2.addWidget(self._view_mode)
         self._chk_log = QCheckBox("Log scale")
         self._chk_log.setChecked(True)
         self._chk_log.toggled.connect(self._update_display)
-        dl2.addWidget(self._chk_log)
-        self._chk_show_excl = QCheckBox("Show excluded pixels (red tint)")
+        self._chk_show_excl = QCheckBox("Tint excluded pixels red")
         self._chk_show_excl.toggled.connect(self._update_display)
-        dl2.addWidget(self._chk_show_excl)
-        cv.addWidget(dg2)
+        dl2.addRow("Show", self._view_mode)
+        dl2.addRow(row(self._chk_log, self._chk_show_excl, 1, stretch_first=False))
 
-        # Output
-        og = QGroupBox("Output")
-        ol = QVBoxLayout(og)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(sidebar(ig, seg, cg, rg, dg2), 1)
         if save_to:
-            lbl = QLabel(f"Will save to:\n{save_to}")
-            lbl.setWordWrap(True); lbl.setStyleSheet("color:#aaa;")
-            ol.addWidget(lbl)
-            bs = QPushButton("Save and exit")
-            bs.setStyleSheet(
-                "QPushButton{background:#5a3a8a;color:white;font-weight:bold;padding:8px;}")
-            bs.clicked.connect(self._save_and_exit); ol.addWidget(bs)
+            lv.addWidget(hint(f"Saves to {save_to} and returns to background subtraction."))
+            lv.addWidget(primary_button("Save and close", self._save_and_exit))
         else:
-            bs = QPushButton("Save ROI file..."); bs.clicked.connect(self._save_file)
-            ol.addWidget(bs)
-        cv.addWidget(og)
+            lv.addWidget(primary_button("Save ROI file…", self._save_file, "Ctrl+S", self))
 
-        cv.addStretch()
-
-        # Right: image view + sliders + log
+        # ---- right: the image, scan and image sliders, log
         right = QWidget()
-        rv = QVBoxLayout(right); rv.setContentsMargins(0, 0, 0, 0)
-
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
         self._img_view = BgImageView()
         self._img_view.clicked.connect(self._on_image_click)
         rv.addWidget(self._img_view, stretch=1)
-
-        # Instructions
-        self._inst = QLabel(
-            "Left-click: set signal center  |  Right-drag: pan  |  "
-            "Wheel: zoom  |  Double-click: fit view")
-        self._inst.setStyleSheet("color:#aaa; padding:4px;")
+        self._inst = hint("Left-click: signal centre  |  Right-drag: pan  |  Wheel: zoom  |  Double-click: fit view")
         rv.addWidget(self._inst)
-
-        # Scan slider
-        scan_row = QHBoxLayout()
-        scan_row.addWidget(QLabel("Scan:"))
+        nav = QFormLayout()
         self._scan_slider = QSlider(Qt.Horizontal)
-        self._scan_slider.setMinimum(0); self._scan_slider.setMaximum(0)
+        self._scan_slider.setMinimum(0)
+        self._scan_slider.setMaximum(0)
         self._scan_slider.valueChanged.connect(self._on_scan_slider)
-        scan_row.addWidget(self._scan_slider)
-        self._scan_label = QLabel("—"); self._scan_label.setMinimumWidth(120)
-        scan_row.addWidget(self._scan_label)
-        rv.addLayout(scan_row)
-
-        # Image slider
-        img_row = QHBoxLayout()
-        img_row.addWidget(QLabel("Image:"))
+        self._scan_label = QLabel("—")
+        self._scan_label.setMinimumWidth(140)
         self._img_slider = QSlider(Qt.Horizontal)
-        self._img_slider.setMinimum(0); self._img_slider.setMaximum(0)
+        self._img_slider.setMinimum(0)
+        self._img_slider.setMaximum(0)
         self._img_slider.valueChanged.connect(self._on_img_slider)
-        img_row.addWidget(self._img_slider)
-        self._img_label = QLabel("—"); self._img_label.setMinimumWidth(120)
-        img_row.addWidget(self._img_label)
-        rv.addLayout(img_row)
+        self._img_label = QLabel("—")
+        self._img_label.setMinimumWidth(140)
+        nav.addRow("Scan", row(self._scan_slider, self._scan_label))
+        nav.addRow("Image", row(self._img_slider, self._img_label))
+        rv.addLayout(nav)
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFont(mono_font())
+        rsplit = QSplitter(Qt.Vertical)
+        rsplit.addWidget(right)
+        rsplit.addWidget(self._log)
+        rsplit.setSizes([720, 130])
 
-        # Log
-        self._log = QTextEdit(); self._log.setReadOnly(True)
-        self._log.setMaximumHeight(120)
-        self._log.setStyleSheet("font-family:monospace; background:#1a1a1a; color:#ccc;")
-        rv.addWidget(self._log)
-
-        outer.addWidget(ctrl)
-        outer.addWidget(right, stretch=1)
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(left)
+        split.addWidget(rsplit)
+        split.setSizes([400, 1000])
+        self.setCentralWidget(split)
+        self.say("Pick the image folder, click the signal centre, Compute, then Place boxes.")
 
         if init_dir:
             self._reload_files()
@@ -507,12 +459,12 @@ class BgFinderWindow(QMainWindow):
 
     def _clear_signal(self):
         self._signal_xy = None
-        self._lbl_signal.setText("Not set - click the image")
+        self._lbl_signal.setText("Not set: click the image")
         self._img_view.set_signal(None)
 
     def _compute_all(self):
         if not self._scans_list:
-            QMessageBox.warning(self, "No data", "Load a directory first."); return
+            self.say("Load a directory first.", error=True); return
 
         self._per_scan_stats.clear()
         self._per_scan_excl.clear()
@@ -558,7 +510,7 @@ class BgFinderWindow(QMainWindow):
 
     def _place_rois_all(self):
         if not self._per_scan_stats:
-            QMessageBox.warning(self, "No stats", "Run Compute first."); return
+            self.say("Run Compute first.", error=True); return
 
         self._per_scan_boxes.clear()
         fallback_used = 0
@@ -660,7 +612,7 @@ class BgFinderWindow(QMainWindow):
 
     def _save_file(self):
         if not self._per_scan_boxes:
-            QMessageBox.warning(self, "No ROIs", "Place ROIs first."); return
+            self.say("Place ROIs first.", error=True); return
         path, _ = QFileDialog.getSaveFileName(
             self, "Save ROI file", "background_rois.txt", "ROI files (*.txt)")
         if not path: return
@@ -670,7 +622,7 @@ class BgFinderWindow(QMainWindow):
 
     def _save_and_exit(self):
         if not self._per_scan_boxes:
-            QMessageBox.warning(self, "No ROIs", "Place ROIs first."); return
+            self.say("Place ROIs first.", error=True); return
         cfg = self._build_roi_config()
         cfg.save(self._save_to)
         self._log_msg(f"Saved, exiting.")

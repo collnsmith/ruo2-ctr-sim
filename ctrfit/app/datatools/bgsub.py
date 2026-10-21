@@ -19,12 +19,13 @@ import tempfile
 import numpy as np
 from PyQt5.QtCore import Qt, QEvent, QEventLoop, QObject
 from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QBrush, QFont
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+from PyQt5.QtWidgets import (QFormLayout, QApplication, QMainWindow, QWidget, QVBoxLayout, QGridLayout,
                              QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit,
-                             QFileDialog, QGroupBox, QCheckBox, QSplitter, QListWidget, QStatusBar,
-                             QMessageBox, QProgressDialog, QSizePolicy, QScrollArea)
+                             QFileDialog, QGroupBox, QCheckBox, QSplitter, QListWidget, QMessageBox,
+                             QProgressDialog, QSizePolicy)
 
-from ctrfit.app.datatools.common import run_tool
+from ctrfit.app.datatools.common import (HINT_STYLE, StatusMixin, group, hint, mono_font, primary_button,
+                                         row, run_tool, sidebar)
 from ctrfit.datatools.images import (BG_METHODS, HAS_TIFF, ROI, ROIConfig, apply_offsets, load_image,
                                      lock_offset, scan_directory, tifffile)
 from ctrfit.datatools.paths import settings_file
@@ -603,95 +604,73 @@ class ROIListWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        header = QHBoxLayout()
-        header.addWidget(QLabel("ROIs:"))
-        header.addStretch()
-        btn_add = QPushButton("+")
-        btn_add.setFixedSize(28, 28)
-        btn_add.clicked.connect(self._add_roi)
-        header.addWidget(btn_add)
-        btn_rm = QPushButton("−")
-        btn_rm.setFixedSize(28, 28)
-        btn_rm.clicked.connect(self._remove_roi)
-        header.addWidget(btn_rm)
-        layout.addLayout(header)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        box = QGroupBox("ROIs")
+        outer.addWidget(box)
+        layout = QVBoxLayout(box)
 
         self._list = QListWidget()
-        self._list.setMaximumHeight(180)
+        self._list.setMaximumHeight(160)
         self._list.currentRowChanged.connect(self._on_selection)
         layout.addWidget(self._list)
+        btn_add, btn_rm = QPushButton("Add"), QPushButton("Remove")
+        btn_add.clicked.connect(self._add_roi)
+        btn_rm.clicked.connect(self._remove_roi)
+        layout.addWidget(row(btn_add, btn_rm, 1, stretch_first=False))
 
-        edit = QGroupBox("Edit ROI")
-        g = QGridLayout(edit)
-        g.addWidget(QLabel("Name:"), 0, 0)
+        form = QFormLayout()
         self._name = QLineEdit()
         self._name.editingFinished.connect(self._update_from_fields)
-        g.addWidget(self._name, 0, 1, 1, 3)
-
-        g.addWidget(QLabel("Type:"), 1, 0)
         self._type = QComboBox()
         self._type.addItems(["signal", "background"])
         self._type.currentTextChanged.connect(self._update_from_fields)
-        g.addWidget(self._type, 1, 1, 1, 3)
-
-        for row, (lbl, attr) in enumerate([(("X:", "Y:"), ("_x", "_y")),
-                                            (("W:", "H:"), ("_w", "_h"))], start=2):
-            for col, (l, a) in enumerate(zip(lbl, attr)):
-                g.addWidget(QLabel(l), row, col * 2)
+        form.addRow("Name", self._name)
+        form.addRow("Type", self._type)
+        for (la, a), (lb, b) in (((("x", "_x"), ("y", "_y"))), ((("w", "_w"), ("h", "_h")))):
+            pair = []
+            for lab, attr in ((la, a), (lb, b)):
                 sb = QSpinBox()
-                sb.setRange(0 if 'x' in a or 'y' in a else 1, 9999)
+                sb.setRange(0 if attr in ("_x", "_y") else 1, 9999)
+                sb.setPrefix(lab + " ")
+                sb.setSuffix(" px")
                 sb.editingFinished.connect(self._update_from_fields)
-                setattr(self, a, sb)
-                g.addWidget(sb, row, col * 2 + 1)
-
-        # Constant-offset following
-        g.addWidget(QLabel(""), 4, 0)  # spacer row
-
-        g.addWidget(QLabel("Follow ROI:"), 5, 0)
+                setattr(self, attr, sb)
+                pair.append(sb)
+            form.addRow("Position" if a == "_x" else "Size", row(*pair, stretch_first=False))
         self._follow_combo = QComboBox()
-        # Items will be populated dynamically based on current ROI list
         self._follow_combo.currentIndexChanged.connect(self._update_from_fields)
-        self._follow_combo.setToolTip(
-            "Lock this ROI's position relative to another ROI.\n"
-            "When the master moves, this ROI moves with it (rigid offset).\n"
-            "Set to '(none)' to position this ROI independently.")
-        g.addWidget(self._follow_combo, 5, 1, 1, 3)
+        self._follow_combo.setToolTip("Lock this ROI's position relative to another ROI.\n"
+                                      "When the master moves, this ROI moves with it (rigid offset).\n"
+                                      "Set to '(none)' to position this ROI independently.")
+        form.addRow("Follows", self._follow_combo)
+        self._btn_lock_offset = QPushButton("Lock offset")
+        self._btn_lock_offset.setToolTip("Snapshot this ROI's current position relative to the master.\n"
+                                         "After this, moving the master will rigidly translate this ROI.")
+        self._lbl_offset = hint("offset: —")
+        form.addRow("", row(self._btn_lock_offset, self._lbl_offset, stretch_first=False))
+        layout.addLayout(form)
 
-        self._btn_lock_offset = QPushButton("Lock current offset")
-        self._btn_lock_offset.setFixedHeight(24)
-        self._btn_lock_offset.setToolTip(
-            "Snapshot this ROI's current position relative to the master.\n"
-            "After this, moving the master will rigidly translate this ROI.")
-        g.addWidget(self._btn_lock_offset, 6, 0, 1, 2)
-
-        self._lbl_offset = QLabel("offset: —")
-        self._lbl_offset.setStyleSheet("color: #888;")
-        g.addWidget(self._lbl_offset, 6, 2, 1, 2)
-
-        layout.addWidget(edit)
-
-        self._btn_apply = QPushButton("Apply all ROIs to all images")
-        layout.addWidget(self._btn_apply)
-        self._btn_apply_one = QPushButton("Apply selected ROI to all images")
-        layout.addWidget(self._btn_apply_one)
-        self._btn_apply_scan = QPushButton("Apply all ROIs to current scan only")
-        layout.addWidget(self._btn_apply_scan)
-        self._btn_apply_one_scan = QPushButton("Apply selected ROI to current scan only")
-        layout.addWidget(self._btn_apply_one_scan)
-        # Offset-only applies (preserve manual master tracking)
-        self._btn_apply_offset = QPushButton("Apply selected ROI offset to all images")
-        self._btn_apply_offset.setToolTip(
-            "Reposition only the selected follower ROI in every override\n"
-            "to (master + saved offset), using each frame's own master\n"
-            "position. Does not touch master ROIs or other followers.")
-        layout.addWidget(self._btn_apply_offset)
-        self._btn_apply_offset_scan = QPushButton("Apply selected ROI offset to current scan")
-        self._btn_apply_offset_scan.setToolTip(
-            "Same as above but limited to the currently-displayed scan.")
-        layout.addWidget(self._btn_apply_offset_scan)
+        layout.addWidget(hint("Copy to other images:"))
+        grid = QGridLayout()
+        grid.addWidget(QLabel("all images"), 0, 1)
+        grid.addWidget(QLabel("this scan"), 0, 2)
+        self._btn_apply, self._btn_apply_scan = QPushButton("All ROIs"), QPushButton("All ROIs")
+        self._btn_apply_one, self._btn_apply_one_scan = QPushButton("Selected"), QPushButton("Selected")
+        self._btn_apply_offset, self._btn_apply_offset_scan = QPushButton("Offset"), QPushButton("Offset")
+        tips = ("Every ROI of this image", "The selected ROI",
+                "Only the selected follower, placed at (its master in each image + the locked offset); "
+                "masters and other followers are not touched")
+        for r, (label, a, b, tip) in enumerate((("All ROIs", self._btn_apply, self._btn_apply_scan, tips[0]),
+                                                ("Selected ROI", self._btn_apply_one, self._btn_apply_one_scan, tips[1]),
+                                                ("Selected offset", self._btn_apply_offset, self._btn_apply_offset_scan,
+                                                 tips[2])), start=1):
+            grid.addWidget(QLabel(label), r, 0)
+            for c, btn in ((1, a), (2, b)):
+                btn.setText("Apply")
+                btn.setToolTip(tip + (" → all images" if c == 1 else " → the images of the current scan"))
+                grid.addWidget(btn, r, c)
+        layout.addLayout(grid)
 
     def set_apply_callback(self, cb):
         self._btn_apply.clicked.connect(cb)
@@ -897,7 +876,7 @@ class _ArrowKeyFilter(QObject):
         return False
 
 
-class MainWindow(QMainWindow):
+class MainWindow(StatusMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SXRD Background Subtraction — Eiger 500K")
@@ -1080,7 +1059,7 @@ class MainWindow(QMainWindow):
                     self._mask = tifffile.imread(mask_path) > 0
                 self._last_mask_path = mask_path
                 self._update_mask_label()
-                self._status.showMessage(f"Mask restored: {mask_path}", 3000)
+                self.say(f"Mask restored: {mask_path}")
             except Exception:
                 pass
 
@@ -1092,117 +1071,33 @@ class MainWindow(QMainWindow):
                 self._last_roi_path = roi_path
                 if self._files:
                     self._load_current()
-                self._status.showMessage(f"ROIs restored: {roi_path}", 3000)
+                self.say(f"ROIs restored: {roi_path}")
             except Exception:
                 pass
 
     def _setup_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        main = QHBoxLayout(central)
-
-        # --- Left panel (scrollable) ---
-        left_inner = QWidget()
-        lv = QVBoxLayout(left_inner)
-        lv.setContentsMargins(4, 4, 4, 4)
-
-        # Directory
-        dg = QGroupBox("Data directory")
-        dl = QVBoxLayout(dg)
-        dr = QHBoxLayout()
+        # ---- left: images, ROIs, background, mask; Process at the bottom
+        dg, dl = group("Images")
         self._dir = QLineEdit()
-        self._dir.setPlaceholderText("Select directory...")
-        dr.addWidget(self._dir)
-        bb = QPushButton("Browse")
+        self._dir.setPlaceholderText("folder with <prefix>_<scan>_<image>_data_<n>.h5 / .tif")
+        bb = QPushButton("Browse…")
         bb.clicked.connect(self._browse)
-        dr.addWidget(bb)
-        dl.addLayout(dr)
-
-        fr = QHBoxLayout()
-        fr.addWidget(QLabel("Type:"))
+        dl.addRow(row(self._dir, bb))
         self._ftype = QComboBox()
         self._ftype.addItems(["h5", "tif", "All"])
         self._ftype.currentTextChanged.connect(self._reload)
-        fr.addWidget(self._ftype)
-        dl.addLayout(fr)
-
-        sr = QHBoxLayout()
-        sr.addWidget(QLabel("Scan:"))
-        self._sf = QSpinBox(); self._sf.setRange(0, 999)
-        sr.addWidget(self._sf)
-        sr.addWidget(QLabel("to"))
-        self._st = QSpinBox(); self._st.setRange(0, 999); self._st.setValue(999)
-        sr.addWidget(self._st)
-        dl.addLayout(sr)
-
-        bf = QPushButton("Apply filter")
+        dl.addRow("Type", self._ftype)
+        self._sf = QSpinBox()
+        self._sf.setRange(0, 999)
+        self._st = QSpinBox()
+        self._st.setRange(0, 999)
+        self._st.setValue(999)
+        bf = QPushButton("Apply")
         bf.clicked.connect(self._apply_filter)
-        dl.addWidget(bf)
-        self._lbl_count = QLabel("No files")
-        dl.addWidget(self._lbl_count)
-        lv.addWidget(dg)
+        dl.addRow("Scans", row(self._sf, QLabel("to"), self._st, bf, stretch_first=False))
+        self._lbl_count = hint("No files")
+        dl.addRow(self._lbl_count)
 
-        # Navigation
-        ng = QGroupBox("Navigation")
-        nl = QVBoxLayout(ng)
-        self._lbl_cur = QLabel("—")
-        self._lbl_cur.setFont(QFont('monospace', 10))
-        nl.addWidget(self._lbl_cur)
-        nr = QHBoxLayout()
-        bp = QPushButton("◀ Prev"); bp.clicked.connect(lambda: self._nav(-1))
-        nr.addWidget(bp)
-        bn = QPushButton("Next ▶"); bn.clicked.connect(lambda: self._nav(1))
-        nr.addWidget(bn)
-        nl.addLayout(nr)
-        nl.addWidget(QLabel("← → : image  |  Ctrl+← → : scan"))
-        lv.addWidget(ng)
-
-        # Mask
-        mg = QGroupBox("Dead pixel mask")
-        ml = QVBoxLayout(mg)
-        mr = QHBoxLayout()
-        self._chk_auto = QCheckBox("Auto threshold:")
-        self._chk_auto.setChecked(True)
-        mr.addWidget(self._chk_auto)
-        self._thresh = QDoubleSpinBox()
-        self._thresh.setRange(1e3, 1e12); self._thresh.setValue(1e7)
-        self._thresh.setDecimals(0); self._thresh.setSingleStep(1e6)
-        mr.addWidget(self._thresh)
-        ml.addLayout(mr)
-
-        mr2 = QHBoxLayout()
-        bm = QPushButton("Load mask")
-        bm.clicked.connect(self._load_mask)
-        mr2.addWidget(bm)
-        bm_save = QPushButton("Save mask")
-        bm_save.clicked.connect(self._save_mask)
-        mr2.addWidget(bm_save)
-        ml.addLayout(mr2)
-
-        mr3 = QHBoxLayout()
-        self._chk_mask_paint = QCheckBox("Create mask (click pixels)")
-        self._chk_mask_paint.toggled.connect(self._on_mask_paint_toggle)
-        mr3.addWidget(self._chk_mask_paint)
-        mr3.addWidget(QLabel("Brush:"))
-        self._mask_brush = QSpinBox()
-        self._mask_brush.setRange(1, 20)
-        self._mask_brush.setValue(1)
-        self._mask_brush.setToolTip("Brush radius in pixels")
-        self._mask_brush.valueChanged.connect(self._on_mask_brush_change)
-        mr3.addWidget(self._mask_brush)
-        ml.addLayout(mr3)
-
-        mr4 = QHBoxLayout()
-        bm_clear = QPushButton("Clear mask")
-        bm_clear.clicked.connect(self._clear_mask)
-        mr4.addWidget(bm_clear)
-        self._lbl_mask_count = QLabel("0 masked pixels")
-        mr4.addWidget(self._lbl_mask_count)
-        ml.addLayout(mr4)
-
-        lv.addWidget(mg)
-
-        # ROI list
         self._roi_w = ROIListWidget(on_change=self._on_rois_changed)
         self._roi_w.set_apply_callback(self._apply_rois_all)
         self._roi_w.set_apply_one_callback(self._apply_one_roi_all)
@@ -1211,156 +1106,136 @@ class MainWindow(QMainWindow):
         self._roi_w.set_lock_offset_callback(self._lock_selected_offset)
         self._roi_w.set_apply_offset_callback(self._apply_offset_all)
         self._roi_w.set_apply_offset_scan_callback(self._apply_offset_scan)
-        lv.addWidget(self._roi_w)
+        ig, il = group("ROI file", form=False)
+        bs, bl2 = QPushButton("Save…"), QPushButton("Load…")
+        bs.clicked.connect(self._save_rois)
+        bl2.clicked.connect(self._load_rois)
+        bfind = QPushButton("Find background ROIs…")
+        bfind.setToolTip("Open the background ROI finder on this folder and scan range; "
+                         "its background boxes replace the background ROIs (signals are kept).")
+        bfind.clicked.connect(self._launch_bg_finder)
+        il.addWidget(row(bs, bl2, bfind, stretch_first=False))
 
-        # ROI I/O (right below ROI settings)
-        ig = QGroupBox("ROI file")
-        il = QHBoxLayout(ig)
-        bs = QPushButton("Save"); bs.clicked.connect(self._save_rois)
-        il.addWidget(bs)
-        bl2 = QPushButton("Load"); bl2.clicked.connect(self._load_rois)
-        il.addWidget(bl2)
-        bf = QPushButton("Find BG..."); bf.clicked.connect(self._launch_bg_finder)
-        bf.setToolTip("Launch the background ROI finder tool. "
-                      "When it exits, proposed ROIs are loaded as defaults.")
-        il.addWidget(bf)
-        lv.addWidget(ig)
-
-        # BG method
-        bg = QGroupBox("BG method")
-        bl = QVBoxLayout(bg)
+        bg, bl = group("Background")
         self._method = QComboBox()
         self._method.addItems(list(BG_METHODS.keys()))
         self._method.currentTextChanged.connect(self._update_sub)
-        bl.addWidget(self._method)
         self._chk_clip_neg = QCheckBox("Clip negative pixels to 0")
-        self._chk_clip_neg.setChecked(False)
         self._chk_clip_neg.toggled.connect(self._update_sub)
-        bl.addWidget(self._chk_clip_neg)
-        lv.addWidget(bg)
+        bl.addRow("Method", self._method)
+        bl.addRow(self._chk_clip_neg)
 
-        # Display
-        dg2 = QGroupBox("Display")
-        dl2 = QVBoxLayout(dg2)
-        self._chk_log = QCheckBox("Log scale"); self._chk_log.setChecked(True)
-        self._chk_log.toggled.connect(self._on_log)
-        dl2.addWidget(self._chk_log)
-        self._chk_full = QCheckBox("Full detector view"); self._chk_full.setChecked(True)
-        self._chk_full.toggled.connect(self._on_view_toggle)
-        dl2.addWidget(self._chk_full)
+        mg, ml = group("Dead pixel mask")
+        self._chk_auto = QCheckBox("Auto, above")
+        self._chk_auto.setChecked(True)
+        self._thresh = QDoubleSpinBox()
+        self._thresh.setRange(1e3, 1e12)
+        self._thresh.setValue(1e7)
+        self._thresh.setDecimals(0)
+        self._thresh.setSingleStep(1e6)
+        self._thresh.setSuffix(" counts")
+        ml.addRow(row(self._chk_auto, self._thresh, stretch_first=False))
+        self._chk_mask_paint = QCheckBox("Paint on the image")
+        self._chk_mask_paint.toggled.connect(self._on_mask_paint_toggle)
+        self._mask_brush = QSpinBox()
+        self._mask_brush.setRange(1, 20)
+        self._mask_brush.setValue(1)
+        self._mask_brush.setPrefix("brush ")
+        self._mask_brush.setSuffix(" px")
+        self._mask_brush.setToolTip("Brush radius in pixels")
+        self._mask_brush.valueChanged.connect(self._on_mask_brush_change)
+        ml.addRow(row(self._chk_mask_paint, self._mask_brush, stretch_first=False))
+        bm, bm_save, bm_clear = QPushButton("Load…"), QPushButton("Save…"), QPushButton("Clear")
+        bm.clicked.connect(self._load_mask)
+        bm_save.clicked.connect(self._save_mask)
+        bm_clear.clicked.connect(self._clear_mask)
+        self._lbl_mask_count = hint("0 masked pixels")
+        ml.addRow(row(bm, bm_save, bm_clear, self._lbl_mask_count, stretch_first=False))
 
-        # Colormap
-        cm_row = QHBoxLayout()
-        cm_row.addWidget(QLabel("Colormap:"))
-        self._cmap_combo = QComboBox()
-        self._cmap_combo.addItems(["gray", "hot", "viridis", "inferno", "coolwarm", "jet"])
-        self._cmap_combo.currentTextChanged.connect(self._on_cmap_change)
-        cm_row.addWidget(self._cmap_combo)
-        dl2.addLayout(cm_row)
-
-        # Vmin / Vmax
-        clim_row = QHBoxLayout()
-        clim_row.addWidget(QLabel("Min:"))
-        self._vmin_spin = QDoubleSpinBox()
-        self._vmin_spin.setRange(0, 1e12)
-        self._vmin_spin.setValue(0)
-        self._vmin_spin.setDecimals(1)
-        self._vmin_spin.setSpecialValueText("auto")
-        self._vmin_spin.editingFinished.connect(self._on_clim_change)
-        clim_row.addWidget(self._vmin_spin)
-        clim_row.addWidget(QLabel("Max:"))
-        self._vmax_spin = QDoubleSpinBox()
-        self._vmax_spin.setRange(0, 1e12)
-        self._vmax_spin.setValue(0)
-        self._vmax_spin.setDecimals(1)
-        self._vmax_spin.setSpecialValueText("auto")
-        self._vmax_spin.editingFinished.connect(self._on_clim_change)
-        clim_row.addWidget(self._vmax_spin)
-        dl2.addLayout(clim_row)
-
-        self._btn_auto_clim = QPushButton("Auto min/max")
-        self._btn_auto_clim.clicked.connect(self._reset_clim)
-        dl2.addWidget(self._btn_auto_clim)
-
-        lv.addWidget(dg2)
-
-        # Run
-        self._btn_run = QPushButton("▶  RUN — Process all images")
-        self._btn_run.setStyleSheet(
-            "QPushButton{background:#2d5a27;color:white;font-weight:bold;padding:8px;}"
-            "QPushButton:hover{background:#3a7a33;}")
-        self._btn_run.clicked.connect(self._run_batch)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(sidebar(dg, self._roi_w, ig, bg, mg, width=360), 1)
+        self._btn_run = primary_button("Process all images", self._run_batch, "Ctrl+R", self)
         lv.addWidget(self._btn_run)
-
-        lv.addStretch()
-
-        # Wrap in scroll area
-        left_scroll = QScrollArea()
-        left_scroll.setWidget(left_inner)
-        left_scroll.setWidgetResizable(True)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setStyleSheet("QScrollArea { border: none; }")
-        left_scroll.setMinimumWidth(300)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-
-        # Use a horizontal splitter so left panel is resizable
         self._hsplitter = QSplitter(Qt.Horizontal)
-        self._hsplitter.addWidget(left_scroll)
+        self._hsplitter.addWidget(left)
 
-        # --- Right panel ---
+        # ---- right: navigation and display above the two images
         right_container = QWidget()
         right_layout = QVBoxLayout(right_container)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        bp, bn = QPushButton("◀ Prev"), QPushButton("Next ▶")
+        bp.clicked.connect(lambda: self._nav(-1))
+        bn.clicked.connect(lambda: self._nav(1))
+        self._lbl_cur = QLabel("—")
+        self._lbl_cur.setFont(mono_font())
+        keys = QLabel("← →: image   Ctrl+← →: scan")
+        keys.setStyleSheet(HINT_STYLE)
+        right_layout.addWidget(row(bp, bn, self._lbl_cur, 1, keys, stretch_first=False))
+
+        self._chk_log = QCheckBox("Log")
+        self._chk_log.setChecked(True)
+        self._chk_log.toggled.connect(self._on_log)
+        self._chk_full = QCheckBox("Full detector")
+        self._chk_full.setChecked(True)
+        self._chk_full.toggled.connect(self._on_view_toggle)
+        self._cmap_combo = QComboBox()
+        self._cmap_combo.addItems(["gray", "hot", "viridis", "inferno", "coolwarm", "jet"])
+        self._cmap_combo.currentTextChanged.connect(self._on_cmap_change)
+        self._vmin_spin = QDoubleSpinBox()
+        self._vmax_spin = QDoubleSpinBox()
+        for w, pre in ((self._vmin_spin, "min "), (self._vmax_spin, "max ")):
+            w.setRange(0, 1e12)
+            w.setValue(0)
+            w.setDecimals(1)
+            w.setPrefix(pre)
+            w.setSpecialValueText(pre + "auto")
+            w.editingFinished.connect(self._on_clim_change)
+            w.setMaximumWidth(150)
+        self._btn_auto_clim = QPushButton("Auto")
+        self._btn_auto_clim.setToolTip("Automatic colour limits")
+        self._btn_auto_clim.clicked.connect(self._reset_clim)
+        right_layout.addWidget(row(self._chk_log, self._chk_full, QLabel("Colormap"), self._cmap_combo,
+                                   self._vmin_spin, self._vmax_spin, self._btn_auto_clim, 1, stretch_first=False))
 
         self._vsplitter = QSplitter(Qt.Vertical)
-
         oc = QWidget()
-        ol = QVBoxLayout(oc); ol.setContentsMargins(0, 0, 0, 0)
-        ol.addWidget(QLabel("Original (drag ROIs):"))
+        ol = QVBoxLayout(oc)
+        ol.setContentsMargins(0, 0, 0, 0)
+        ol.addWidget(hint("Original (drag the ROIs)"))
         self._cv_orig = ImageCanvas(interactive=True)
         self._cv_orig.set_roi_changed_callback(self._on_canvas_drag)
         self._cv_orig.set_mask_painted_callback(self._on_mask_painted)
         self._cv_orig.set_cursor_callback(self._on_cursor_orig)
         ol.addWidget(self._cv_orig)
         self._vsplitter.addWidget(oc)
-
         sc = QWidget()
-        sl = QVBoxLayout(sc); sl.setContentsMargins(0, 0, 0, 0)
-        sl.addWidget(QLabel("Subtracted (preview):"))
+        sl = QVBoxLayout(sc)
+        sl.setContentsMargins(0, 0, 0, 0)
+        sl.addWidget(hint("Background subtracted (preview)"))
         self._cv_sub = ImageCanvas(interactive=False)
         self._cv_sub.set_cursor_callback(self._on_cursor_sub)
         sl.addWidget(self._cv_sub)
         self._vsplitter.addWidget(sc)
-
         right_layout.addWidget(self._vsplitter, stretch=1)
 
-        # Bottom bar: cursor info (left) + ROI visibility toggles (right)
-        bottom_bar = QHBoxLayout()
         self._lbl_cursor = QLabel("  x: —  y: —  value: —")
-        self._lbl_cursor.setFont(QFont('monospace', 10))
-        self._lbl_cursor.setStyleSheet("color: #aaa;")
-        bottom_bar.addWidget(self._lbl_cursor)
-        bottom_bar.addStretch()
-        self._chk_roi_orig = QCheckBox("ROIs (orig)")
+        self._lbl_cursor.setFont(mono_font())
+        self._chk_roi_orig = QCheckBox("ROIs on original")
         self._chk_roi_orig.setChecked(True)
-        self._chk_roi_orig.setStyleSheet("color: #aaa;")
         self._chk_roi_orig.toggled.connect(self._toggle_roi_orig)
-        bottom_bar.addWidget(self._chk_roi_orig)
-        self._chk_roi_sub = QCheckBox("ROIs (sub)")
+        self._chk_roi_sub = QCheckBox("ROIs on subtracted")
         self._chk_roi_sub.setChecked(True)
-        self._chk_roi_sub.setStyleSheet("color: #aaa;")
         self._chk_roi_sub.toggled.connect(self._toggle_roi_sub)
-        bottom_bar.addWidget(self._chk_roi_sub)
-        right_layout.addLayout(bottom_bar)
+        right_layout.addWidget(row(self._lbl_cursor, self._chk_roi_orig, self._chk_roi_sub))
 
         self._hsplitter.addWidget(right_container)
-        self._hsplitter.setStretchFactor(0, 0)  # left panel: don't stretch
-        self._hsplitter.setStretchFactor(1, 1)  # right panel: stretch
-        self._hsplitter.setSizes([360, 1040])   # initial sizes
-        main.addWidget(self._hsplitter)
-
-        self._status = QStatusBar()
-        self.setStatusBar(self._status)
+        self._hsplitter.setStretchFactor(0, 0)
+        self._hsplitter.setStretchFactor(1, 1)
+        self._hsplitter.setSizes([400, 1000])
+        self.setCentralWidget(self._hsplitter)
+        self.say("Pick the image folder, set signal and background ROIs, then Process all images.")
 
     # ---- Keys ----
     # Use an event filter to intercept arrow keys globally,
@@ -1492,7 +1367,7 @@ class MainWindow(QMainWindow):
         try:
             self._current_image = load_image(info['path'], info['ext'])
         except Exception as e:
-            self._status.showMessage(f"Error: {e}", 5000)
+            self.say(f"Error: {e}")
             self._current_image = None
             return
 
@@ -1520,7 +1395,7 @@ class MainWindow(QMainWindow):
         self._roi_w.set_rois(rois)
         self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
         self._update_sub()
-        self._status.showMessage(f"Loaded: {os.path.basename(info['path'])}", 3000)
+        self.say(f"Loaded: {os.path.basename(info['path'])}")
 
     def _save_cur_rois(self):
         if not self._files:
@@ -1572,7 +1447,7 @@ class MainWindow(QMainWindow):
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No)
         if reply != QMessageBox.Yes:
-            self._status.showMessage("Apply all cancelled", 3000)
+            self.say("Apply all cancelled")
             return
 
         widget_rois = self._roi_w.get_rois()
@@ -1603,16 +1478,15 @@ class MainWindow(QMainWindow):
 
         self._roi_config.set_default(widget_rois)
         self._roi_config.overrides = new_overrides
-        self._status.showMessage(
-            f"Applied to all {len(new_overrides)} images "
-            f"(per-frame master positions preserved)", 4000)
+        self.say(f"Applied to all {len(new_overrides)} images "
+            f"(per-frame master positions preserved)")
 
     def _apply_one_roi_all(self):
         """Update only the selected ROI across all defaults and overrides."""
         rois = self._roi_w.get_rois()
         idx = self._roi_w._list.currentRow()
         if not (0 <= idx < len(rois)):
-            self._status.showMessage("No ROI selected", 3000)
+            self.say("No ROI selected")
             return
         updated_roi = rois[idx]
 
@@ -1625,15 +1499,14 @@ class MainWindow(QMainWindow):
             if idx < len(override_rois):
                 override_rois[idx] = updated_roi.copy()
 
-        self._status.showMessage(
-            f"'{updated_roi.name}' (ROI {idx+1}) applied to all images", 3000)
+        self.say(f"'{updated_roi.name}' (ROI {idx+1}) applied to all images")
 
     def _apply_rois_scan(self):
         """Apply current widget ROIs as overrides for every image in the
         CURRENT scan only. Preserves master positions from existing
         overrides; recomputes follower positions from the new offsets."""
         if not self._files:
-            self._status.showMessage("No files loaded", 3000)
+            self.say("No files loaded")
             return
         widget_rois = self._roi_w.get_rois()
         cur_scan = self._files[self._current_idx]['scan']
@@ -1652,18 +1525,17 @@ class MainWindow(QMainWindow):
             apply_offsets(new_rois)
             self._roi_config.overrides[key] = new_rois
             count += 1
-        self._status.showMessage(
-            f"Applied to scan {cur_scan} ({count} images, masters preserved)", 4000)
+        self.say(f"Applied to scan {cur_scan} ({count} images, masters preserved)")
 
     def _apply_one_roi_scan(self):
         """Update only the selected ROI in every image of the CURRENT scan."""
         if not self._files:
-            self._status.showMessage("No files loaded", 3000)
+            self.say("No files loaded")
             return
         rois = self._roi_w.get_rois()
         idx = self._roi_w._list.currentRow()
         if not (0 <= idx < len(rois)):
-            self._status.showMessage("No ROI selected", 3000)
+            self.say("No ROI selected")
             return
         updated_roi = rois[idx]
         cur_scan = self._files[self._current_idx]['scan']
@@ -1679,8 +1551,7 @@ class MainWindow(QMainWindow):
             if idx < len(self._roi_config.overrides[key]):
                 self._roi_config.overrides[key][idx] = updated_roi.copy()
                 count += 1
-        self._status.showMessage(
-            f"'{updated_roi.name}' applied to scan {cur_scan} ({count} images)", 3000)
+        self.say(f"'{updated_roi.name}' applied to scan {cur_scan} ({count} images)")
 
     def _apply_offset_all(self):
         """Reposition the currently-selected follower ROI in every existing
@@ -1695,7 +1566,7 @@ class MainWindow(QMainWindow):
     def _apply_offset_scan(self):
         """Same as _apply_offset_all but limited to the current scan."""
         if not self._files:
-            self._status.showMessage("No files loaded", 3000)
+            self.say("No files loaded")
             return
         cur_scan = self._files[self._current_idx]['scan']
         scan_files = [f for f in self._files if f['scan'] == cur_scan]
@@ -1706,17 +1577,15 @@ class MainWindow(QMainWindow):
         widget_rois = self._roi_w.get_rois()
         idx = self._roi_w._list.currentRow()
         if not (0 <= idx < len(widget_rois)):
-            self._status.showMessage("No ROI selected", 3000)
+            self.say("No ROI selected")
             return
         follower = widget_rois[idx]
         if follower.follow_id is None:
-            self._status.showMessage(
-                f"'{follower.name}' has no master to follow - "
-                f"set 'Follow ROI' first", 4000)
+            self.say(f"'{follower.name}' has no master to follow - "
+                f"set 'Follow ROI' first")
             return
         if not (0 <= follower.follow_id < len(widget_rois)):
-            self._status.showMessage(
-                f"'{follower.name}': invalid follow target", 4000)
+            self.say(f"'{follower.name}': invalid follow target")
             return
         master_name = widget_rois[follower.follow_id].name
         widget_master_pos = widget_rois[follower.follow_id].center()
@@ -1779,7 +1648,7 @@ class MainWindow(QMainWindow):
             msg += f"; created {created} new overrides"
         if no_master:
             msg += f"; {no_master} frames missing master '{master_name}'"
-        self._status.showMessage(msg, 6000)
+        self.say(msg)
         # Refresh display so user sees the result on the current frame
         self._load_current()
 
@@ -1798,19 +1667,16 @@ class MainWindow(QMainWindow):
             return
         r = rois[idx]
         if r.follow_id is None:
-            self._status.showMessage(
-                f"{r.name} has no master to follow - set 'Follow ROI' first", 3000)
+            self.say(f"{r.name} has no master to follow - set 'Follow ROI' first")
             return
         if not (0 <= r.follow_id < len(rois)) or r.follow_id == idx:
-            self._status.showMessage(
-                f"{r.name}: invalid follow target", 3000)
+            self.say(f"{r.name}: invalid follow target")
             return
         master = rois[r.follow_id]
         lock_offset(r, master)
         self._roi_w.update_offset_label(r.offset_dx, r.offset_dy)
-        self._status.showMessage(
-            f"Locked {r.name} → {master.name} at offset "
-            f"({r.offset_dx:+d}, {r.offset_dy:+d})", 3000)
+        self.say(f"Locked {r.name} → {master.name} at offset "
+            f"({r.offset_dx:+d}, {r.offset_dy:+d})")
         if hasattr(self._roi_w, '_on_change') and self._roi_w._on_change:
             self._roi_w._on_change()
 
@@ -1922,13 +1788,13 @@ class MainWindow(QMainWindow):
             self._last_mask_path = path
             self._update_mask_label()
             self._cv_orig.set_mask_data(self._mask)
-            self._status.showMessage(f"Mask loaded: {self._mask.sum()} dead pixels", 5000)
+            self.say(f"Mask loaded: {self._mask.sum()} dead pixels")
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _save_mask(self):
         if self._mask is None:
-            QMessageBox.warning(self, "Error", "No mask to save.")
+            self.say("No mask to save.", error=True)
             return
         path, _ = QFileDialog.getSaveFileName(self, "Save mask", "eiger_mask.npy",
                                                "NumPy (*.npy);;TIFF (*.tif)")
@@ -1942,9 +1808,9 @@ class MainWindow(QMainWindow):
                     tifffile.imwrite(path, self._mask.astype(np.uint8))
                 else:
                     np.save(path.replace('.tif', '.npy'), self._mask)
-            self._status.showMessage(f"Mask saved: {path}", 5000)
+            self.say(f"Mask saved: {path}")
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _clear_mask(self):
         if self._mask is not None:
@@ -1952,7 +1818,7 @@ class MainWindow(QMainWindow):
             self._update_mask_label()
             self._cv_orig.set_mask_data(self._mask)
             self._load_current()
-            self._status.showMessage("Mask cleared", 3000)
+            self.say("Mask cleared")
 
     def _on_mask_paint_toggle(self, enabled):
         self._cv_orig.set_mask_paint_mode(enabled)
@@ -1964,9 +1830,9 @@ class MainWindow(QMainWindow):
                     if self._chk_auto.isChecked():
                         self._mask |= self._current_image > self._thresh.value()
                 self._cv_orig.set_mask_data(self._mask)
-            self._status.showMessage("Mask paint ON — click/drag on image to mark dead pixels", 5000)
+            self.say("Mask paint ON — click/drag on image to mark dead pixels")
         else:
-            self._status.showMessage("Mask paint OFF", 3000)
+            self.say("Mask paint OFF")
 
     def _on_mask_brush_change(self, val):
         self._cv_orig._mask_brush_size = val
@@ -1994,7 +1860,7 @@ class MainWindow(QMainWindow):
         if path:
             self._roi_config.save(path)
             self._last_roi_path = path
-            self._status.showMessage(f"Saved: {path}", 5000)
+            self.say(f"Saved: {path}")
 
     def _load_rois(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load ROIs", "", "Text (*.txt);;All (*)")
@@ -2003,9 +1869,9 @@ class MainWindow(QMainWindow):
                 self._roi_config.load(path)
                 self._last_roi_path = path
                 self._load_current()
-                self._status.showMessage(f"Loaded: {path}", 5000)
+                self.say(f"Loaded: {path}")
             except Exception as e:
-                QMessageBox.warning(self, "Error", str(e))
+                self.say(str(e), error=True)
 
     def _launch_bg_finder(self):
         """Open the background ROI finder (modal) on this directory and scan range. When it is
@@ -2013,8 +1879,7 @@ class MainWindow(QMainWindow):
         (replacing background ROIs only, keeping signals)."""
         d = self._dir.text() if hasattr(self, '_dir') else ''
         if not d or not os.path.isdir(d):
-            QMessageBox.warning(self, "No directory",
-                                "Load an image directory in the main window first.")
+            self.say("Load an image directory in the main window first.", error=True)
             return
         s0 = self._sf.value() if hasattr(self, '_sf') else 0
         s1 = self._st.value() if hasattr(self, '_st') else 99999
@@ -2029,7 +1894,7 @@ class MainWindow(QMainWindow):
         except OSError:
             pass
         from .bg_finder import BgFinderWindow
-        self._status.showMessage("Opening background ROI finder...", 3000)
+        self.say("Opening background ROI finder...")
         finder = BgFinderWindow(init_dir=d, scan_min=s0, scan_max=s1, ext=ext, save_to=tmp_path)
         finder.setAttribute(Qt.WA_DeleteOnClose)
         finder.setWindowModality(Qt.ApplicationModal)
@@ -2040,7 +1905,7 @@ class MainWindow(QMainWindow):
 
         # Check if a file was written
         if not os.path.exists(tmp_path):
-            self._status.showMessage("Background finder closed without saving.", 5000)
+            self.say("Background finder closed without saving.")
             return
 
         # Load proposed ROIs
@@ -2048,15 +1913,14 @@ class MainWindow(QMainWindow):
         try:
             proposed.load(tmp_path)
         except Exception as e:
-            QMessageBox.warning(self, "Parse error",
-                                f"Could not parse output: {e}")
+            self.say(f"Could not parse output: {e}", error=True)
             return
         finally:
             try: os.unlink(tmp_path)
             except OSError: pass
 
         if not proposed.default_rois:
-            self._status.showMessage("No background ROIs were proposed.", 5000)
+            self.say("No background ROIs were proposed.")
             return
 
         # Merge: keep existing signal ROIs from defaults, replace background ROIs
@@ -2078,14 +1942,13 @@ class MainWindow(QMainWindow):
                 r.copy() for r in new_defaults]
 
         self._load_current()
-        self._status.showMessage(
-            f"Loaded {len(bg_rois)} background ROIs from finder, "
-            f"applied to {len(self._files)} images", 5000)
+        self.say(f"Loaded {len(bg_rois)} background ROIs from finder, "
+            f"applied to {len(self._files)} images")
 
     # ---- Batch ----
     def _run_batch(self):
         if not self._files:
-            QMessageBox.warning(self, "Error", "No files loaded.")
+            self.say("No files loaded.", error=True)
             return
         self._save_cur_rois()
 
@@ -2232,8 +2095,7 @@ class MainWindow(QMainWindow):
                 parts += [f"{v:.6g}" for v in row[2:]]
                 f.write("\t".join(parts) + "\n")
 
-        QMessageBox.information(self, "Done",
-            f"Processed {len(sum_rows)} images.\n"
+        self.say(f"Processed {len(sum_rows)} images.\n"
             f"Images: {img_subdir}\nSums: {sum_path}")
 
 

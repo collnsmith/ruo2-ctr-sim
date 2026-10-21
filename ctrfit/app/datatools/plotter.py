@@ -16,16 +16,17 @@ from PyQt5.QtCore import Qt, QEvent, QObject
 from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QPushButton,
                              QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog, QCheckBox,
-                             QSplitter, QScrollArea, QListWidget, QListWidgetItem, QStatusBar, QMessageBox,
-                             QGridLayout, QColorDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QAbstractItemView, QDialogButtonBox)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+                             QSplitter, QScrollArea, QListWidget, QListWidgetItem, QGridLayout, QColorDialog,
+                             QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
+                             QDialogButtonBox)
+from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
+                                                NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
 from matplotlib.ticker import AutoMinorLocator
 from scipy.optimize import curve_fit
 
-from ctrfit.app.datatools.common import run_tool
+from ctrfit.app.datatools.common import (HINT_STYLE, PRIMARY_STYLE, StatusMixin, group, hint, row, run_tool,
+                                         sidebar)
 from ctrfit.datatools.paths import settings_dir, settings_file
 from ctrfit.datatools.peaks import (FIT_MODELS, display_label, fit_peak, integrate_peak, load_label_map,
                                     numerical_area, parse_bgsub_dir, save_label_map)
@@ -80,7 +81,7 @@ class ColumnSelectorWidget(QWidget):
         for i, col in enumerate(all_cols):
             item = QTableWidgetItem(col)
             if self._source_tags.get(col) == 'bgsub':
-                item.setForeground(QColor(100, 200, 100))
+                item.setForeground(QColor(30, 130, 60))
             self._table.setItem(i, 0, item)
             for c_idx in (1, 2, 3):
                 chk = QCheckBox()
@@ -291,7 +292,7 @@ class FigureOptionsDialog(QDialog):
         self._mw._btn_text_color.setStyleSheet(f"background: {self._mw._text_color}; border: 1px solid #888;")
 
 
-class PeakFitDialog(QDialog):
+class PeakFitDialog(StatusMixin, QDialog):
     """Dialog for fitting peaks across a range of scans (rocking curves)."""
     def __init__(self, main_win, parent=None):
         super().__init__(parent)
@@ -370,6 +371,7 @@ class PeakFitDialog(QDialog):
         btn_fit_one.clicked.connect(self._fit_current)
         lv.addWidget(btn_fit_one)
         btn_fit_all = QPushButton("Fit all scans in range")
+        btn_fit_all.setStyleSheet(PRIMARY_STYLE)
         btn_fit_all.clicked.connect(self._fit_range)
         lv.addWidget(btn_fit_all)
 
@@ -388,7 +390,7 @@ class PeakFitDialog(QDialog):
         # Fit info
         self._fit_info = QLabel("No fit yet")
         self._fit_info.setWordWrap(True)
-        self._fit_info.setStyleSheet("color: #aaa;")
+        self._fit_info.setStyleSheet(HINT_STYLE)
         lv.addWidget(self._fit_info)
 
         # Display options
@@ -475,17 +477,16 @@ class PeakFitDialog(QDialog):
         left_scroll.setWidgetResizable(True)
         left_scroll.setFixedWidth(320)
         left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setStyleSheet("QScrollArea { border: none; }")
         layout.addWidget(left_scroll)
 
         # --- Right: plot ---
         right_w = QWidget()
         right_l = QVBoxLayout(right_w)
         right_l.setContentsMargins(0, 0, 0, 0)
-        self._fig = Figure(figsize=(6, 4), dpi=100, facecolor='#353535')
+        self._fig = Figure(figsize=(6, 4), dpi=100, facecolor='white')
         self._canvas = FigureCanvas(self._fig)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor('#2a2a2a')
+        self._ax.set_facecolor('white')
         # Small nav toolbar for Home/Save buttons
         self._nav_toolbar = NavigationToolbar(self._canvas, right_w)
         right_l.addWidget(self._nav_toolbar)
@@ -889,7 +890,7 @@ class PeakFitDialog(QDialog):
             return
         fr = self._fit_results.get(sn)
         if fr is None or fr.get('popt') is None:
-            QMessageBox.warning(self, "Error", "No existing fit to refit from"); return
+            self.say("No existing fit to refit from", error=True); return
 
         model_name = fr['model_name']
         model = FIT_MODELS[model_name]
@@ -936,19 +937,19 @@ class PeakFitDialog(QDialog):
             bg_at_cen = popt[-2] + popt[-1] * cen
 
         handle_props = {
-            'peak_top': (cen, bg_at_cen + amp, '#ff6b6b', 'v', 12),           # ▼ at peak top
-            'peak_center': (cen, bg_at_cen, '#51cf66', 'D', 10),               # ◆ at base center
+            'peak_top': (cen, bg_at_cen + amp, '#d62728', 'v', 12),           # ▼ at peak top
+            'peak_center': (cen, bg_at_cen, '#2ca02c', 'D', 10),               # ◆ at base center
             'sigma_left': (cen - sigma, model['func'](np.array([cen - sigma]), *popt)[0],
-                           '#ffd43b', '<', 10),                                  # ◀ at -σ
+                           '#ff7f0e', '<', 10),                                  # ◀ at -σ
             'sigma_right': (cen + sigma, model['func'](np.array([cen + sigma]), *popt)[0],
-                            '#ffd43b', '>', 10),                                 # ▶ at +σ
+                            '#ff7f0e', '>', 10),                                 # ▶ at +σ
         }
 
         # Background line endpoints
         if len(popt) >= 5 and x_data is not None and len(x_data) > 0:
             x_lo, x_hi = x_data.min(), x_data.max()
-            handle_props['bg_left'] = (x_lo, popt[-2] + popt[-1] * x_lo, '#ff922b', 's', 9)
-            handle_props['bg_right'] = (x_hi, popt[-2] + popt[-1] * x_hi, '#ff922b', 's', 9)
+            handle_props['bg_left'] = (x_lo, popt[-2] + popt[-1] * x_lo, '#8c564b', 's', 9)
+            handle_props['bg_right'] = (x_hi, popt[-2] + popt[-1] * x_hi, '#8c564b', 's', 9)
 
         for name, (hx, hy, color, marker, size) in handle_props.items():
             artist = self._ax.scatter([hx], [hy], color=color, marker=marker,
@@ -966,7 +967,7 @@ class PeakFitDialog(QDialog):
             return
         x, y = self._get_scan_data(sn)
         if x is None:
-            QMessageBox.warning(self, "Error", "No data for this scan"); return
+            self.say("No data for this scan", error=True); return
         model_name = self._model_combo.currentText()
         hint = self._center_hint if self._chk_click_guide.isChecked() else None
         window = self._get_fit_window()
@@ -1099,8 +1100,7 @@ class PeakFitDialog(QDialog):
             if popt is not None:
                 guide = popt[1]  # fitted center
         if guide is None:
-            QMessageBox.warning(self, "Error",
-                "Set a center guide first (click on plot or type a value)"); return
+            self.say("Set a center guide first (click on plot or type a value)", error=True); return
 
         sn_list = [s for s in sorted(self._mw._spec_scans.keys()) if s_from <= s <= s_to and s >= sn]
         count = 0; failed = 0
@@ -1161,9 +1161,9 @@ class PeakFitDialog(QDialog):
 
     def _update_preview(self):
         self._ax.clear()
-        self._ax.set_facecolor('#2a2a2a')
-        self._ax.tick_params(colors='#ddd')
-        for sp in self._ax.spines.values(): sp.set_color('#555')
+        self._ax.set_facecolor('white')
+        self._ax.tick_params(colors='#222')
+        for sp in self._ax.spines.values(): sp.set_color('#999')
 
         sn = self._current_preview_scan
         if sn is None:
@@ -1175,13 +1175,13 @@ class PeakFitDialog(QDialog):
             self._ax.set_title(f"Scan {sn}: no data", color='#888')
             self._canvas.draw(); return
 
-        self._ax.plot(x, y, 'o-', color='#2a9fd6', markersize=3, linewidth=1, label='data')
+        self._ax.plot(x, y, 'o-', color='#1f77b4', markersize=3, linewidth=1, label='data')
 
         # Show fit window region
         hint = self._center_hint if self._chk_click_guide.isChecked() else None
         window = self._get_fit_window()
         if hint is not None and window is not None:
-            self._ax.axvspan(hint - window, hint + window, alpha=0.08, color='#ffd43b')
+            self._ax.axvspan(hint - window, hint + window, alpha=0.08, color='#ff7f0e')
 
         # Overlay fit if available
         if sn in self._fit_results and self._chk_show_fit.isChecked():
@@ -1191,10 +1191,10 @@ class PeakFitDialog(QDialog):
                 model = FIT_MODELS[fr['model_name']]
                 x_fit = np.linspace(x.min(), x.max(), 500)
                 y_fit = model['func'](x_fit, *popt)
-                self._ax.plot(x_fit, y_fit, '-', color='#ff6b6b', linewidth=1.5, label='fit')
+                self._ax.plot(x_fit, y_fit, '-', color='#d62728', linewidth=1.5, label='fit')
                 if self._chk_show_bg.isChecked() and len(popt) >= 5:
                     bg_line = popt[-2] + popt[-1] * x_fit
-                    self._ax.plot(x_fit, bg_line, '--', color='#ffd43b', linewidth=1, alpha=0.7, label='background')
+                    self._ax.plot(x_fit, bg_line, '--', color='#ff7f0e', linewidth=1, alpha=0.7, label='background')
                 # Draw drag handles
                 if self._chk_drag_handles.isChecked():
                     self._draw_handles(popt, fr['model_name'], x)
@@ -1212,27 +1212,27 @@ class PeakFitDialog(QDialog):
                 ratio = fit_a / num_a
                 if ratio < 0.5 or ratio > 2.0:
                     title += f" ⚠"
-            self._ax.set_title(title, color='#ddd')
-            self._ax.legend(facecolor='#353535', edgecolor='#555', labelcolor='#ddd', fontsize=8)
+            self._ax.set_title(title, color='#222')
+            self._ax.legend(facecolor='white', edgecolor='#999', labelcolor='#222', fontsize=8)
         else:
-            self._ax.set_title(f"Scan {sn}", color='#ddd')
+            self._ax.set_title(f"Scan {sn}", color='#222')
             self._handle_artists = {}
             for sb in self._param_spins.values():
                 sb.blockSignals(True); sb.setValue(0); sb.setEnabled(False); sb.blockSignals(False)
 
         xc = self._x_col.currentText()
-        self._ax.set_xlabel(display_label(xc, self._mw._label_map), color='#ddd')
-        self._ax.set_ylabel("Intensity", color='#ddd')
+        self._ax.set_xlabel(display_label(xc, self._mw._label_map), color='#222')
+        self._ax.set_ylabel("Intensity", color='#222')
         # Show center hint marker
         if self._chk_click_guide.isChecked() and self._center_hint is not None:
-            self._ax.axvline(self._center_hint, color='#ffd43b', linestyle='--', alpha=0.5, linewidth=1)
+            self._ax.axvline(self._center_hint, color='#ff7f0e', linestyle='--', alpha=0.5, linewidth=1)
         self._fig.tight_layout()
         self._canvas.draw()
 
     def _plot_integrated(self):
         """Send integrated area vs scan number to the main plot as persistent overlay."""
         if not self._fit_results:
-            QMessageBox.warning(self, "Error", "No fit results"); return
+            self.say("No fit results", error=True); return
         scans = sorted(self._fit_results.keys())
         areas = [self._fit_results[s]['area'] for s in scans]
         self._mw._overlay = {
@@ -1247,7 +1247,7 @@ class PeakFitDialog(QDialog):
 
     def _export_results(self):
         if not self._fit_results:
-            QMessageBox.warning(self, "Error", "No fit results"); return
+            self.say("No fit results", error=True); return
         path, _ = QFileDialog.getSaveFileName(self, "Export fit results", "peak_fits.txt", "Text (*.txt)")
         if not path: return
         with open(path, 'w') as f:
@@ -1262,7 +1262,7 @@ class PeakFitDialog(QDialog):
                     if model:
                         params_str = ",".join(f"{n}={v:.6g}" for n, v in zip(model['params'], fr['popt']))
                 f.write(f"{sn}\t{fr['area']:.6g}\t{fit_a:.6g}\t{num_a:.6g}\t{fr['model_name']}\t{params_str}\n")
-        QMessageBox.information(self, "Done", f"Exported {len(self._fit_results)} results to {path}")
+        self.say(f"Exported {len(self._fit_results)} results to {path}")
 
     def _import_results(self):
         """Import previously exported fit results.
@@ -1372,13 +1372,13 @@ class PeakFitDialog(QDialog):
                     f"Imported {len(scans)} results ({n_with_fit} with params) "
                     f"from {os.path.basename(path)}")
             else:
-                QMessageBox.warning(self, "Error", "No valid rows in file")
+                self.say("No valid rows in file", error=True)
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
             return
 
 
-class SmoothingDialog(QDialog):
+class SmoothingDialog(StatusMixin, QDialog):
     """Smooth CTR data with exclusion zones for Bragg peaks."""
     def __init__(self, main_win, parent=None):
         super().__init__(parent)
@@ -1413,7 +1413,7 @@ class SmoothingDialog(QDialog):
         btn_from_fits.clicked.connect(self._load_from_fits)
         dl.addWidget(btn_from_fits)
         self._data_info = QLabel("No data loaded")
-        self._data_info.setStyleSheet("color: #aaa; font-size: 10px;")
+        self._data_info.setStyleSheet(HINT_STYLE)
         dl.addWidget(self._data_info)
         lv.addWidget(dg)
 
@@ -1487,14 +1487,13 @@ class SmoothingDialog(QDialog):
         left_scroll = QScrollArea()
         left_scroll.setWidget(left); left_scroll.setWidgetResizable(True)
         left_scroll.setFixedWidth(310); left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setStyleSheet("QScrollArea { border: none; }")
         layout.addWidget(left_scroll)
 
         # --- Right: plot ---
-        self._fig = Figure(figsize=(6, 4), dpi=100, facecolor='#353535')
+        self._fig = Figure(figsize=(6, 4), dpi=100, facecolor='white')
         self._canvas = FigureCanvas(self._fig)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor('#2a2a2a')
+        self._ax.set_facecolor('white')
         layout.addWidget(self._canvas, stretch=1)
 
         self._click_points = []  # for click-to-define exclusion
@@ -1505,7 +1504,7 @@ class SmoothingDialog(QDialog):
         """Grab the first plotted line from main canvas."""
         lines = self._mw._canvas.ax.get_lines()
         if not lines:
-            QMessageBox.warning(self, "Error", "No data on main plot"); return
+            self.say("No data on main plot", error=True); return
         line = lines[0]
         self._x_data = np.array(line.get_xdata(), dtype=float)
         self._y_data = np.array(line.get_ydata(), dtype=float)
@@ -1518,19 +1517,19 @@ class SmoothingDialog(QDialog):
         try:
             data = np.loadtxt(path, comments='#')
             if data.ndim == 1 or data.shape[1] < 2:
-                QMessageBox.warning(self, "Error", "Need at least 2 columns"); return
+                self.say("Need at least 2 columns", error=True); return
             self._x_data = data[:, 0]
             self._y_data = data[:, 1]
             self._data_info.setText(f"{len(self._x_data)} pts from {os.path.basename(path)}")
             self._apply_smoothing()
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _load_from_fits(self):
         """Load from peak fit dialog results."""
         fr = self._mw._peak_fit_dialog._fit_results
         if not fr:
-            QMessageBox.warning(self, "Error", "No peak fit results"); return
+            self.say("No peak fit results", error=True); return
         scans = sorted(fr.keys())
         self._x_data = np.array(scans, dtype=float)
         self._y_data = np.array([fr[s]['area'] for s in scans], dtype=float)
@@ -1542,7 +1541,7 @@ class SmoothingDialog(QDialog):
         xmin = self._exc_min.value()
         xmax = self._exc_max.value()
         if xmin >= xmax:
-            QMessageBox.warning(self, "Error", "X min must be < X max"); return
+            self.say("X min must be < X max", error=True); return
         self._exclusions.append((xmin, xmax))
         self._exc_list.addItem(f"{xmin:.4g} — {xmax:.4g}")
         self._apply_smoothing()
@@ -1576,7 +1575,7 @@ class SmoothingDialog(QDialog):
             self._apply_smoothing()
         else:
             # Draw temporary marker
-            self._ax.axvline(event.xdata, color='#ff6b6b', linestyle=':', alpha=0.7)
+            self._ax.axvline(event.xdata, color='#d62728', linestyle=':', alpha=0.7)
             self._canvas.draw()
 
     # ---- Smoothing ----
@@ -1673,9 +1672,9 @@ class SmoothingDialog(QDialog):
 
     def _update_preview(self):
         self._ax.clear()
-        self._ax.set_facecolor('#2a2a2a')
-        self._ax.tick_params(colors='#ddd')
-        for sp in self._ax.spines.values(): sp.set_color('#555')
+        self._ax.set_facecolor('white')
+        self._ax.tick_params(colors='#222')
+        for sp in self._ax.spines.values(): sp.set_color('#999')
 
         if self._x_data is None:
             self._ax.set_title("Load data first", color='#888')
@@ -1683,10 +1682,10 @@ class SmoothingDialog(QDialog):
 
         # Draw exclusion zones
         for xmin, xmax in self._exclusions:
-            self._ax.axvspan(xmin, xmax, alpha=0.15, color='#ff6b6b')
+            self._ax.axvspan(xmin, xmax, alpha=0.15, color='#d62728')
 
         # Original data
-        self._ax.plot(self._x_data, self._y_data, 'o', color='#2a9fd6',
+        self._ax.plot(self._x_data, self._y_data, 'o', color='#1f77b4',
                       markersize=3, alpha=0.6, label='original')
 
         # Smoothed (only non-NaN)
@@ -1701,26 +1700,26 @@ class SmoothingDialog(QDialog):
                     if inc_indices[i] - inc_indices[i-1] > 1:
                         seg = inc_indices[seg_start:i]
                         self._ax.plot(self._x_data[seg], self._smoothed[seg], '-',
-                                      color='#51cf66', linewidth=2)
+                                      color='#2ca02c', linewidth=2)
                         seg_start = i
                 seg = inc_indices[seg_start:]
                 self._ax.plot(self._x_data[seg], self._smoothed[seg], '-',
-                              color='#51cf66', linewidth=2, label='smoothed')
+                              color='#2ca02c', linewidth=2, label='smoothed')
 
         if self._chk_log_y.isChecked():
             self._ax.set_yscale('log')
 
-        self._ax.set_title("CTR Smoothing", color='#ddd')
-        self._ax.set_xlabel("X", color='#ddd')
-        self._ax.set_ylabel("Intensity", color='#ddd')
-        self._ax.legend(facecolor='#353535', edgecolor='#555', labelcolor='#ddd', fontsize=8)
+        self._ax.set_title("CTR Smoothing", color='#222')
+        self._ax.set_xlabel("X", color='#222')
+        self._ax.set_ylabel("Intensity", color='#222')
+        self._ax.legend(facecolor='white', edgecolor='#999', labelcolor='#222', fontsize=8)
         self._fig.tight_layout()
         self._canvas.draw()
 
     def _send_to_main(self):
         """Plot smoothed data on the main canvas."""
         if self._x_data is None or self._smoothed is None:
-            QMessageBox.warning(self, "Error", "No smoothed data"); return
+            self.say("No smoothed data", error=True); return
 
         tc = self._mw._text_color
         fig = self._mw._canvas.fig; fig.set_facecolor(self._mw._fig_bg_color)
@@ -1731,7 +1730,7 @@ class SmoothingDialog(QDialog):
         for sp in ax.spines.values(): sp.set_color(tc); sp.set_linewidth(self._mw._spine_width.value())
 
         # Original
-        ax.plot(self._x_data, self._y_data, 'o', color='#2a9fd6', markersize=4, alpha=0.5, label='data')
+        ax.plot(self._x_data, self._y_data, 'o', color='#1f77b4', markersize=4, alpha=0.5, label='data')
 
         # Smoothed segments
         mask = self._get_mask()
@@ -1741,14 +1740,14 @@ class SmoothingDialog(QDialog):
             for i in range(1, len(inc_indices)):
                 if inc_indices[i] - inc_indices[i-1] > 1:
                     seg = inc_indices[seg_start:i]
-                    ax.plot(self._x_data[seg], self._smoothed[seg], '-', color='#51cf66', linewidth=2)
+                    ax.plot(self._x_data[seg], self._smoothed[seg], '-', color='#2ca02c', linewidth=2)
                     seg_start = i
             seg = inc_indices[seg_start:]
-            ax.plot(self._x_data[seg], self._smoothed[seg], '-', color='#51cf66', linewidth=2, label='smoothed')
+            ax.plot(self._x_data[seg], self._smoothed[seg], '-', color='#2ca02c', linewidth=2, label='smoothed')
 
         # Exclusion zones
         for xmin, xmax in self._exclusions:
-            ax.axvspan(xmin, xmax, alpha=0.1, color='#ff6b6b')
+            ax.axvspan(xmin, xmax, alpha=0.1, color='#d62728')
 
         ax.set_xlabel("X", color=tc, fontsize=self._mw._font_axis.value())
         ax.set_ylabel("Intensity", color=tc, fontsize=self._mw._font_axis.value())
@@ -1764,7 +1763,7 @@ class SmoothingDialog(QDialog):
 
     def _export(self):
         if self._x_data is None or self._smoothed is None:
-            QMessageBox.warning(self, "Error", "No data"); return
+            self.say("No data", error=True); return
         path, _ = QFileDialog.getSaveFileName(self, "Export", "smoothed.txt", "Text (*.txt)")
         if not path: return
         mask = self._get_mask()
@@ -1774,10 +1773,10 @@ class SmoothingDialog(QDialog):
                 sm = self._smoothed[i] if not np.isnan(self._smoothed[i]) else ""
                 inc = "1" if mask[i] else "0"
                 f.write(f"{self._x_data[i]:.6g}\t{self._y_data[i]:.6g}\t{sm}\t{inc}\n")
-        QMessageBox.information(self, "Done", f"Exported to {path}")
+        self.say(f"Exported to {path}")
 
 
-class CTRSmoothDialog(QDialog):
+class CTRSmoothDialog(StatusMixin, QDialog):
     """Dialog for smoothing CTR or any plotted data."""
     def __init__(self, main_win, parent=None):
         super().__init__(parent)
@@ -1808,7 +1807,7 @@ class CTRSmoothDialog(QDialog):
         btn_from_file.clicked.connect(self._load_from_file)
         sl.addWidget(btn_from_file)
         self._source_info = QLabel("No data loaded")
-        self._source_info.setStyleSheet("color: #aaa;"); self._source_info.setWordWrap(True)
+        self._source_info.setStyleSheet(HINT_STYLE); self._source_info.setWordWrap(True)
         sl.addWidget(self._source_info)
         lv.addWidget(sg)
 
@@ -1859,11 +1858,11 @@ class CTRSmoothDialog(QDialog):
         # Actions
         btn_apply = QPushButton("Apply smoothing")
         btn_apply.clicked.connect(self._apply_smoothing)
-        btn_apply.setStyleSheet("background: #2d5a27; color: white; font-weight: bold; padding: 6px;")
+        btn_apply.setStyleSheet(PRIMARY_STYLE)
         lv.addWidget(btn_apply)
 
         self._smooth_info = QLabel("—")
-        self._smooth_info.setStyleSheet("color: #aaa;"); self._smooth_info.setWordWrap(True)
+        self._smooth_info.setStyleSheet(HINT_STYLE); self._smooth_info.setWordWrap(True)
         lv.addWidget(self._smooth_info)
 
         # Display
@@ -1887,10 +1886,10 @@ class CTRSmoothDialog(QDialog):
         layout.addWidget(left)
 
         # --- Right: preview plot ---
-        self._fig = Figure(figsize=(6, 4), dpi=100, facecolor='#353535')
+        self._fig = Figure(figsize=(6, 4), dpi=100, facecolor='white')
         self._canvas = FigureCanvas(self._fig)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor('#2a2a2a')
+        self._ax.set_facecolor('white')
         layout.addWidget(self._canvas, stretch=1)
 
         self._on_method_changed()
@@ -1915,7 +1914,7 @@ class CTRSmoothDialog(QDialog):
                 self._source_info.setText(
                     f"From overlay: {len(self._source_x)} pts")
                 self._update_preview(); return
-            QMessageBox.warning(self, "Error", "No data on main plot"); return
+            self.say("No data on main plot", error=True); return
         line = lines[0]
         self._source_x = np.array(line.get_xdata(), dtype=float)
         self._source_y = np.array(line.get_ydata(), dtype=float)
@@ -1941,11 +1940,11 @@ class CTRSmoothDialog(QDialog):
             self._smooth_x = None; self._smooth_y = None
             self._update_preview()
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _apply_smoothing(self):
         if self._source_x is None:
-            QMessageBox.warning(self, "Error", "Load data first"); return
+            self.say("Load data first", error=True); return
 
         x = self._source_x; y = self._source_y
         method = self._method_combo.currentText()
@@ -1974,7 +1973,7 @@ class CTRSmoothDialog(QDialog):
                 unique_mask = np.diff(xs, prepend=-np.inf) > 0
                 xs, ys = xs[unique_mask], ys[unique_mask]
                 if len(xs) < 4:
-                    QMessageBox.warning(self, "Error", "Not enough unique points for spline"); return
+                    self.say("Not enough unique points for spline", error=True); return
                 k = min(self._spline_k.value(), len(xs) - 1)
                 spl = UnivariateSpline(xs, ys, k=k, s=len(xs))
                 n_pts = self._spline_pts.value()
@@ -1992,34 +1991,34 @@ class CTRSmoothDialog(QDialog):
             self._update_preview()
 
         except Exception as e:
-            QMessageBox.warning(self, "Error", f"Smoothing failed:\n{e}")
+            self.say(f"Smoothing failed:\n{e}", error=True)
 
     def _update_preview(self):
         self._ax.clear()
-        self._ax.set_facecolor('#2a2a2a')
-        self._ax.tick_params(colors='#ddd')
-        for sp in self._ax.spines.values(): sp.set_color('#555')
+        self._ax.set_facecolor('white')
+        self._ax.tick_params(colors='#222')
+        for sp in self._ax.spines.values(): sp.set_color('#999')
 
         if self._source_x is not None and self._chk_show_orig.isChecked():
-            self._ax.plot(self._source_x, self._source_y, 'o', color='#2a9fd6',
+            self._ax.plot(self._source_x, self._source_y, 'o', color='#1f77b4',
                          markersize=3, alpha=0.6, label='original')
 
         if self._smooth_x is not None:
-            self._ax.plot(self._smooth_x, self._smooth_y, '-', color='#ff6b6b',
+            self._ax.plot(self._smooth_x, self._smooth_y, '-', color='#d62728',
                          linewidth=1.5, label='smoothed')
 
         if self._chk_logy.isChecked():
             self._ax.set_yscale('log')
 
         if self._source_x is not None or self._smooth_x is not None:
-            self._ax.legend(facecolor='#353535', edgecolor='#555', labelcolor='#ddd', fontsize=8)
-        self._ax.set_title("Smoothing preview", color='#ddd')
+            self._ax.legend(facecolor='white', edgecolor='#999', labelcolor='#222', fontsize=8)
+        self._ax.set_title("Smoothing preview", color='#222')
         self._fig.tight_layout()
         self._canvas.draw()
 
     def _send_to_main(self):
         if self._smooth_x is None:
-            QMessageBox.warning(self, "Error", "Apply smoothing first"); return
+            self.say("Apply smoothing first", error=True); return
         self._mw._overlay = {
             'x': self._smooth_x.copy(),
             'y': self._smooth_y.copy(),
@@ -2032,14 +2031,14 @@ class CTRSmoothDialog(QDialog):
 
     def _export_smooth(self):
         if self._smooth_x is None:
-            QMessageBox.warning(self, "Error", "Apply smoothing first"); return
+            self.say("Apply smoothing first", error=True); return
         path, _ = QFileDialog.getSaveFileName(self, "Export smoothed", "smoothed.txt", "Text (*.txt)")
         if not path: return
         with open(path, 'w') as f:
             f.write("x\ty_smoothed\n")
             for xi, yi in zip(self._smooth_x, self._smooth_y):
                 f.write(f"{xi:.6g}\t{yi:.6g}\n")
-        QMessageBox.information(self, "Done", f"Exported to {path}")
+        self.say(f"Exported to {path}")
 
 
 class PerScanYDialog(QDialog):
@@ -2085,7 +2084,7 @@ class PerScanYDialog(QDialog):
 
         # Apply
         btn_apply = QPushButton("Apply && replot")
-        btn_apply.setStyleSheet("background: #2d5a27; color: white; font-weight: bold; padding: 6px;")
+        btn_apply.setStyleSheet(PRIMARY_STYLE)
         btn_apply.clicked.connect(self._apply)
         layout.addWidget(btn_apply)
 
@@ -2126,7 +2125,7 @@ class PerScanYDialog(QDialog):
 
         # Y columns as clickable button that opens selector
         btn = QPushButton(", ".join(y_cols) if y_cols else "(click to set)")
-        btn.setStyleSheet("text-align: left; padding: 2px 6px; color: #afd6ff;")
+        btn.setStyleSheet("text-align: left; padding: 2px 6px; color: #1f5f9f;")
         btn.clicked.connect(lambda checked, r=row, s=scan_num: self._edit_y_cols(r, s))
         self._table.setCellWidget(row, 1, btn)
 
@@ -2194,26 +2193,26 @@ class PerScanYDialog(QDialog):
 
 class PlotCanvas(FigureCanvas):
     def __init__(self, parent=None):
-        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor='#353535')
+        self.fig = Figure(figsize=(8, 6), dpi=100, facecolor='white')
         super().__init__(self.fig)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_facecolor('#2a2a2a')
-        self.ax.tick_params(colors='#ddd')
-        for sp in self.ax.spines.values(): sp.set_color('#555')
+        self.ax.set_facecolor('white')
+        self.ax.tick_params(colors='#222')
+        for sp in self.ax.spines.values(): sp.set_color('#999')
         self.fig.tight_layout()
 
     def clear_and_setup(self):
         self.ax.clear()
-        self.ax.set_facecolor('#2a2a2a')
-        self.ax.tick_params(colors='#ddd')
-        for sp in self.ax.spines.values(): sp.set_color('#555')
+        self.ax.set_facecolor('white')
+        self.ax.tick_params(colors='#222')
+        for sp in self.ax.spines.values(): sp.set_color('#999')
 
 
-DEFAULT_COLORS = ['#2a9fd6', '#ff6b6b', '#51cf66', '#ffd43b',
-                  '#cc5de8', '#ff922b', '#20c997', '#f06595']
+DEFAULT_COLORS = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e',
+                  '#9467bd', '#8c564b', '#17becf', '#e377c2']
 
 
-class MainWindow(QMainWindow):
+class MainWindow(StatusMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SXRD Spec Data Plotter")
@@ -2226,9 +2225,9 @@ class MainWindow(QMainWindow):
         self._plot_colors = list(DEFAULT_COLORS)
 
         # Color state (set before dialogs reference them)
-        self._fig_bg_color = '#353535'
-        self._axes_bg_color = '#2a2a2a'
-        self._text_color = '#dddddd'
+        self._fig_bg_color = 'white'
+        self._axes_bg_color = 'white'
+        self._text_color = '#222222'
 
         # Overlay data from peak fitting / import (persists through style changes)
         # Format: {'x': array, 'y': array, 'xlabel': str, 'ylabel': str, 'title': str, 'label': str}
@@ -2360,9 +2359,9 @@ class MainWindow(QMainWindow):
         self._xlim_max.setText(get('display', 'xlim_max', ''))
         self._ylim_min.setText(get('display', 'ylim_min', ''))
         self._ylim_max.setText(get('display', 'ylim_max', ''))
-        for attr, key, default in [('_fig_bg_color', 'fig_bg', '#353535'),
-                                    ('_axes_bg_color', 'axes_bg', '#2a2a2a'),
-                                    ('_text_color', 'text_color', '#dddddd')]:
+        for attr, key, default in [('_fig_bg_color', 'fig_bg', 'white'),
+                                    ('_axes_bg_color', 'axes_bg', 'white'),
+                                    ('_text_color', 'text_color', '#222222')]:
             setattr(self, attr, get('display', key, default))
         self._fig_opts_dialog._sync_color_buttons()
 
@@ -2376,154 +2375,126 @@ class MainWindow(QMainWindow):
 
     # ---- UI ----
     def _setup_ui(self):
-        central = QWidget(); self.setCentralWidget(central)
-        main = QHBoxLayout(central)
         self._hsplitter = QSplitter(Qt.Horizontal)
 
-        # --- Left panel ---
-        left_inner = QWidget()
-        lv = QVBoxLayout(left_inner); lv.setContentsMargins(4, 4, 4, 4)
+        # ---- left, top: files, scans, corrections, labels
+        fg, fl = group("Files")
+        self._spec_path = QLineEdit()
+        self._spec_path.setReadOnly(True)
+        sb = QPushButton("Browse…")
+        sb.clicked.connect(self._browse_spec)
+        fl.addRow("SPEC", row(self._spec_path, sb))
+        self._bgsub_path = QLineEdit()
+        self._bgsub_path.setReadOnly(True)
+        self._bgsub_path.setPlaceholderText("optional: ROI sums from background subtraction")
+        bb = QPushButton("Browse…")
+        bb.clicked.connect(self._browse_bgsub)
+        fl.addRow("ROI sums", row(self._bgsub_path, bb))
 
-        # Files
-        fg = QGroupBox("Data files"); fl = QVBoxLayout(fg)
-        fl.addWidget(QLabel("Spec file:"))
-        sr = QHBoxLayout()
-        self._spec_path = QLineEdit(); self._spec_path.setReadOnly(True); sr.addWidget(self._spec_path)
-        sb = QPushButton("Browse"); sb.clicked.connect(self._browse_spec); sr.addWidget(sb); fl.addLayout(sr)
-        fl.addWidget(QLabel("BGsub sums directory (optional):"))
-        br = QHBoxLayout()
-        self._bgsub_path = QLineEdit(); self._bgsub_path.setReadOnly(True); br.addWidget(self._bgsub_path)
-        bb = QPushButton("Browse"); bb.clicked.connect(self._browse_bgsub); br.addWidget(bb); fl.addLayout(br)
-        lv.addWidget(fg)
-
-        # Scan selector (multi-select list)
-        sg = QGroupBox("Scans"); sl = QVBoxLayout(sg)
+        sg, sl = group("Scans", form=False)
         self._scan_list = QListWidget()
         self._scan_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        self._scan_list.setMaximumHeight(160)
+        self._scan_list.setMinimumHeight(140)
         self._scan_list.itemSelectionChanged.connect(self._on_scan_changed)
         sl.addWidget(self._scan_list)
-        self._scan_info = QLabel("No scan loaded"); self._scan_info.setWordWrap(True)
-        self._scan_info.setStyleSheet("color: #aaa; font-size: 10px;"); sl.addWidget(self._scan_info)
-        lv.addWidget(sg)
+        self._scan_info = hint("No scan loaded")
+        sl.addWidget(self._scan_info)
 
-        # Attenuator
-        ag = QGroupBox("Attenuator correction"); al = QVBoxLayout(ag)
-        tr = QHBoxLayout(); tr.addWidget(QLabel("1-sheet T:"))
-        self._att_trans = QDoubleSpinBox(); self._att_trans.setRange(0.0001, 1); self._att_trans.setValue(0.1)
-        self._att_trans.setDecimals(6); self._att_trans.setSingleStep(0.01)
-        self._att_trans.editingFinished.connect(self._update_plot); tr.addWidget(self._att_trans); al.addLayout(tr)
-        self._att = []; att_row = QHBoxLayout()
-        for sheets in [1, 2, 4, 8]:
-            chk = QCheckBox(f"{sheets}"); chk.toggled.connect(self._update_plot); att_row.addWidget(chk); self._att.append(chk)
-        al.addLayout(att_row)
-        self._lbl_att = QLabel("×1.000"); self._lbl_att.setStyleSheet("color: #aaa;"); al.addWidget(self._lbl_att)
-        lv.addWidget(ag)
-
-        # Transmittance correction (per-image, from spec column)
-        tg = QGroupBox("Transmittance correction (per image)")
-        tgl = QVBoxLayout(tg)
-        self._chk_transm = QCheckBox("Divide Y by transm column")
-        self._chk_transm.setToolTip(
-            "Divides each Y point by the corresponding transm value from spec.\n"
-            "For rocking scans with auto-attenuators this varies per image.\n"
-            "Applies on top of the normalize-by dropdown (which is typically ionchamber).")
+        ag, al = group("Corrections")
+        self._att_trans = QDoubleSpinBox()
+        self._att_trans.setRange(0.0001, 1)
+        self._att_trans.setValue(0.1)
+        self._att_trans.setDecimals(6)
+        self._att_trans.setSingleStep(0.01)
+        self._att_trans.setToolTip("Transmission of one attenuator sheet")
+        self._att_trans.editingFinished.connect(self._update_plot)
+        al.addRow("Sheet transmission", self._att_trans)
+        self._att = []
+        sheets = []
+        for n in [1, 2, 4, 8]:
+            chk = QCheckBox(f"{n}")
+            chk.toggled.connect(self._update_plot)
+            self._att.append(chk)
+            sheets.append(chk)
+        self._lbl_att = hint("×1.000")
+        al.addRow("Sheets in", row(*sheets, self._lbl_att, stretch_first=False))
+        self._chk_transm = QCheckBox("Divide Y by")
+        self._chk_transm.setToolTip("Divides each Y point by the corresponding transm value from spec.\n"
+                                    "For rocking scans with auto-attenuators this varies per image.\n"
+                                    "Applies on top of the normalize column (typically the ion chamber).")
         self._chk_transm.toggled.connect(self._update_plot)
-        tgl.addWidget(self._chk_transm)
-        tcr = QHBoxLayout()
-        tcr.addWidget(QLabel("Column:"))
         self._transm_col = QLineEdit("transm")
-        self._transm_col.setToolTip("Name of the transmittance column in the spec file")
+        self._transm_col.setToolTip("Name of the per-image transmission column in the SPEC file")
         self._transm_col.editingFinished.connect(self._update_plot)
-        tcr.addWidget(self._transm_col)
-        tgl.addLayout(tcr)
-        lv.addWidget(tg)
+        al.addRow("Per image", row(self._chk_transm, self._transm_col, stretch_first=False))
 
-        # Label editor
-        lg = QGroupBox("Axis label map"); ll = QVBoxLayout(lg)
-        lr = QHBoxLayout()
-        lr.addWidget(QLabel("From:")); self._lbl_from = QLineEdit(); self._lbl_from.setPlaceholderText("VTH"); lr.addWidget(self._lbl_from)
-        lr.addWidget(QLabel("To:")); self._lbl_to = QLineEdit(); self._lbl_to.setPlaceholderText("η"); lr.addWidget(self._lbl_to)
-        btn_map = QPushButton("Set"); btn_map.clicked.connect(self._add_label_mapping); lr.addWidget(btn_map); ll.addLayout(lr)
-        self._lbl_map_info = QLabel(""); self._lbl_map_info.setStyleSheet("color: #aaa; font-size: 10px;")
-        self._lbl_map_info.setWordWrap(True); ll.addWidget(self._lbl_map_info); self._refresh_label_map_display()
-        lv.addWidget(lg)
+        lg, ll = group("Axis labels")
+        self._lbl_from = QLineEdit()
+        self._lbl_from.setPlaceholderText("VTH")
+        self._lbl_to = QLineEdit()
+        self._lbl_to.setPlaceholderText("η")
+        btn_map = QPushButton("Set")
+        btn_map.clicked.connect(self._add_label_mapping)
+        ll.addRow("Column → label", row(self._lbl_from, QLabel("→"), self._lbl_to, btn_map, stretch_first=False))
+        self._lbl_map_info = hint("")
+        ll.addRow(self._lbl_map_info)
+        self._refresh_label_map_display()
 
-        # Config + Export
-        pg = QGroupBox("Plot config / export"); pl = QVBoxLayout(pg)
-        r1 = QHBoxLayout()
-        btn_sc = QPushButton("Save config"); btn_sc.clicked.connect(self._save_plot_config); r1.addWidget(btn_sc)
-        btn_lc = QPushButton("Load config"); btn_lc.clicked.connect(self._load_plot_config); r1.addWidget(btn_lc); pl.addLayout(r1)
-        r2 = QHBoxLayout()
-        btn_png = QPushButton("Save PNG"); btn_png.clicked.connect(lambda: self._save_plot('png')); r2.addWidget(btn_png)
-        btn_svg = QPushButton("Save SVG"); btn_svg.clicked.connect(lambda: self._save_plot('svg')); r2.addWidget(btn_svg); pl.addLayout(r2)
-        btn_export_data = QPushButton("Export plot data to text")
-        btn_export_data.clicked.connect(self._export_plot_data)
-        pl.addWidget(btn_export_data)
-        btn_export_genx = QPushButton("Export plot data for GenX")
-        btn_export_genx.clicked.connect(self._export_genx)
-        pl.addWidget(btn_export_genx)
-        lv.addWidget(pg)
-
-        lv.addStretch()
-
-        # Scroll for top
-        top_scroll = QScrollArea(); top_scroll.setWidget(left_inner); top_scroll.setWidgetResizable(True)
-        top_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        top_scroll.setStyleSheet("QScrollArea { border: none; }")
-
-        # Column selector at bottom
-        col_container = QWidget(); col_layout = QVBoxLayout(col_container); col_layout.setContentsMargins(4, 2, 4, 2)
-        col_label = QLabel("Columns (X / Y / Normalize)")
-        col_label.setStyleSheet("font-weight: bold; color: #ccc;"); col_layout.addWidget(col_label)
-        self._col_sel = ColumnSelectorWidget(on_change=self._update_plot); col_layout.addWidget(self._col_sel)
-
-        # Vertical splitter
+        # ---- left, bottom: the column table (X / Y / normalise), resizable
+        cg, cl = group("Columns: X / Y / normalise", form=False)
+        self._col_sel = ColumnSelectorWidget(on_change=self._update_plot)
+        cl.addWidget(self._col_sel)
         left_vs = QSplitter(Qt.Vertical)
-        left_vs.addWidget(top_scroll); left_vs.addWidget(col_container)
-        left_vs.setStretchFactor(0, 1); left_vs.setStretchFactor(1, 1); left_vs.setSizes([350, 400])
+        left_vs.addWidget(sidebar(fg, sg, ag, lg))
+        left_vs.addWidget(cg)
+        left_vs.setStretchFactor(0, 1)
+        left_vs.setStretchFactor(1, 1)
+        left_vs.setSizes([420, 360])
         self._left_vsplitter = left_vs
 
-        left_wrapper = QWidget(); lwl = QVBoxLayout(left_wrapper); lwl.setContentsMargins(0, 0, 0, 0)
-        lwl.addWidget(left_vs); left_wrapper.setMinimumWidth(300)
-        self._hsplitter.addWidget(left_wrapper)
+        btns = [("Export data…", self._export_plot_data, "Plot data as text (one '# Trace:' block per curve)"),
+                ("Export for GenX…", self._export_genx, "Plot data in GenX format"),
+                ("Save PNG…", lambda: self._save_plot('png'), None), ("Save SVG…", lambda: self._save_plot('svg'), None),
+                ("Save config…", self._save_plot_config, "Columns, styles and options as JSON"),
+                ("Load config…", self._load_plot_config, None)]
+        grid = QGridLayout()
+        for k, (text, fn, tip) in enumerate(btns):
+            b = QPushButton(text)
+            b.clicked.connect(lambda *_, f=fn: f())
+            if tip:
+                b.setToolTip(tip)
+            grid.addWidget(b, k // 2, k % 2)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(left_vs, 1)
+        lv.addLayout(grid)
+        self._hsplitter.addWidget(left)
 
-        # --- Right panel: toolbar + buttons + plot ---
-        right = QWidget(); rv = QVBoxLayout(right); rv.setContentsMargins(0, 0, 0, 0)
+        # ---- right: the plot with its tools
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
         self._canvas = PlotCanvas()
-        # Toolbar row with extra buttons
-        tb_row = QHBoxLayout()
         self._toolbar = NavigationToolbar(self._canvas, self)
-        self._toolbar.setStyleSheet("background: #353535; color: #ddd;")
-        tb_row.addWidget(self._toolbar)
-        btn_fig_opts = QPushButton("Figure Options")
-        btn_fig_opts.setStyleSheet("background: #444; color: #ddd; padding: 4px 10px;")
-        btn_fig_opts.clicked.connect(self._show_fig_opts)
-        tb_row.addWidget(btn_fig_opts)
-        btn_peak_fit = QPushButton("Peak Fitting")
-        btn_peak_fit.setStyleSheet("background: #444; color: #ddd; padding: 4px 10px;")
-        btn_peak_fit.clicked.connect(self._show_peak_fit)
-        tb_row.addWidget(btn_peak_fit)
-        btn_smooth = QPushButton("Smoothing")
-        btn_smooth.setStyleSheet("background: #444; color: #ddd; padding: 4px 10px;")
-        btn_smooth.clicked.connect(self._show_smooth)
-        tb_row.addWidget(btn_smooth)
-        btn_perscan = QPushButton("Per-Scan Y")
-        btn_perscan.setStyleSheet("background: #444; color: #ddd; padding: 4px 10px;")
-        btn_perscan.clicked.connect(self._show_perscan_y)
-        tb_row.addWidget(btn_perscan)
-        btn_ctr = QPushButton("CTR Fitting")
-        btn_ctr.setStyleSheet("background: #444; color: #ddd; padding: 4px 10px;")
-        btn_ctr.clicked.connect(self._launch_ctr_fit)
-        tb_row.addWidget(btn_ctr)
-        rv.addLayout(tb_row)
+        tools = []
+        for text, fn, tip in (("Figure options…", self._show_fig_opts, "Fonts, colours, sizes, axis limits"),
+                              ("Peak fitting…", self._show_peak_fit, "Fit rocking curves, integrated intensities"),
+                              ("Smoothing…", self._show_smooth, "Smooth a CTR built from the peak fits"),
+                              ("Per-scan Y…", self._show_perscan_y, "Different Y columns for some scans"),
+                              ("CTR fitting", self._launch_ctr_fit, "Quick CTR models (the CTR fit tab)")):
+            b = QPushButton(text)
+            b.setToolTip(tip)
+            b.clicked.connect(lambda *_, f=fn: f())
+            tools.append(b)
+        rv.addWidget(row(self._toolbar, *tools))
         rv.addWidget(self._canvas, stretch=1)
         self._hsplitter.addWidget(right)
-
-        self._hsplitter.setStretchFactor(0, 0); self._hsplitter.setStretchFactor(1, 1)
-        self._hsplitter.setSizes([380, 1020])
-        main.addWidget(self._hsplitter)
-        self._status = QStatusBar(); self.setStatusBar(self._status)
+        self._hsplitter.setStretchFactor(0, 0)
+        self._hsplitter.setStretchFactor(1, 1)
+        self._hsplitter.setSizes([400, 1000])
+        self.setCentralWidget(self._hsplitter)
+        self.say("Open a SPEC file (and the ROI sums folder), pick scans and the X / Y columns.")
 
     def _show_fig_opts(self):
         self._fig_opts_dialog._sync_color_buttons()
@@ -2608,16 +2579,15 @@ class MainWindow(QMainWindow):
             if self._scan_list.count() > 0:
                 self._scan_list.item(0).setSelected(True)
                 self._on_scan_changed()
-            self._status.showMessage(f"Loaded {len(self._spec_scans)} scans", 5000)
-        except Exception as e: QMessageBox.warning(self, "Error", str(e))
+            self.say(f"Loaded {len(self._spec_scans)} scans")
+        except Exception as e: self.say(str(e), error=True)
 
     def _load_bgsub_dir(self, dirpath):
         try:
             self._bgsub_data, self._bgsub_header, n_files = parse_bgsub_dir(dirpath)
             self._on_scan_changed()
-            self._status.showMessage(
-                f"BGsub: {n_files} files, scans {sorted(self._bgsub_data.keys())}", 5000)
-        except Exception as e: QMessageBox.warning(self, "Error", str(e))
+            self.say(f"BGsub: {n_files} files, scans {sorted(self._bgsub_data.keys())}")
+        except Exception as e: self.say(str(e), error=True)
 
     def _get_selected_scans(self):
         """Return list of selected scan numbers."""
@@ -2724,7 +2694,7 @@ class MainWindow(QMainWindow):
             kw = {'linestyle': ls if ls else 'None'}
             if show_m and ms_style: kw['marker'] = ms_style; kw['markersize'] = ms_sz
             elif not ls: kw['marker'] = 'o'; kw['markersize'] = ms_sz
-            ax.plot(ov['x'], ov['y'], color='#51cf66', label=ov.get('label', 'data'),
+            ax.plot(ov['x'], ov['y'], color='#2ca02c', label=ov.get('label', 'data'),
                     linewidth=lw, **kw)
             ax.set_xlabel(ov.get('xlabel', ''), color=tc, fontsize=self._font_axis.value())
             ax.set_ylabel(ov.get('ylabel', ''), color=tc, fontsize=self._font_axis.value())
@@ -2891,14 +2861,14 @@ class MainWindow(QMainWindow):
             'ylim_min': self._ylim_min.text(), 'ylim_max': self._ylim_max.text(),
         }
         with open(path, 'w') as f: json.dump(config, f, indent=2)
-        self._status.showMessage(f"Config saved: {path}", 5000)
+        self.say(f"Config saved: {path}")
 
     def _load_plot_config(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load config", settings_dir(), "JSON (*.json)")
         if not path: return
         try:
             with open(path) as f: cfg = json.load(f)
-        except Exception as e: QMessageBox.warning(self, "Error", str(e)); return
+        except Exception as e: self.say(str(e), error=True); return
         sp = cfg.get('spec_path', '')
         if sp and os.path.isfile(sp) and sp != self._spec_path.text():
             self._spec_path.setText(sp); self._load_spec_file(sp)
@@ -2947,11 +2917,11 @@ class MainWindow(QMainWindow):
         self._att_trans.setValue(cfg.get('att_trans', 0.1))
         for i, v in enumerate(cfg.get('att', [False]*4)):
             if i < 4: self._att[i].setChecked(v)
-        for attr, key, default in [('_fig_bg_color', 'fig_bg', '#353535'), ('_axes_bg_color', 'axes_bg', '#2a2a2a'),
-                                    ('_text_color', 'text_color', '#dddddd')]:
+        for attr, key, default in [('_fig_bg_color', 'fig_bg', 'white'), ('_axes_bg_color', 'axes_bg', 'white'),
+                                    ('_text_color', 'text_color', '#222222')]:
             setattr(self, attr, cfg.get(key, default))
         self._fig_opts_dialog._sync_color_buttons(); self._update_plot()
-        self._status.showMessage(f"Config loaded: {path}", 5000)
+        self.say(f"Config loaded: {path}")
 
     def _save_plot(self, fmt):
         path, _ = QFileDialog.getSaveFileName(self, f"Save {fmt.upper()}", f"plot.{fmt}", f"{fmt.upper()} (*.{fmt})")
@@ -2962,7 +2932,7 @@ class MainWindow(QMainWindow):
             self._canvas.fig.savefig(path, dpi=self._fig_dpi.value(), facecolor=self._fig_bg_color, bbox_inches='tight')
             self._canvas.fig.set_size_inches(old_size)
             self._canvas.fig.set_dpi(old_dpi)
-            self._status.showMessage(f"Saved: {path}", 5000)
+            self.say(f"Saved: {path}")
 
     def _export_plot_data(self):
         """Export all currently plotted traces as tab-separated text.
@@ -2977,7 +2947,7 @@ class MainWindow(QMainWindow):
                 f.write(f"{self._overlay.get('xlabel','x')}\t{self._overlay.get('ylabel','y')}\n")
                 for xi, yi in zip(self._overlay['x'], self._overlay['y']):
                     f.write(f"{xi:.6g}\t{yi:.6g}\n")
-            self._status.showMessage(f"Exported overlay to {path}", 5000)
+            self.say(f"Exported overlay to {path}")
             return
 
         selected = self._get_selected_scans()
@@ -3066,7 +3036,7 @@ class MainWindow(QMainWindow):
                     'H': h, 'K': k, 'L': l})
 
         if not traces:
-            QMessageBox.warning(self, "Error", "Nothing plotted to export"); return
+            self.say("Nothing plotted to export", error=True); return
 
         path, _ = QFileDialog.getSaveFileName(self, "Export plot data", "plot_data.txt", "Text (*.txt)")
         if not path: return
@@ -3105,7 +3075,7 @@ class MainWindow(QMainWindow):
                     for xi, yi in zip(t['x'], t['y']):
                         f.write(f"{xi:.6g}\t{yi:.6g}\n")
 
-        self._status.showMessage(f"Exported {len(traces)} traces to {path}", 5000)
+        self.say(f"Exported {len(traces)} traces to {path}")
 
     def _export_genx(self):
         """Export currently plotted data in GenX sls_sxrd format.
@@ -3173,7 +3143,7 @@ class MainWindow(QMainWindow):
                                    'x': xd, 'y': yd2})
 
         if not traces:
-            QMessageBox.warning(self, "Error", "Nothing plotted to export"); return
+            self.say("Nothing plotted to export", error=True); return
 
         # Dialog: ask for HK per trace and optional beta roughness columns
         dlg = QDialog(self)
@@ -3255,7 +3225,7 @@ class MainWindow(QMainWindow):
                                 f"{I_val:.3e}  {Ie_val:.3e}\n")
 
         n_exported = sum(1 for c in include_chks if c.isChecked())
-        self._status.showMessage(f"Exported {n_exported} rods to {path} (GenX format)", 5000)
+        self.say(f"Exported {n_exported} rods to {path} (GenX format)")
 
 
 def main(argv=None):

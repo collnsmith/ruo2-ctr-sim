@@ -24,187 +24,117 @@ Qt window of the data tools (ctr_data_tools.py); the logic is in ctrfit.datatool
 import os
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QFileDialog, QListWidget, QGroupBox, QLineEdit, QTextEdit, QMessageBox,
-                             QCheckBox, QTabWidget, QDoubleSpinBox, QTableWidget, QTableWidgetItem,
-                             QComboBox, QHeaderView)
+from PyQt5.QtWidgets import (QFormLayout, QSplitter, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton,
+                             QFileDialog, QListWidget, QLineEdit, QTextEdit, QCheckBox, QTabWidget,
+                             QDoubleSpinBox, QTableWidget, QTableWidgetItem, QComboBox, QHeaderView)
 
-from ctrfit.app.datatools.common import run_tool
+from ctrfit.app.datatools.common import (StatusMixin, group, hint, mono_font, primary_button, row, run_tool,
+                                         sidebar)
 from ctrfit.datatools.hkl import (parse_exported_file, parse_hkl_file, process_peakfit_file, write_genx_file,
                                   write_output)
 from ctrfit.datatools.specfile import parse_spec_file
 
 
-class MainWindow(QMainWindow):
+class MainWindow(StatusMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SXRD HKL Appender")
-        self.resize(900, 700)
+        self.resize(1200, 760)
 
         self._spec_path = None
         self._spec_scans = {}
         self._data_paths = []
         self._peakfit_paths = []
+        self._gx_files = []
+        self._gx_traces_cache = {}  # path -> list of traces
 
-        cw = QWidget(); self.setCentralWidget(cw)
-        lv = QVBoxLayout(cw)
-
-        # Spec file group (shared across tabs)
-        sg = QGroupBox("Spec file (shared)")
-        sl = QHBoxLayout(sg)
-        self._spec_label = QLineEdit(); self._spec_label.setReadOnly(True)
-        sl.addWidget(self._spec_label)
-        btn_spec = QPushButton("Browse...")
+        # left: what every mode shares (the SPEC file, snapping of H K L)
+        spec, sf = group("SPEC file")
+        self._spec_label = QLineEdit()
+        self._spec_label.setReadOnly(True)
+        btn_spec = QPushButton("Browse…")
         btn_spec.clicked.connect(self._load_spec)
-        sl.addWidget(btn_spec)
-        lv.addWidget(sg)
+        sf.addRow(row(self._spec_label, btn_spec))
+        sf.addRow(hint("H, K, L are interpolated from this file's scans (columns H K L) along the data's x axis."))
 
-        # Tabs
+        snap, sn = group("Snap nearly constant H K L")
+        sn.addRow(hint("If a column's spread is below the tolerance, every value becomes the nearest multiple "
+                       "of the step (H = 1.975 → 2). Step 0 keeps the mean. Used by plotter exports and peak fits."))
+        self._snap_widgets = {}
+        for axis in ['H', 'K', 'L']:
+            chk = QCheckBox(axis)
+            chk.setChecked(axis in ('H', 'K'))
+            tol = QDoubleSpinBox()
+            tol.setRange(0.0, 1.0); tol.setSingleStep(0.01); tol.setValue(0.1); tol.setDecimals(3)
+            tol.setPrefix("tol ")
+            step = QDoubleSpinBox()
+            step.setRange(0.0, 10.0); step.setSingleStep(0.5); step.setValue(1.0); step.setDecimals(2)
+            step.setPrefix("step ")
+            step.setToolTip("0 = use the mean, 1 = nearest integer, 0.5 = nearest half-integer")
+            sn.addRow(row(chk, tol, step, stretch_first=False))
+            self._snap_widgets[axis] = {'enabled': chk, 'tol': tol, 'step': step}
+        self._pf_snap_widgets = self._snap_widgets
+
+        # right: one tab per input kind, the log below
         self._tabs = QTabWidget()
-        self._tabs.addTab(self._build_plotter_tab(), "Plotter Data")
-        self._tabs.addTab(self._build_peakfit_tab(), "Peak Fits")
-        self._tabs.addTab(self._build_genx_tab(), "GenX Export")
-        lv.addWidget(self._tabs)
+        self._tabs.addTab(self._build_plotter_tab(), "Plotter exports")
+        self._tabs.addTab(self._build_peakfit_tab(), "Peak fits")
+        self._tabs.addTab(self._build_genx_tab(), "GenX export")
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFont(mono_font())
+        right = QSplitter(Qt.Vertical)
+        right.addWidget(self._tabs)
+        right.addWidget(self._log)
+        right.setSizes([520, 200])
 
-        # Shared log
-        self._log = QTextEdit(); self._log.setReadOnly(True)
-        self._log.setStyleSheet("font-family:monospace;")
-        self._log.setMaximumHeight(200)
-        lv.addWidget(self._log)
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(sidebar(spec, snap))
+        split.addWidget(right)
+        split.setSizes([400, 800])
+        self.setCentralWidget(split)
+        self._log_msg("Ready. Load a SPEC file, then use one of the tabs.")
+        self.say("Load a SPEC file, then add files in one of the tabs.")
 
-        self._log_msg("Ready. Load a spec file, then use either tab.")
+    def _file_box(self, title, add, clear, extra=()):
+        """A titled file list with Add / (extra) / Clear buttons; returns (box, list)."""
+        box, lay = group(title, form=False)
+        lst = QListWidget()
+        lst.setMinimumHeight(120)
+        lay.addWidget(lst, 1)
+        b_add, b_clr = QPushButton("Add files…"), QPushButton("Clear")
+        b_add.clicked.connect(add)
+        b_clr.clicked.connect(clear)
+        lay.addWidget(row(b_add, *extra, b_clr, 1, stretch_first=False))
+        return box, lst
 
     def _build_plotter_tab(self):
         tab = QWidget()
         lv = QVBoxLayout(tab)
-
-        dg = QGroupBox("Data files (from plotter export)")
-        dl = QVBoxLayout(dg)
-        self._file_list = QListWidget()
-        dl.addWidget(self._file_list)
-        bh = QHBoxLayout()
-        btn_add = QPushButton("Add files...")
-        btn_add.clicked.connect(self._add_files)
-        bh.addWidget(btn_add)
-        btn_clear = QPushButton("Clear")
-        btn_clear.clicked.connect(self._clear_files)
-        bh.addWidget(btn_clear)
-        dl.addLayout(bh)
-        lv.addWidget(dg)
-
-        og = QGroupBox("Options")
-        ol = QVBoxLayout(og)
-        self._chk_inplace = QCheckBox(
-            "Overwrite originals (otherwise saves as <n>_hkl.txt next to original)")
-        ol.addWidget(self._chk_inplace)
-
-        snap_group = QGroupBox("Snap nearly-constant columns to round values")
-        sg_layout = QVBoxLayout(snap_group)
-        sg_layout.addWidget(QLabel(
-            "If a column's spread is below the tolerance, all values are\n"
-            "replaced with the nearest multiple of step (e.g. H=1.975 -> H=2)."))
-
-        self._snap_widgets = {}
-        for axis in ['H', 'K', 'L']:
-            row = QHBoxLayout()
-            chk = QCheckBox(f"Snap {axis}")
-            chk.setChecked(axis in ('H', 'K'))
-            row.addWidget(chk)
-            row.addWidget(QLabel("tol:"))
-            tol = QDoubleSpinBox()
-            tol.setRange(0.0, 1.0); tol.setSingleStep(0.01); tol.setValue(0.1)
-            tol.setDecimals(3)
-            row.addWidget(tol)
-            row.addWidget(QLabel("step:"))
-            step = QDoubleSpinBox()
-            step.setRange(0.0, 10.0); step.setSingleStep(0.5); step.setValue(1.0)
-            step.setDecimals(2)
-            step.setToolTip("0=use mean, 1=nearest integer, 0.5=nearest half-integer")
-            row.addWidget(step)
-            row.addStretch()
-            sg_layout.addLayout(row)
-            self._snap_widgets[axis] = {'enabled': chk, 'tol': tol, 'step': step}
-
-        ol.addWidget(snap_group)
-        lv.addWidget(og)
-
-        btn_process = QPushButton("Process")
-        btn_process.setStyleSheet(
-            "QPushButton{background:#2d5a27;color:white;font-weight:bold;padding:10px;}"
-            "QPushButton:hover{background:#3a7a33;}")
-        btn_process.clicked.connect(self._process)
-        lv.addWidget(btn_process)
+        lv.addWidget(hint("Files from the plotter's 'Export plot data' (one or more '# Trace:' blocks). "
+                          "Each trace gets H K L columns from its SPEC scan."))
+        box, self._file_list = self._file_box("Plotter export files", self._add_files, self._clear_files)
+        lv.addWidget(box, 1)
+        self._chk_inplace = QCheckBox("Overwrite the originals (otherwise <name>_hkl.txt next to each)")
+        lv.addWidget(self._chk_inplace)
+        lv.addWidget(primary_button("Add H K L", self._process))
         return tab
 
     def _build_peakfit_tab(self):
         tab = QWidget()
         lv = QVBoxLayout(tab)
-
-        info = QLabel(
-            "Processes peak-fit files (from plotter peak fitting dialog).\n"
-            "Extracts 'scan' and a chosen area column, looks up H, K, L\n"
-            "from the spec file (mean of each scan), writes one row per scan."
-        )
-        info.setStyleSheet("color:#aaa;")
-        lv.addWidget(info)
-
-        fg = QGroupBox("Peak fit files")
-        fl = QVBoxLayout(fg)
-        self._pf_list = QListWidget()
-        fl.addWidget(self._pf_list)
-        bh = QHBoxLayout()
-        btn_add = QPushButton("Add files...")
-        btn_add.clicked.connect(self._pf_add_files)
-        bh.addWidget(btn_add)
-        btn_clr = QPushButton("Clear")
-        btn_clr.clicked.connect(self._pf_clear_files)
-        bh.addWidget(btn_clr)
-        fl.addLayout(bh)
-        lv.addWidget(fg)
-
-        pg = QGroupBox("Options")
-        pl = QVBoxLayout(pg)
-
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Area column:"))
-        self._pf_area_choice = QListWidget()
-        self._pf_area_choice.setMaximumHeight(75)
-        for name in ['area', 'fit_area', 'num_area']:
-            self._pf_area_choice.addItem(name)
-        self._pf_area_choice.setCurrentRow(0)
-        row.addWidget(self._pf_area_choice)
-        pl.addLayout(row)
-
-        snap_group = QGroupBox("Snap nearly-constant HKL columns")
-        sg_layout = QVBoxLayout(snap_group)
-        self._pf_snap_widgets = {}
-        for axis in ['H', 'K', 'L']:
-            row = QHBoxLayout()
-            chk = QCheckBox(f"Snap {axis}")
-            chk.setChecked(axis in ('H', 'K'))
-            row.addWidget(chk)
-            row.addWidget(QLabel("tol:"))
-            tol = QDoubleSpinBox()
-            tol.setRange(0.0, 1.0); tol.setSingleStep(0.01); tol.setValue(0.1)
-            tol.setDecimals(3)
-            row.addWidget(tol)
-            row.addWidget(QLabel("step:"))
-            step = QDoubleSpinBox()
-            step.setRange(0.0, 10.0); step.setSingleStep(0.5); step.setValue(1.0)
-            step.setDecimals(2)
-            row.addWidget(step)
-            row.addStretch()
-            sg_layout.addLayout(row)
-            self._pf_snap_widgets[axis] = {'enabled': chk, 'tol': tol, 'step': step}
-        pl.addWidget(snap_group)
-        lv.addWidget(pg)
-
-        btn = QPushButton("Process")
-        btn.setStyleSheet(
-            "QPushButton{background:#2d5a27;color:white;font-weight:bold;padding:10px;}"
-            "QPushButton:hover{background:#3a7a33;}")
-        btn.clicked.connect(self._pf_process)
-        lv.addWidget(btn)
+        lv.addWidget(hint("Peak-fit tables from the plotter's peak fitting: the scan and an area column; H K L "
+                          "are the scan means. One row per scan, written to <name>_hkl.txt."))
+        box, self._pf_list = self._file_box("Peak fit files", self._pf_add_files, self._pf_clear_files)
+        lv.addWidget(box, 1)
+        self._pf_area_choice = QComboBox()
+        self._pf_area_choice.setEditable(True)
+        self._pf_area_choice.addItems(['area', 'fit_area', 'num_area'])
+        self._pf_area_choice.setToolTip("Column of the peak fit file used as the intensity (any column name works)")
+        form = QFormLayout()
+        form.addRow("Area column", self._pf_area_choice)
+        lv.addLayout(form)
+        lv.addWidget(primary_button("Add H K L", self._pf_process))
         return tab
 
     def _log_msg(self, msg):
@@ -220,13 +150,14 @@ class MainWindow(QMainWindow):
             self._spec_scans = parse_spec_file(path)
             self._spec_path = path
             self._spec_label.setText(path)
+            self.say(f"{len(self._spec_scans)} scans in {os.path.basename(path)}")
             self._log_msg(f"Loaded spec: {os.path.basename(path)} "
                           f"({len(self._spec_scans)} scans)")
             scan_nums = sorted(self._spec_scans.keys())
             if scan_nums:
                 self._log_msg(f"  Scan range: {scan_nums[0]} - {scan_nums[-1]}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to parse spec: {e}")
+            self.say(f"Could not read the SPEC file: {e}", error=True)
 
     # ---- Plotter tab ----
     def _add_files(self):
@@ -244,10 +175,10 @@ class MainWindow(QMainWindow):
 
     def _process(self):
         if not self._spec_scans:
-            QMessageBox.warning(self, "No spec", "Load a spec file first.")
+            self.say("Load a SPEC file first.", error=True)
             return
         if not self._data_paths:
-            QMessageBox.warning(self, "No files", "Add at least one data file.")
+            self.say("Add at least one data file.", error=True)
             return
 
         self._log_msg("\n" + "=" * 50)
@@ -288,6 +219,7 @@ class MainWindow(QMainWindow):
 
         self._log_msg("\n" + "=" * 50)
         self._log_msg(f"Done. {total_ok} traces augmented, {total_skip} skipped.")
+        self.say(f"H K L added to {total_ok} traces ({total_skip} skipped)")
 
     # ---- Peak Fits tab ----
     def _pf_add_files(self):
@@ -305,13 +237,13 @@ class MainWindow(QMainWindow):
 
     def _pf_process(self):
         if not self._spec_scans:
-            QMessageBox.warning(self, "No spec", "Load a spec file first.")
+            self.say("Load a SPEC file first.", error=True)
             return
         if not self._peakfit_paths:
-            QMessageBox.warning(self, "No files", "Add at least one peak fit file.")
+            self.say("Add at least one peak fit file.", error=True)
             return
 
-        area_col = self._pf_area_choice.currentItem().text()
+        area_col = self._pf_area_choice.currentText().strip() or 'area'
 
         snap_settings = {}
         for axis in ['H', 'K', 'L']:
@@ -345,112 +277,53 @@ class MainWindow(QMainWindow):
     def _build_genx_tab(self):
         tab = QWidget()
         lv = QVBoxLayout(tab)
-
-        info = QLabel(
-            "Convert HKL-augmented files (output of the Plotter Data tab,\n"
-            "or any 'H K L Intensity' file) to GenX sls_sxrd format.\n"
-            "Each file may contain one or more 'Trace:' blocks; each becomes\n"
-            "a rod in the output. Set H K per trace if needed."
-        )
-        info.setStyleSheet("color:#aaa;")
-        lv.addWidget(info)
-
-        # File list
-        fg = QGroupBox("Input HKL files")
-        fl = QVBoxLayout(fg)
-        self._gx_list = QListWidget()
-        fl.addWidget(self._gx_list)
-        bh = QHBoxLayout()
-        b_add = QPushButton("Add files...")
-        b_add.clicked.connect(self._gx_add_files)
-        bh.addWidget(b_add)
+        lv.addWidget(hint("HKL files (output of the other tabs, or any 'H K L I' file) to GenX sls_sxrd format. "
+                          "Every '# Trace:' block becomes a rod; Preview lists them so H and K can be set per trace."))
         b_pre = QPushButton("Preview traces")
         b_pre.clicked.connect(self._gx_preview)
-        bh.addWidget(b_pre)
-        b_clr = QPushButton("Clear")
-        b_clr.clicked.connect(self._gx_clear_files)
-        bh.addWidget(b_clr)
-        fl.addLayout(bh)
-        lv.addWidget(fg)
-
-        # HK override table - populated after preview
-        hg = QGroupBox("H K override per trace (leave blank to keep file value)")
-        hl = QVBoxLayout(hg)
+        box, self._gx_list = self._file_box("Input HKL files", self._gx_add_files, self._gx_clear_files, (b_pre,))
         self._gx_hk_table = QTableWidget(0, 4)
-        self._gx_hk_table.setHorizontalHeaderLabels(
-            ['Trace label', 'N points', 'H override', 'K override'])
-        self._gx_hk_table.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.Stretch)
+        self._gx_hk_table.setHorizontalHeaderLabels(['Trace', 'Points', 'H', 'K'])
+        self._gx_hk_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._gx_hk_table.setToolTip("H and K per trace; edit to override the file's values")
+        top = QSplitter(Qt.Horizontal)
+        top.addWidget(box)
+        hk, hl = group("H K per trace (edit to override)", form=False)
         hl.addWidget(self._gx_hk_table)
-        lv.addWidget(hg)
+        top.addWidget(hk)
+        lv.addWidget(top, 1)
 
-        # Options
-        og = QGroupBox("GenX output options")
-        ol = QVBoxLayout(og)
-
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Error model:"))
+        og, form = group("Output")
         self._gx_err_mode = QComboBox()
-        self._gx_err_mode.addItems(['sqrt(I)  (counting stats)',
-                                     '5% of I',
-                                     'constant (use floor)'])
-        row.addWidget(self._gx_err_mode)
-        row.addWidget(QLabel("Error floor:"))
+        self._gx_err_mode.addItems(['sqrt(I)  (counting stats)', '5% of I', 'constant (use floor)'])
         self._gx_err_floor = QDoubleSpinBox()
         self._gx_err_floor.setRange(0.0, 1e12)
         self._gx_err_floor.setDecimals(2)
         self._gx_err_floor.setValue(1.0)
-        row.addWidget(self._gx_err_floor)
-        ol.addLayout(row)
-
-        row2 = QHBoxLayout()
-        self._gx_chk_lb = QCheckBox("Add LB and dL columns (for beta roughness model)")
-        self._gx_chk_lb.setChecked(False)
-        row2.addWidget(self._gx_chk_lb)
-        row2.addWidget(QLabel("dL:"))
+        form.addRow("Error", row(self._gx_err_mode, QLabel("floor"), self._gx_err_floor))
+        self._gx_chk_lb = QCheckBox("Add LB and dL columns (beta roughness model)")
         self._gx_dl = QDoubleSpinBox()
         self._gx_dl.setRange(0.001, 100.0)
         self._gx_dl.setDecimals(4)
         self._gx_dl.setValue(1.0)
-        self._gx_dl.setToolTip(
-            "Bragg spacing in reciprocal lattice units. For TiO2(110) "
-            "in (110) coordinates, dL = 1 (each L=integer is a Bragg peak).")
-        row2.addWidget(self._gx_dl)
-        ol.addLayout(row2)
-
-        self._gx_chk_dropneg = QCheckBox(
-            "Drop non-positive intensities (recommended - GenX fits in log space)")
+        self._gx_dl.setPrefix("dL ")
+        self._gx_dl.setToolTip("Bragg spacing in reciprocal lattice units. For TiO2(110) in (110) coordinates, "
+                               "dL = 1 (each integer L is a Bragg peak).")
+        form.addRow(row(self._gx_chk_lb, self._gx_dl))
+        self._gx_chk_dropneg = QCheckBox("Drop I ≤ 0 (GenX fits in log space)")
         self._gx_chk_dropneg.setChecked(True)
-        ol.addWidget(self._gx_chk_dropneg)
-
-        self._gx_chk_combine = QCheckBox(
-            "Combine all input files into one output (otherwise one output per input)")
+        self._gx_chk_combine = QCheckBox("Combine all inputs into one file (otherwise <name>_genx.dat per input)")
         self._gx_chk_combine.setChecked(True)
-        ol.addWidget(self._gx_chk_combine)
-
-        lv.addWidget(og)
-
-        # Output
-        outr = QHBoxLayout()
-        outr.addWidget(QLabel("Output file (if combining):"))
+        form.addRow(self._gx_chk_dropneg)
+        form.addRow(self._gx_chk_combine)
         self._gx_out = QLineEdit()
-        self._gx_out.setPlaceholderText("genx_data.dat")
-        outr.addWidget(self._gx_out)
-        b_browse = QPushButton("Browse...")
+        self._gx_out.setPlaceholderText("next to the first input: <name>_genx.dat")
+        b_browse = QPushButton("Browse…")
         b_browse.clicked.connect(self._gx_pick_output)
-        outr.addWidget(b_browse)
-        lv.addLayout(outr)
-
-        b_proc = QPushButton("Export to GenX format")
-        b_proc.setStyleSheet(
-            "QPushButton{background:#5a3a8a;color:white;font-weight:bold;padding:8px;}")
-        b_proc.clicked.connect(self._gx_process)
-        lv.addWidget(b_proc)
-
-        # State
-        self._gx_files = []
-        self._gx_traces_cache = {}  # path -> list of traces
-
+        form.addRow("Combined file", row(self._gx_out, b_browse))
+        self._gx_chk_combine.toggled.connect(lambda on: (self._gx_out.setEnabled(on), b_browse.setEnabled(on)))
+        lv.addWidget(og)
+        lv.addWidget(primary_button("Export to GenX", self._gx_process))
         return tab
 
     def _gx_add_files(self):
@@ -476,7 +349,7 @@ class MainWindow(QMainWindow):
 
     def _gx_preview(self):
         if not self._gx_files:
-            QMessageBox.warning(self, "No files", "Add at least one HKL file.")
+            self.say("Add at least one HKL file.", error=True)
             return
 
         self._gx_traces_cache.clear()
@@ -510,7 +383,7 @@ class MainWindow(QMainWindow):
 
     def _gx_process(self):
         if not self._gx_files:
-            QMessageBox.warning(self, "No files", "Add input files first.")
+            self.say("Add input files first.", error=True)
             return
 
         # Make sure traces are cached

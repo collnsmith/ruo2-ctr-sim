@@ -290,7 +290,10 @@ reflection before trusting the indexer at a new beamline.
 ## SXRD data tools
 
 `python ctr_data_tools.py` (or "SXRD data tools" in the launcher) opens the data processing tools
-in one window, one tab per step of the chain:
+in one window, one tab per step of the chain. Every tab is laid out like the other ctrfit windows:
+settings in titled groups on the left, the main action as the blue button at the bottom (Ctrl+R or
+Ctrl+S where it applies), plots and images on the right, messages in the status bar (errors also
+in a dialog):
 
 - **Metadata.** HDF5 structure and metadata per scan of an image folder; SPEC columns per scan.
 - **Background subtraction.** Eiger 500K `.h5` (h5py) or `.tif` (tifffile) images named

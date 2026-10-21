@@ -21,18 +21,17 @@ import os
 
 import numpy as np
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-                             QPushButton, QFileDialog, QGroupBox, QSpinBox, QDoubleSpinBox, QComboBox,
-                             QMessageBox, QCheckBox, QListWidget, QSplitter, QScrollArea)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, QFileDialog, QSpinBox,
+                             QDoubleSpinBox, QComboBox, QCheckBox, QListWidget, QSplitter)
+from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
+                                                NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
 
-from ctrfit.app.datatools.common import run_tool
+from ctrfit.app.datatools.common import StatusMixin, group, hint, primary_button, row, run_tool, sidebar
 from ctrfit.datatools.hkl import parse_hkl_file, smooth_trace
 
 
-class HKLSmoother(QMainWindow):
+class HKLSmoother(StatusMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SXRD HKL Smoother")
@@ -45,193 +44,116 @@ class HKLSmoother(QMainWindow):
         self._current_trace_idx = -1
         self._click_points = []
 
-        cw = QWidget()
-        self.setCentralWidget(cw)
-        outer = QHBoxLayout(cw)
-
-        # Left: controls
-        ctrl = self._build_controls()
-        outer.addWidget(ctrl)
-
-        # Right: trace list + plot
-        right = QSplitter(Qt.Vertical)
-        right.addWidget(self._build_trace_list())
-        right.addWidget(self._build_plot_area())
-        right.setSizes([180, 620])
-        outer.addWidget(right, stretch=1)
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(self._build_controls())
+        split.addWidget(self._build_plot_area())
+        split.setSizes([400, 900])
+        self.setCentralWidget(split)
+        self.say("Add HKL files, pick a trace, set the exclusion zones, then export.")
 
     # ---- UI building ----
     def _build_controls(self):
-        ctrl = QWidget()
-        ctrl.setMaximumWidth(360)
-        cv = QVBoxLayout(ctrl)
-
-        # Files
-        fg = QGroupBox("Input files")
-        fl = QVBoxLayout(fg)
+        fg, fl = group("Files and traces", form=False)
         self._file_list = QListWidget()
-        self._file_list.setMaximumHeight(80)
+        self._file_list.setMaximumHeight(90)
         fl.addWidget(self._file_list)
-        bh = QHBoxLayout()
-        b_add = QPushButton("Add files...")
+        b_add, b_clr = QPushButton("Add files…"), QPushButton("Clear")
         b_add.clicked.connect(self._add_files)
-        bh.addWidget(b_add)
-        b_clr = QPushButton("Clear")
         b_clr.clicked.connect(self._clear_files)
-        bh.addWidget(b_clr)
-        fl.addLayout(bh)
-        cv.addWidget(fg)
+        fl.addWidget(row(b_add, b_clr, 1, stretch_first=False))
+        fl.addWidget(hint("Traces (click one to edit its zones and see it):"))
+        self._trace_list = QListWidget()
+        self._trace_list.setMinimumHeight(120)
+        self._trace_list.currentRowChanged.connect(self._on_trace_selected)
+        fl.addWidget(self._trace_list)
 
-        # Smoothing method
-        sg = QGroupBox("Smoothing method")
-        sl = QGridLayout(sg)
-        sl.addWidget(QLabel("Method:"), 0, 0)
+        sg, sl = group("Smoothing")
         self._method = QComboBox()
-        self._method.addItems(["Savitzky-Golay", "Moving average",
-                               "Gaussian kernel", "Lowess", "Spline"])
+        self._method.addItems(["Savitzky-Golay", "Moving average", "Gaussian kernel", "Lowess", "Spline"])
         self._method.currentTextChanged.connect(self._reapply_current)
-        sl.addWidget(self._method, 0, 1)
-        sl.addWidget(QLabel("Window/pts:"), 1, 0)
         self._window_size = QSpinBox()
         self._window_size.setRange(3, 999)
         self._window_size.setValue(11)
         self._window_size.setSingleStep(2)
+        self._window_size.setSuffix(" points")
         self._window_size.editingFinished.connect(self._reapply_current)
-        sl.addWidget(self._window_size, 1, 1)
-        sl.addWidget(QLabel("Poly order:"), 2, 0)
         self._poly_order = QSpinBox()
         self._poly_order.setRange(1, 10)
         self._poly_order.setValue(2)
+        self._poly_order.setToolTip("Polynomial order (Savitzky-Golay), spline degree")
         self._poly_order.editingFinished.connect(self._reapply_current)
-        sl.addWidget(self._poly_order, 2, 1)
-        cv.addWidget(sg)
-
-        # Smooth in log space
-        self._chk_log_space = QCheckBox("Smooth in log space")
-        self._chk_log_space.setToolTip(
-            "Take log10 of intensity, smooth, then exponentiate. "
-            "Better for CTR data spanning many orders of magnitude.")
+        self._chk_log_space = QCheckBox("Smooth log10(I)")
+        self._chk_log_space.setToolTip("Take log10 of intensity, smooth, then exponentiate. "
+                                       "Better for CTR data spanning many orders of magnitude.")
         self._chk_log_space.setChecked(True)
         self._chk_log_space.toggled.connect(self._reapply_current)
-        cv.addWidget(self._chk_log_space)
+        sl.addRow("Method", self._method)
+        sl.addRow("Window", self._window_size)
+        sl.addRow("Order", self._poly_order)
+        sl.addRow(self._chk_log_space)
 
-        # Exclusion zones
-        eg = QGroupBox("Bragg exclusion zones (current trace)")
-        el = QVBoxLayout(eg)
-
-        # Auto-add at integer L
-        auto_row = QHBoxLayout()
-        auto_row.addWidget(QLabel("Auto-exclude integer L ±"))
+        eg, el = group("Bragg exclusion zones (current trace)")
         self._auto_halfwidth = QDoubleSpinBox()
         self._auto_halfwidth.setRange(0.001, 1.0)
         self._auto_halfwidth.setDecimals(3)
         self._auto_halfwidth.setSingleStep(0.01)
         self._auto_halfwidth.setValue(0.05)
-        auto_row.addWidget(self._auto_halfwidth)
+        self._auto_halfwidth.setPrefix("± ")
         b_auto = QPushButton("Add")
         b_auto.clicked.connect(self._auto_add_bragg)
-        auto_row.addWidget(b_auto)
-        el.addLayout(auto_row)
-
-        # Manual zone
-        m_row = QGridLayout()
-        m_row.addWidget(QLabel("X min:"), 0, 0)
+        el.addRow("Integer L", row(self._auto_halfwidth, b_auto))
         self._exc_min = QDoubleSpinBox()
         self._exc_min.setRange(-1e6, 1e6)
         self._exc_min.setDecimals(4)
-        m_row.addWidget(self._exc_min, 0, 1)
-        m_row.addWidget(QLabel("X max:"), 0, 2)
         self._exc_max = QDoubleSpinBox()
         self._exc_max.setRange(-1e6, 1e6)
         self._exc_max.setDecimals(4)
-        m_row.addWidget(self._exc_max, 0, 3)
-        el.addLayout(m_row)
-
-        b_row = QHBoxLayout()
-        b_add_zone = QPushButton("Add zone")
+        b_add_zone = QPushButton("Add")
         b_add_zone.clicked.connect(self._add_exclusion)
-        b_row.addWidget(b_add_zone)
-        b_clear_zones = QPushButton("Clear all")
-        b_clear_zones.clicked.connect(self._clear_exclusions)
-        b_row.addWidget(b_clear_zones)
-        el.addLayout(b_row)
-
-        self._chk_click_exc = QCheckBox("Click-to-define (2 clicks per zone)")
-        el.addWidget(self._chk_click_exc)
-
+        el.addRow("From, to", row(self._exc_min, self._exc_max, b_add_zone, stretch_first=False))
+        self._chk_click_exc = QCheckBox("Click on the plot to add a zone (two clicks)")
+        el.addRow(self._chk_click_exc)
         self._exc_list = QListWidget()
-        self._exc_list.setMaximumHeight(80)
-        el.addWidget(self._exc_list)
-        b_remove = QPushButton("Remove selected zone")
+        self._exc_list.setMaximumHeight(90)
+        el.addRow(self._exc_list)
+        b_remove, b_clear_zones = QPushButton("Remove selected"), QPushButton("Clear all")
         b_remove.clicked.connect(self._remove_exclusion)
-        el.addWidget(b_remove)
-
-        # Apply same zones to all traces
-        b_propagate = QPushButton("Apply current zones to all traces")
-        b_propagate.setToolTip(
-            "Copy the exclusion zone list from the current trace to every "
-            "other loaded trace.")
+        b_clear_zones.clicked.connect(self._clear_exclusions)
+        b_propagate = QPushButton("Copy to all traces")
+        b_propagate.setToolTip("Copy the exclusion zone list from the current trace to every other loaded trace.")
         b_propagate.clicked.connect(self._propagate_zones)
-        el.addWidget(b_propagate)
+        el.addRow(row(b_remove, b_clear_zones, 1, stretch_first=False))
+        el.addRow(b_propagate)
 
-        cv.addWidget(eg)
-
-        # Display
-        dg = QGroupBox("Display")
-        dl = QHBoxLayout(dg)
-        self._chk_log_y = QCheckBox("Log Y")
-        self._chk_log_y.setChecked(True)
-        self._chk_log_y.toggled.connect(self._update_plot)
-        dl.addWidget(self._chk_log_y)
-        cv.addWidget(dg)
-
-        # Export
-        xg = QGroupBox("Export")
-        xl = QVBoxLayout(xg)
+        xg, xl = group("Export")
         self._exc_handling = QComboBox()
         self._exc_handling.addItems(["NaN at excluded points",
                                       "Original (un-smoothed) at excluded points",
                                       "Skip excluded points entirely"])
-        xl.addWidget(QLabel("Excluded point handling:"))
-        xl.addWidget(self._exc_handling)
-        b_export = QPushButton("Export smoothed (current trace)")
+        xl.addRow("Excluded points", self._exc_handling)
+        b_export = QPushButton("Export current trace…")
         b_export.clicked.connect(self._export_current)
-        xl.addWidget(b_export)
-        b_export_all = QPushButton("Export all traces")
-        b_export_all.clicked.connect(self._export_all)
-        xl.addWidget(b_export_all)
-        cv.addWidget(xg)
+        xl.addRow(b_export)
 
-        cv.addStretch()
-
-        scroll = QScrollArea()
-        scroll.setWidget(ctrl)
-        scroll.setWidgetResizable(True)
-        scroll.setFixedWidth(380)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet("QScrollArea { border: none; }")
-        return scroll
-
-    def _build_trace_list(self):
-        w = QWidget()
-        v = QVBoxLayout(w)
-        v.setContentsMargins(4, 4, 4, 4)
-        v.addWidget(QLabel("Traces (click to select):"))
-        self._trace_list = QListWidget()
-        self._trace_list.currentRowChanged.connect(self._on_trace_selected)
-        v.addWidget(self._trace_list)
-        return w
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(sidebar(fg, sg, eg, xg), 1)
+        lv.addWidget(primary_button("Export all traces…", self._export_all, "Ctrl+S", self))
+        return left
 
     def _build_plot_area(self):
         w = QWidget()
         v = QVBoxLayout(w)
         v.setContentsMargins(4, 4, 4, 4)
-        self._fig = Figure(figsize=(7, 5), dpi=100, facecolor='#353535')
+        self._fig = Figure(figsize=(7, 5), dpi=100, layout="constrained")
         self._canvas = FigureCanvas(self._fig)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor('#2a2a2a')
         nav = NavigationToolbar(self._canvas, w)
-        v.addWidget(nav)
+        self._chk_log_y = QCheckBox("Log I")
+        self._chk_log_y.setChecked(True)
+        self._chk_log_y.toggled.connect(self._update_plot)
+        v.addWidget(row(nav, self._chk_log_y))
         v.addWidget(self._canvas, stretch=1)
         self._canvas.mpl_connect('button_press_event', self._on_canvas_click)
         return w
@@ -246,8 +168,7 @@ class HKLSmoother(QMainWindow):
             try:
                 new_traces = parse_hkl_file(p)
             except Exception as e:
-                QMessageBox.warning(self, "Parse error",
-                                    f"{os.path.basename(p)}: {e}")
+                self.say(f"{os.path.basename(p)}: {e}", error=True)
                 continue
             if not new_traces:
                 continue
@@ -308,7 +229,7 @@ class HKLSmoother(QMainWindow):
         xmin = self._exc_min.value()
         xmax = self._exc_max.value()
         if xmin >= xmax:
-            QMessageBox.warning(self, "Error", "X min must be < X max")
+            self.say("X min must be < X max", error=True)
             return
         self._exclusions_per_trace.setdefault(t['label'], []).append(
             (xmin, xmax))
@@ -369,8 +290,7 @@ class HKLSmoother(QMainWindow):
                 continue
             self._exclusions_per_trace[other['label']] = list(zones)
             n += 1
-        QMessageBox.information(
-            self, "Done", f"Copied {len(zones)} zone(s) to {n} other trace(s)")
+        self.say(f"Copied {len(zones)} zone(s) to {n} other trace(s)")
 
     def _on_canvas_click(self, event):
         if not self._chk_click_exc.isChecked():
@@ -394,7 +314,7 @@ class HKLSmoother(QMainWindow):
             self._refresh_exc_list()
             self._reapply_current()
         else:
-            self._ax.axvline(event.xdata, color='#ff6b6b',
+            self._ax.axvline(event.xdata, color='#d62728',
                              linestyle=':', alpha=0.7)
             self._canvas.draw()
 
@@ -426,11 +346,11 @@ class HKLSmoother(QMainWindow):
 
     def _update_plot(self):
         self._ax.clear()
-        self._ax.set_facecolor('#2a2a2a')
-        self._ax.tick_params(colors='#ddd')
+        self._ax.set_facecolor('white')
+        self._ax.tick_params(colors='#222')
         for sp in self._ax.spines.values():
-            sp.set_color('#555')
-        self._ax.grid(True, alpha=0.2, color='#555')
+            sp.set_color('#999')
+        self._ax.grid(True, alpha=0.2, color='#999')
 
         t = self._current_trace()
         if t is None:
@@ -444,16 +364,16 @@ class HKLSmoother(QMainWindow):
 
         # Exclusion zone shading
         for xmin, xmax in self._exclusions_per_trace.get(t['label'], []):
-            self._ax.axvspan(xmin, xmax, alpha=0.15, color='#ff6b6b')
+            self._ax.axvspan(xmin, xmax, alpha=0.15, color='#d62728')
 
         # Original
-        self._ax.plot(x, y, 'o', color='#2a9fd6', markersize=3,
+        self._ax.plot(x, y, 'o', color='#1f77b4', markersize=3,
                       alpha=0.5, label='original')
         # Smoothed
         sm = self._smoothed_traces.get(t['label'])
         if sm is not None:
             valid = ~np.isnan(sm) & np.isfinite(sm) & (sm > 0 if self._chk_log_y.isChecked() else np.ones_like(sm, dtype=bool))
-            self._ax.plot(x[valid], sm[valid], '-', color='#ffd43b',
+            self._ax.plot(x[valid], sm[valid], '-', color='#ff7f0e',
                           linewidth=1.5, label='smoothed')
 
         if self._chk_log_y.isChecked():
@@ -464,13 +384,12 @@ class HKLSmoother(QMainWindow):
         else:
             self._ax.set_yscale('linear')
 
-        self._ax.set_xlabel('L', color='#ddd')
-        self._ax.set_ylabel('I', color='#ddd')
-        self._ax.set_title(t['label'], color='#ddd')
-        leg = self._ax.legend(facecolor='#353535', edgecolor='#555')
+        self._ax.set_xlabel('L', color='#222')
+        self._ax.set_ylabel('I', color='#222')
+        self._ax.set_title(t['label'], color='#222')
+        leg = self._ax.legend(facecolor='white', edgecolor='#999')
         for txt in leg.get_texts():
-            txt.set_color('#ddd')
-        self._fig.tight_layout()
+            txt.set_color('#222')
         self._canvas.draw()
 
     # ---- Export ----
@@ -541,11 +460,10 @@ class HKLSmoother(QMainWindow):
     def _export_current(self):
         t = self._current_trace()
         if t is None:
-            QMessageBox.warning(self, "Error", "No trace selected")
+            self.say("No trace selected", error=True)
             return
         if t['label'] not in self._smoothed_traces:
-            QMessageBox.warning(self, "Error",
-                                "Smoothing has not been computed for this trace")
+            self.say("Smoothing has not been computed for this trace", error=True)
             return
         suggested = os.path.splitext(t.get('_source_file',
                                            f"{t['label']}.txt"))[0] + "_smoothed.txt"
@@ -555,13 +473,13 @@ class HKLSmoother(QMainWindow):
             return
         try:
             self._write_hkl_file(path, [t], self._exc_handling.currentText())
-            QMessageBox.information(self, "Done", f"Wrote {path}")
+            self.say(f"Wrote {path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _export_all(self):
         if not self._traces:
-            QMessageBox.warning(self, "Error", "No traces loaded")
+            self.say("No traces loaded", error=True)
             return
 
         # Make sure every trace has been smoothed (apply current settings to
@@ -598,10 +516,8 @@ class HKLSmoother(QMainWindow):
                 self._write_hkl_file(out_path, traces_for_file, handling)
                 wrote += 1
             except Exception as e:
-                QMessageBox.warning(self, "Error",
-                                    f"{os.path.basename(src_path)}: {e}")
-        QMessageBox.information(self, "Done",
-                                f"Wrote {wrote} smoothed file(s)")
+                self.say(f"{os.path.basename(src_path)}: {e}", error=True)
+        self.say(f"Wrote {wrote} smoothed file(s)")
 
 
 def main(argv=None):

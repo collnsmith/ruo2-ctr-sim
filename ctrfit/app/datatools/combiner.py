@@ -9,94 +9,78 @@ Qt window of the data tools (ctr_data_tools.py); the logic is in ctrfit.datatool
 """
 import os
 
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QFileDialog, QGroupBox, QLineEdit, QTextEdit, QMessageBox, QCheckBox,
-                             QListWidget, QComboBox)
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, QFileDialog, QLineEdit,
+                             QTextEdit, QCheckBox, QListWidget, QComboBox, QSplitter)
 
-from ctrfit.app.datatools.common import run_tool
-from ctrfit.datatools.hkl import combine_hkl_files, write_hkl_rows
+from ctrfit.app.datatools.common import (StatusMixin, group, hint, mono_font, primary_button, row, run_tool,
+                                         sidebar)
+from ctrfit.datatools.hkl import SORT_CHOICES, combine_hkl_files, write_hkl_rows
 
 
-class CombinerWindow(QMainWindow):
+class CombinerWindow(StatusMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("SXRD HKL File Combiner")
-        self.resize(700, 600)
-
+        self.resize(1000, 650)
         self._files = []
 
-        cw = QWidget()
-        self.setCentralWidget(cw)
-        lv = QVBoxLayout(cw)
-
-        info = QLabel(
-            "Combines multiple HKL files (output of plotter, smoother, or any\n"
-            "H K L I file) into one minimal text file with a single H K L I\n"
-            "header and one data row per line. No scan markers, no comments."
-        )
-        info.setStyleSheet("color: #aaa;")
-        lv.addWidget(info)
-
-        # File list
-        fg = QGroupBox("Input files")
-        fl = QVBoxLayout(fg)
+        files, fl = group("Input files", form=False)
+        fl.addWidget(hint("HKL files (plotter, appender or smoother output, or any H K L I file). "
+                          "Every trace of every file goes into one table."))
         self._list = QListWidget()
-        fl.addWidget(self._list)
-        bh = QHBoxLayout()
-        b_add = QPushButton("Add files...")
+        self._list.setSelectionMode(QListWidget.ExtendedSelection)
+        self._list.setMinimumHeight(160)
+        fl.addWidget(self._list, 1)
+        b_add, b_rm, b_clr = QPushButton("Add files…"), QPushButton("Remove selected"), QPushButton("Clear")
         b_add.clicked.connect(self._add_files)
-        bh.addWidget(b_add)
-        b_clr = QPushButton("Clear")
+        b_rm.clicked.connect(self._remove_selected)
         b_clr.clicked.connect(self._clear)
-        bh.addWidget(b_clr)
-        fl.addLayout(bh)
-        lv.addWidget(fg)
+        fl.addWidget(row(b_add, b_rm, b_clr, 1, stretch_first=False))
 
-        # Options
-        og = QGroupBox("Options")
-        ol = QVBoxLayout(og)
-        self._chk_drop_nan = QCheckBox("Drop NaN / non-finite intensity rows")
+        opts, ol = group("Rows")
+        self._chk_drop_nan = QCheckBox("Drop NaN / non-finite I")
         self._chk_drop_nan.setChecked(True)
-        ol.addWidget(self._chk_drop_nan)
-        self._chk_drop_nonpos = QCheckBox("Drop non-positive (I <= 0) rows")
-        self._chk_drop_nonpos.setChecked(False)
-        ol.addWidget(self._chk_drop_nonpos)
-
-        sort_row = QHBoxLayout()
-        sort_row.addWidget(QLabel("Sort:"))
+        self._chk_drop_nonpos = QCheckBox("Drop I ≤ 0")
+        self._chk_dedupe = QCheckBox("Remove exact duplicates (same H K L I)")
         self._sort = QComboBox()
-        self._sort.addItems(["File order (no sort)", "By L", "By H, K, L"])
-        sort_row.addWidget(self._sort)
-        ol.addLayout(sort_row)
+        self._sort.addItems(list(SORT_CHOICES))
+        ol.addRow(self._chk_drop_nan)
+        ol.addRow(self._chk_drop_nonpos)
+        ol.addRow(self._chk_dedupe)
+        ol.addRow("Sort", self._sort)
 
-        self._chk_dedupe = QCheckBox(
-            "Remove exact duplicate rows (same H K L I)")
-        self._chk_dedupe.setChecked(False)
-        ol.addWidget(self._chk_dedupe)
-        lv.addWidget(og)
-
-        # Output
-        outr = QHBoxLayout()
-        outr.addWidget(QLabel("Output:"))
+        out, outl = group("Output")
         self._out = QLineEdit()
-        self._out.setPlaceholderText("combined.txt")
-        outr.addWidget(self._out)
-        b_browse = QPushButton("Browse...")
+        self._out.setPlaceholderText("next to the first input: <name>_combined.txt")
+        b_browse = QPushButton("Browse…")
         b_browse.clicked.connect(self._pick_output)
-        outr.addWidget(b_browse)
-        lv.addLayout(outr)
+        outl.addRow("File", row(self._out, b_browse))
+        outl.addRow(hint("One 'H K L I' header line, one tab-separated row per point; no scan markers or comments."))
 
-        b_proc = QPushButton("Combine")
-        b_proc.setStyleSheet(
-            "QPushButton{background:#2a5a8a;color:white;font-weight:bold;padding:8px;}")
-        b_proc.clicked.connect(self._combine)
-        lv.addWidget(b_proc)
+        left = QWidget()
+        ll = QVBoxLayout(left)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.addWidget(sidebar(files, opts, out), 1)
+        ll.addWidget(primary_button("Combine", self._combine, "Ctrl+R", self))
 
         self._log = QTextEdit()
         self._log.setReadOnly(True)
-        self._log.setStyleSheet(
-            "font-family: monospace; background:#1a1a1a; color:#ccc;")
-        lv.addWidget(self._log)
+        self._log.setFont(mono_font())
+        right, rl = group("Log", form=False)
+        rl.addWidget(self._log)
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(left)
+        split.addWidget(right)
+        split.setSizes([420, 580])
+        self.setCentralWidget(split)
+        self.say("Add HKL files, then Combine.")
+
+    def _remove_selected(self):
+        for item in sorted(self._list.selectedItems(), key=self._list.row, reverse=True):
+            r = self._list.row(item)
+            self._list.takeItem(r)
+            del self._files[r]
 
     def _log_msg(self, msg):
         self._log.append(msg)
@@ -109,6 +93,7 @@ class CombinerWindow(QMainWindow):
                 continue
             self._files.append(p)
             self._list.addItem(os.path.basename(p))
+            self._list.item(self._list.count() - 1).setToolTip(p)
 
     def _clear(self):
         self._files.clear()
@@ -122,7 +107,7 @@ class CombinerWindow(QMainWindow):
 
     def _combine(self):
         if not self._files:
-            QMessageBox.warning(self, "No files", "Add input files first.")
+            self.say("Add input files first.", error=True)
             return
         out_path = self._out.text().strip()
         if not out_path:
@@ -136,16 +121,16 @@ class CombinerWindow(QMainWindow):
             self._log_msg(line)
         if not rows:
             self._log_msg("No rows to write.")
-            QMessageBox.warning(self, "Empty", "No data rows after filtering.")
+            self.say("No data rows after filtering.", error=True)
             return
         try:
             write_hkl_rows(out_path, rows)
         except Exception as e:
-            QMessageBox.critical(self, "Write error", str(e))
+            self.say(f"Could not write {out_path}: {e}", error=True)
             return
         msg = f"Wrote {len(rows)} rows to {os.path.basename(out_path)}"
         self._log_msg(msg)
-        QMessageBox.information(self, "Done", msg)
+        self.say(msg)
 
 
 def main(argv=None):

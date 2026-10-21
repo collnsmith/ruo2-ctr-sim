@@ -19,16 +19,16 @@ import os
 
 import numpy as np
 from PyQt5.QtCore import Qt, QEvent, QObject
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QPushButton,
-                             QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog, QCheckBox,
-                             QSplitter, QScrollArea, QListWidget, QStatusBar, QMessageBox, QTableWidget,
-                             QTableWidgetItem, QHeaderView)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
+from PyQt5.QtWidgets import (QFormLayout, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
+                             QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog, QCheckBox, QSplitter,
+                             QListWidget, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView)
+from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
+                                                NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
 from scipy.optimize import least_squares
 
-from ctrfit.app.datatools.common import run_tool
+from ctrfit.app.datatools.common import (StatusMixin, group, hint, mono_font, primary_button, row, run_tool,
+                                         sidebar)
 from ctrfit.datatools.ctrmodels import CTR_MODELS, ScanGroupManager
 from ctrfit.datatools.paths import settings_file
 
@@ -42,7 +42,7 @@ class _ScrollBlockFilter(QObject):
         return False
 
 
-class CTRFitWindow(QMainWindow):
+class CTRFitWindow(StatusMixin, QMainWindow):
     def __init__(self, data_source=None):
         """data_source: optional dict of {scan_number: {'L': array, 'I': array}}
         from the plotter's peak fit results."""
@@ -92,163 +92,112 @@ class CTRFitWindow(QMainWindow):
         if hs: self._hsplitter.restoreState(QByteArray.fromBase64(hs.encode()))
 
     def _setup_ui(self):
-        central = QWidget(); self.setCentralWidget(central)
-        main_layout = QHBoxLayout(central)
         self._hsplitter = QSplitter(Qt.Horizontal)
 
-        # --- Left panel (scrollable) ---
-        left_inner = QWidget()
-        lv = QVBoxLayout(left_inner); lv.setContentsMargins(4, 4, 4, 4)
-
-        # Data import
-        dg = QGroupBox("Data")
-        dl = QVBoxLayout(dg)
-        btn_import_file = QPushButton("Import peak fit results (.txt)")
-        btn_import_file.clicked.connect(self._import_from_file)
-        dl.addWidget(btn_import_file)
-        btn_import_2col = QPushButton("Import L vs I text file")
-        btn_import_2col.clicked.connect(self._import_2col)
-        dl.addWidget(btn_import_2col)
-        btn_import_plotter = QPushButton("Import plotter export (multi-trace)")
-        btn_import_plotter.clicked.connect(self._import_plotter_export)
-        dl.addWidget(btn_import_plotter)
-        self._data_info = QLabel("No data loaded")
-        self._data_info.setStyleSheet("color: #aaa;"); self._data_info.setWordWrap(True)
+        dg, dl = group("Data", form=False)
+        b_pf, b_2c, b_pl = QPushButton("Peak fits…"), QPushButton("L vs I…"), QPushButton("Plotter export…")
+        b_pf.setToolTip("Peak fit results (.txt) from the plotter's peak fitting (scan, area); L from the SPEC data")
+        b_2c.setToolTip("A two-column text file: L and I")
+        b_pl.setToolTip("A multi-trace export from the plotter; each trace becomes a group")
+        b_pf.clicked.connect(self._import_from_file)
+        b_2c.clicked.connect(self._import_2col)
+        b_pl.clicked.connect(self._import_plotter_export)
+        dl.addWidget(row(b_pf, b_2c, b_pl, stretch_first=False))
+        self._data_info = hint("No data loaded")
         dl.addWidget(self._data_info)
-        lv.addWidget(dg)
-
-        # Scan groups
-        gg = QGroupBox("Scan groups (CTR rods)")
-        gl = QVBoxLayout(gg)
-        self._group_list = QListWidget()
-        self._group_list.setMaximumHeight(120)
-        self._group_list.currentRowChanged.connect(self._on_group_selected)
-        gl.addWidget(self._group_list)
-        gr = QHBoxLayout()
-        self._group_name_edit = QLineEdit(); self._group_name_edit.setPlaceholderText("e.g. 0 0 L")
-        gr.addWidget(self._group_name_edit)
-        btn_ag = QPushButton("+"); btn_ag.setFixedWidth(30); btn_ag.clicked.connect(self._add_group)
-        gr.addWidget(btn_ag)
-        btn_rg = QPushButton("−"); btn_rg.setFixedWidth(30); btn_rg.clicked.connect(self._remove_group)
-        gr.addWidget(btn_rg)
-        gl.addLayout(gr)
-        # Scans in group
-        gl.addWidget(QLabel("Scans in group (comma-separated):"))
-        self._scans_edit = QLineEdit(); self._scans_edit.setPlaceholderText("100,101,102,103")
-        self._scans_edit.editingFinished.connect(self._update_group_scans)
-        gl.addWidget(self._scans_edit)
-        # HK
-        hk_row = QHBoxLayout()
-        hk_row.addWidget(QLabel("HK:"))
-        self._hk_edit = QLineEdit(); self._hk_edit.setPlaceholderText("0 0"); self._hk_edit.setFixedWidth(60)
-        self._hk_edit.editingFinished.connect(self._update_group_hk)
-        hk_row.addWidget(self._hk_edit)
-        hk_row.addStretch()
-        btn_build = QPushButton("Build CTR from group")
-        btn_build.clicked.connect(self._build_ctr_from_group)
-        hk_row.addWidget(btn_build)
-        gl.addLayout(hk_row)
-        # Save/load groups
-        grp_io = QHBoxLayout()
-        btn_sg = QPushButton("Save groups"); btn_sg.clicked.connect(self._save_groups); grp_io.addWidget(btn_sg)
-        btn_lg = QPushButton("Load groups"); btn_lg.clicked.connect(self._load_groups); grp_io.addWidget(btn_lg)
-        gl.addLayout(grp_io)
-        lv.addWidget(gg)
-
-        # L column selection for peak fit data
-        lcg = QGroupBox("L value source")
-        lcl = QVBoxLayout(lcg)
-        lcl.addWidget(QLabel("L column in spec data:"))
         self._l_col = QComboBox()
         self._l_col.addItems(["L", "H", "K"])
         self._l_col.setEditable(True)
-        lcl.addWidget(self._l_col)
-        lcl.addWidget(QLabel("Y column (intensity):"))
-        self._y_source = QComboBox()
-        self._y_source.addItems(["area (from peak fit)", "Manual column"])
-        lcl.addWidget(self._y_source)
-        lv.addWidget(lcg)
+        self._l_col.setToolTip("Column of the SPEC data that gives the rod coordinate of each peak-fit scan")
+        lf = QFormLayout()
+        lf.addRow("Rod coordinate column", self._l_col)
+        dl.addLayout(lf)
 
-        # Model selection
-        mg = QGroupBox("CTR Model")
-        ml = QVBoxLayout(mg)
+        gg, gl = group("Scan groups (one per rod)")
+        self._group_list = QListWidget()
+        self._group_list.setMaximumHeight(120)
+        self._group_list.currentRowChanged.connect(self._on_group_selected)
+        gl.addRow(self._group_list)
+        self._group_name_edit = QLineEdit()
+        self._group_name_edit.setPlaceholderText("new group name, e.g. 0 0 L")
+        btn_ag, btn_rg = QPushButton("Add"), QPushButton("Remove")
+        btn_ag.clicked.connect(self._add_group)
+        btn_rg.clicked.connect(self._remove_group)
+        gl.addRow(row(self._group_name_edit, btn_ag, btn_rg))
+        self._scans_edit = QLineEdit()
+        self._scans_edit.setPlaceholderText("100,101,102,103")
+        self._scans_edit.editingFinished.connect(self._update_group_scans)
+        gl.addRow("Scans", self._scans_edit)
+        self._hk_edit = QLineEdit()
+        self._hk_edit.setPlaceholderText("0 0")
+        self._hk_edit.editingFinished.connect(self._update_group_hk)
+        btn_build = QPushButton("Build rod from group")
+        btn_build.clicked.connect(self._build_ctr_from_group)
+        gl.addRow("H K", row(self._hk_edit, btn_build))
+        btn_sg, btn_lg = QPushButton("Save groups…"), QPushButton("Load groups…")
+        btn_sg.clicked.connect(self._save_groups)
+        btn_lg.clicked.connect(self._load_groups)
+        gl.addRow(row(btn_sg, btn_lg, 1, stretch_first=False))
+
+        mg, ml = group("Model", form=False)
         self._model_combo = QComboBox()
         self._model_combo.addItems(list(CTR_MODELS.keys()))
         self._model_combo.currentTextChanged.connect(self._on_model_changed)
         ml.addWidget(self._model_combo)
-        self._model_desc = QLabel("")
-        self._model_desc.setStyleSheet("color: #aaa; font-size: 10px;")
-        self._model_desc.setWordWrap(True)
+        self._model_desc = hint("")
         ml.addWidget(self._model_desc)
-        lv.addWidget(mg)
-
-        # Parameters table
-        pg = QGroupBox("Parameters")
-        self._param_layout = QVBoxLayout(pg)
         self._param_table = QTableWidget()
         self._param_table.setColumnCount(4)
         self._param_table.setHorizontalHeaderLabels(["Parameter", "Value", "Fix", "Bounds"])
-        self._param_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self._param_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        self._param_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
-        self._param_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self._param_table.setColumnWidth(1, 90); self._param_table.setColumnWidth(2, 30)
+        hh = self._param_table.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setSectionResizeMode(1, QHeaderView.Fixed)
+        hh.setSectionResizeMode(2, QHeaderView.Fixed)
+        hh.setSectionResizeMode(3, QHeaderView.Stretch)
+        self._param_table.setColumnWidth(1, 115)
+        self._param_table.setColumnWidth(2, 30)
         self._param_table.verticalHeader().setVisible(False)
-        self._param_layout.addWidget(self._param_table)
-        lv.addWidget(pg)
+        self._param_table.setMinimumHeight(220)
+        self._param_layout = ml
+        ml.addWidget(self._param_table)
 
-        # Fit actions
-        btn_fit = QPushButton("Fit current group")
-        btn_fit.setStyleSheet("background: #2d5a27; color: white; font-weight: bold; padding: 6px;")
-        btn_fit.clicked.connect(self._run_fit)
-        lv.addWidget(btn_fit)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        lv.addWidget(sidebar(dg, gg, mg), 1)
         btn_sim = QPushButton("Simulate (no fit)")
         btn_sim.clicked.connect(self._simulate)
-        lv.addWidget(btn_sim)
-
-        self._fit_info = QLabel("—")
-        self._fit_info.setStyleSheet("color: #aaa;"); self._fit_info.setWordWrap(True)
-        lv.addWidget(self._fit_info)
-
-        # Export
-        eg = QGroupBox("Export")
-        el = QVBoxLayout(eg)
-        btn_exp_data = QPushButton("Export group data (L vs I)")
+        lv.addWidget(row(primary_button("Fit current group", self._run_fit, "Ctrl+R", self), btn_sim))
+        btn_exp_data, btn_exp_fit, btn_exp_plot = (QPushButton("Export data…"), QPushButton("Export fit…"),
+                                                   QPushButton("Save plot…"))
+        btn_exp_data.setToolTip("The current group's L and I")
+        btn_exp_fit.setToolTip("The fitted parameters of every group")
         btn_exp_data.clicked.connect(self._export_group_data)
-        el.addWidget(btn_exp_data)
-        btn_exp_fit = QPushButton("Export fit parameters")
         btn_exp_fit.clicked.connect(self._export_fit_params)
-        el.addWidget(btn_exp_fit)
-        btn_exp_plot = QPushButton("Save plot (PNG/SVG)")
         btn_exp_plot.clicked.connect(self._save_plot)
-        el.addWidget(btn_exp_plot)
-        lv.addWidget(eg)
+        lv.addWidget(row(btn_exp_data, btn_exp_fit, btn_exp_plot, stretch_first=False))
+        self._hsplitter.addWidget(left)
 
-        lv.addStretch()
-
-        left_scroll = QScrollArea(); left_scroll.setWidget(left_inner)
-        left_scroll.setWidgetResizable(True); left_scroll.setMinimumWidth(320)
-        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        left_scroll.setStyleSheet("QScrollArea { border: none; }")
-        self._hsplitter.addWidget(left_scroll)
-
-        # --- Right: plot ---
-        right = QWidget(); rv = QVBoxLayout(right); rv.setContentsMargins(0, 0, 0, 0)
-        self._fig = Figure(figsize=(8, 6), dpi=100, facecolor='#353535')
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        self._fig = Figure(figsize=(8, 6), dpi=100, layout="constrained")
         self._canvas = FigureCanvas(self._fig)
         self._ax = self._fig.add_subplot(111)
-        self._ax.set_facecolor('#2a2a2a')
-        toolbar = NavigationToolbar(self._canvas, self)
-        toolbar.setStyleSheet("background: #353535; color: #ddd;")
-        rv.addWidget(toolbar); rv.addWidget(self._canvas, stretch=1)
+        rv.addWidget(NavigationToolbar(self._canvas, self))
+        rv.addWidget(self._canvas, stretch=1)
+        self._fit_info = QLabel("—")
+        self._fit_info.setWordWrap(True)
+        self._fit_info.setFont(mono_font())
+        self._fit_info.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        rv.addWidget(self._fit_info)
         self._hsplitter.addWidget(right)
-
-        self._hsplitter.setStretchFactor(0, 0); self._hsplitter.setStretchFactor(1, 1)
-        self._hsplitter.setSizes([380, 820])
-        main_layout.addWidget(self._hsplitter)
-
-        self._status = QStatusBar(); self.setStatusBar(self._status)
+        self._hsplitter.setStretchFactor(0, 0)
+        self._hsplitter.setStretchFactor(1, 1)
+        self._hsplitter.setSizes([420, 820])
+        self.setCentralWidget(self._hsplitter)
         self._on_model_changed()
+        self.say("Import data (peak fits, L vs I or a plotter export), choose a model, then Fit.")
 
     def _install_scroll_blocker(self):
         self._scroll_filter = _ScrollBlockFilter(self)
@@ -350,7 +299,7 @@ class CTRFitWindow(QMainWindow):
                     self._import_ctrfit_json(found_json)
 
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _import_ctrfit_json(self, path):
         """Load groups and fit results from a CTR fitter JSON export."""
@@ -358,7 +307,7 @@ class CTRFitWindow(QMainWindow):
             with open(path, 'r') as f:
                 data = json.load(f)
         except Exception as e:
-            QMessageBox.warning(self, "Error", f"Could not read JSON: {e}")
+            self.say(f"Could not read JSON: {e}", error=True)
             return
 
         # Groups
@@ -406,8 +355,7 @@ class CTRFitWindow(QMainWindow):
                 self._set_param_values(fr['params'])
             self._update_plot()
 
-        self._status.showMessage(
-            f"Loaded {len(groups)} groups and {len(fits)} fit results", 5000)
+        self.say(f"Loaded {len(groups)} groups and {len(fits)} fit results")
 
     def _import_2col(self):
         """Import simple L vs I text file."""
@@ -422,7 +370,7 @@ class CTRFitWindow(QMainWindow):
             self._data_info.setText(f"Loaded {len(data)} points as '{name}'")
             self._update_plot()
         except Exception as e:
-            QMessageBox.warning(self, "Error", str(e))
+            self.say(str(e), error=True)
 
     def _import_plotter_export(self):
         """Import multi-trace export from the plotter (plot_data.txt).
@@ -470,7 +418,7 @@ class CTRFitWindow(QMainWindow):
                                   'y': np.array(current_y), **current_meta})
 
             if not traces:
-                QMessageBox.warning(self, "Error", "No traces found in file"); return
+                self.say("No traces found in file", error=True); return
 
             # Create a group for each trace
             for t in traces:
@@ -483,7 +431,7 @@ class CTRFitWindow(QMainWindow):
             self._data_info.setText(f"Imported {len(traces)} traces from {os.path.basename(path)}")
             self._update_plot()
         except Exception as e:
-            QMessageBox.warning(self, "Error", f"Import failed:\n{e}")
+            self.say(f"Import failed:\n{e}", error=True)
 
     # ---- Scan groups ----
     def _add_group(self):
@@ -555,11 +503,11 @@ class CTRFitWindow(QMainWindow):
     def _build_ctr_from_group(self):
         """Build L vs I arrays from scan group using peak fit areas."""
         if self._current_group is None:
-            QMessageBox.warning(self, "Error", "Select a group first"); return
+            self.say("Select a group first", error=True); return
         g = self._group_mgr.groups[self._current_group]
         scans = g['scans']
         if not scans:
-            QMessageBox.warning(self, "Error", "No scans in group"); return
+            self.say("No scans in group", error=True); return
 
         l_col = self._l_col.currentText()
         L_vals = []; I_vals = []
@@ -576,9 +524,8 @@ class CTRFitWindow(QMainWindow):
             L_vals.append(float(L_val)); I_vals.append(float(I_val))
 
         if not L_vals:
-            QMessageBox.warning(self, "Error",
-                f"No data found. Check that scans have '{l_col}' and 'area' columns.\n"
-                f"Available scans: {sorted(self._all_scan_data.keys())[:20]}"); return
+            self.say(f"No data found. Check that scans have '{l_col}' and 'area' columns.\n"
+                f"Available scans: {sorted(self._all_scan_data.keys())[:20]}", error=True); return
 
         L_arr = np.array(L_vals); I_arr = np.array(I_vals)
         sort_idx = np.argsort(L_arr)
@@ -593,14 +540,14 @@ class CTRFitWindow(QMainWindow):
         path, _ = QFileDialog.getSaveFileName(self, "Save groups", "ctr_groups.json", "JSON (*.json)")
         if path:
             self._group_mgr.save(path)
-            self._status.showMessage(f"Saved groups to {path}", 5000)
+            self.say(f"Saved groups to {path}")
 
     def _load_groups(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load groups", "", "JSON (*.json)")
         if path:
             self._group_mgr.load(path)
             self._refresh_group_list()
-            self._status.showMessage(f"Loaded groups from {path}", 5000)
+            self.say(f"Loaded groups from {path}")
 
     # ---- Model parameters ----
     def _on_model_changed(self):
@@ -656,7 +603,7 @@ class CTRFitWindow(QMainWindow):
     def _run_fit(self):
         L, I_obs = self._get_group_data()
         if L is None or I_obs is None:
-            QMessageBox.warning(self, "Error", "Build CTR data from a group first"); return
+            self.say("Build CTR data from a group first", error=True); return
 
         model_name = self._model_combo.currentText()
         model = CTR_MODELS[model_name]
@@ -668,7 +615,7 @@ class CTRFitWindow(QMainWindow):
 
         free_idx = [i for i, f in enumerate(fixed) if not f]
         if not free_idx:
-            QMessageBox.warning(self, "Error", "All parameters are fixed"); return
+            self.say("All parameters are fixed", error=True); return
 
         p_full = list(p0)
 
@@ -708,14 +655,14 @@ class CTRFitWindow(QMainWindow):
         self._update_plot()
 
     # ---- Plotting ----
-    PLOT_COLORS = ['#2a9fd6', '#ff6b6b', '#51cf66', '#ffd43b',
-                   '#cc5de8', '#ff922b', '#20c997', '#f06595']
+    PLOT_COLORS = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e',
+                   '#9467bd', '#8c564b', '#17becf', '#e377c2']
 
     def _update_plot(self):
         self._ax.clear()
-        self._ax.set_facecolor('#2a2a2a')
-        self._ax.tick_params(colors='#ddd')
-        for sp in self._ax.spines.values(): sp.set_color('#555')
+        self._ax.set_facecolor('white')
+        self._ax.tick_params(colors='#222')
+        for sp in self._ax.spines.values(): sp.set_color('#999')
 
         has_data = False
         all_L = []
@@ -769,20 +716,19 @@ class CTRFitWindow(QMainWindow):
         title = "CTR Fitting"
         if self._current_group:
             title += f" — {self._current_group}"
-        self._ax.set_title(title, color='#ddd', fontsize=12)
-        self._ax.set_xlabel("L (r.l.u.)", color='#ddd', fontsize=11)
-        self._ax.set_ylabel("Intensity", color='#ddd', fontsize=11)
+        self._ax.set_title(title, color='#222', fontsize=12)
+        self._ax.set_xlabel("L (r.l.u.)", color='#222', fontsize=11)
+        self._ax.set_ylabel("Intensity", color='#222', fontsize=11)
         self._ax.grid(True, alpha=0.2, color='#666', linestyle=':')
         if has_data:
-            self._ax.legend(facecolor='#353535', edgecolor='#555', labelcolor='#ddd', fontsize=8)
-        self._fig.tight_layout()
+            self._ax.legend(facecolor='white', edgecolor='#999', labelcolor='#222', fontsize=8)
         self._canvas.draw()
 
     # ---- Export ----
     def _export_group_data(self):
         """Export all groups as tab-separated text."""
         if not self._group_data:
-            QMessageBox.warning(self, "Error", "No group data"); return
+            self.say("No group data", error=True); return
         path, _ = QFileDialog.getSaveFileName(self, "Export group data", "ctr_data.txt", "Text (*.txt)")
         if not path: return
         with open(path, 'w') as f:
@@ -794,11 +740,11 @@ class CTRFitWindow(QMainWindow):
                 for l, i in zip(gd['L'], gd['I']):
                     f.write(f"{l:.6g}\t{i:.6g}\n")
                 f.write("\n")
-        self._status.showMessage(f"Exported {len(self._group_data)} groups to {path}", 5000)
+        self.say(f"Exported {len(self._group_data)} groups to {path}")
 
     def _export_fit_params(self):
         if not self._fit_results:
-            QMessageBox.warning(self, "Error", "No fit results"); return
+            self.say("No fit results", error=True); return
         path, _ = QFileDialog.getSaveFileName(self, "Export fit parameters", "ctr_fit_params.json", "JSON (*.json)")
         if not path: return
         # Convert numpy types for JSON
@@ -812,14 +758,14 @@ class CTRFitWindow(QMainWindow):
             }
         with open(path, 'w') as f:
             json.dump(export, f, indent=2)
-        self._status.showMessage(f"Exported to {path}", 5000)
+        self.say(f"Exported to {path}")
 
     def _save_plot(self):
         path, _ = QFileDialog.getSaveFileName(self, "Save plot", "ctr_fit.png",
                                                "PNG (*.png);;SVG (*.svg)")
         if path:
-            self._fig.savefig(path, dpi=200, facecolor='#353535', bbox_inches='tight')
-            self._status.showMessage(f"Saved to {path}", 5000)
+            self._fig.savefig(path, dpi=200, facecolor='white', bbox_inches='tight')
+            self.say(f"Saved to {path}")
 
 
 def main(argv=None):

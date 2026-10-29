@@ -318,6 +318,14 @@ in a dialog):
   sets it from a SPEC point number (0-based) of the chosen scan: the first sweep (after any hold,
   found from the potential) or the start of the potentiostat record happens at that point. Show the potential on a
   second y axis against time, or plot intensity against potential; "Export t, E, I" writes both.
+  "Export figure…" opens the final image in its own window, the working view staying as it is:
+  a preview with the proportions of the saved file, size (in or cm) and DPI with presets (paper one
+  or two columns, slide, poster, dark), format (PNG, SVG, PDF, EPS, TIFF, JPG), title and axis
+  labels, fonts and sizes, figure / axes / text colours, limits and log scales, ticks, frame, grid,
+  legend (place, frame, outside), and a table of the traces (show, label, colour, line, width,
+  marker, size, left or right axis). "Refresh from plot" takes the working plot again and keeps the
+  edits; the last style is reused for the next figure; "Copy image" puts it on the clipboard.
+  "View options…" (the old figure options) only changes the working view.
 - **CTR fit.** Quick kinematic rods (substrate, film, adlayer, liquid, three layers) on integrated
   intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.
 - **HKL appender.** H, K, L from the SPEC scan added to plotter exports and peak-fit tables

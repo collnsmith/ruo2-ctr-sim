@@ -551,3 +551,91 @@ def test_plotter_potential_axis_and_time_zero(qapp, no_dialogs, tmp_path, monkey
     assert w2._ec_source.currentText() == "Defined by hand" and w2._cv_upper.value() == pytest.approx(1.2)
     assert w2._chk_t0.isChecked() and w2._ec is not None
     w2.close()
+
+
+# ------------------------------------------------------------------ plotter: export figure
+def test_figure_spec_style_and_save(tmp_path):
+    from matplotlib.figure import Figure
+    from ctrfit.datatools import figure as fg
+    f = Figure()
+    ax = f.add_subplot(111)
+    ax.plot([1, 2, 3], [1, 4, 9], "o-", color="#d62728", label="S1 Det")
+    ax.set_xlabel("t (s)")
+    ax.set_ylabel("I")
+    ax.set_yscale("log")
+    a2 = ax.twinx()
+    a2.plot([1, 3], [0.1, 0.7], "--", color="k", label="E")
+    a2.set_ylabel("E (V)")
+    spec = fg.FigureSpec.from_axes(f.axes)
+    assert [(t.label, t.axis, t.linestyle, t.marker, t.color) for t in spec.traces] == [
+        ("S1 Det", "left", "-", "o", "#d62728"), ("E", "right", "--", "none", "#000000")]
+    assert spec.ylog and spec.y2label == "E (V)" and spec.has_right
+    st = fg.FigureStyle.from_spec(spec)
+    st.width, st.height, st.dpi = 4.0, 3.0, 100
+    st.traces[0].label, st.traces[0].color, st.traces[1].visible = "Intensity", "#00ff00", False
+    for fmt in fg.FORMATS:
+        path = fg.save(spec, st, tmp_path / f"fig.{fmt}")
+        assert path.stat().st_size > 1000, fmt
+    from PIL import Image
+    assert Image.open(tmp_path / "fig.png").size == (400, 300)                          # size x DPI
+    rendered = fg.render(Figure(figsize=(4, 3)), spec, st)
+    assert len(rendered.axes) == 1                                                       # hidden right trace: no twin
+    assert rendered.axes[0].get_lines()[0].get_color() == "#00ff00"
+    assert rendered.axes[0].get_legend().get_texts()[0].get_text() == "Intensity"
+    back = fg.FigureStyle.from_json(st.to_json())
+    assert back == st
+    # a refresh keeps edited traces (matched by their plot label) and the text; a new plot takes new labels
+    again = fg.FigureStyle.from_spec(spec, base=st, keep_text=True, keep_traces=True)
+    assert again.traces[0].label == "Intensity" and again.traces[0].color == "#00ff00" and not again.traces[1].visible
+    fresh = fg.FigureStyle.from_spec(spec, base=st)
+    assert fresh.width == 4.0 and fresh.traces[0].color == "#d62728"                     # look kept, traces new
+    st.xmin = "oops"
+    with pytest.raises(ValueError):
+        fg.render(Figure(), spec, st)
+    with pytest.raises(ValueError):
+        fg.FigureSpec.from_axes(Figure().subplots(1, 1).figure.axes)
+
+
+def test_plotter_export_window(qapp, no_dialogs, tmp_path, monkeypatch):
+    from ctrfit.app.datatools.plotter import MainWindow
+    from ctrfit.echem.synthetic import write_experiment
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    spec, mpt, truth = write_experiment(tmp_path / "exp")
+    w = MainWindow()
+    w.show()
+    assert w._export_figure() is None and "Nothing to export" in no_dialogs[-1][1]     # empty plot
+    w._load_spec_file(str(spec))
+    for i in range(w._scan_list.count()):
+        w._scan_list.item(i).setSelected("loopscan" in w._scan_list.item(i).text())
+    qapp.processEvents()
+    w._col_sel.set_selection("Epoch", ["Detector"], "Monitor")
+    w._zero_at_scan()                                                                    # hand CV from t = 0
+    w._ec_source.setCurrentText("Defined by hand")
+    w._rebuild_ec()
+    working_title = w._canvas.ax.get_title()
+    ex = w._export_figure()
+    qapp.processEvents()
+    assert len(ex.style.traces) == 2 and ex.style.traces[1].axis == "right"
+    # edit in the window: preset, a label, a colour, hide nothing; the working plot is untouched
+    ex._apply_preset(ex._preset.findText("Paper, one column (8.5 cm)"))
+    ex._title.setText("RuO2 (0 1 1.5)")
+    ex._rows[0][1].setText("I")
+    ex._rows[0][2].set_color("#123456")
+    ex._units.setCurrentText("cm")
+    assert ex._w.value() == pytest.approx(8.5, abs=0.01)
+    ex._render()
+    out = ex.save_to(str(tmp_path / "final"))                                            # format from the combo
+    assert out.endswith(".png")
+    from PIL import Image
+    assert Image.open(out).size == (int(8.5 / 2.54 * 600), int(6.5 / 2.54 * 600))         # exact size kept
+    assert w._canvas.ax.get_title() == working_title                                     # working view unchanged
+    # refresh after the working plot changed keeps the edits; the style is remembered for next time
+    w._ec_source.setCurrentText("None")
+    w._rebuild_ec()
+    ex.refresh_from_plot()
+    assert len(ex.style.traces) == 1 and ex.style.traces[0].label == "I" and ex.style.title == "RuO2 (0 1 1.5)"
+    ex.close()
+    ex2 = w._export_figure()
+    assert ex2.style.width == pytest.approx(8.5 / 2.54) and ex2.style.dpi == 600
+    ex2.close()
+    w.close()

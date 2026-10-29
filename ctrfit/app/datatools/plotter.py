@@ -2475,7 +2475,8 @@ class MainWindow(StatusMixin, QMainWindow):
 
         btns = [("Export data…", self._export_plot_data, "Plot data as text (one '# Trace:' block per curve)"),
                 ("Export for GenX…", self._export_genx, "Plot data in GenX format"),
-                ("Save PNG…", lambda: self._save_plot('png'), None), ("Save SVG…", lambda: self._save_plot('svg'), None),
+                ("Export figure…", self._export_figure, "Final image: preview, size, fonts, colours, labels, traces"),
+                ("Export t, E, I…", self._export_potential_data, "Time, potential and intensity of every trace"),
                 ("Save config…", self._save_plot_config, "Columns, styles and options as JSON"),
                 ("Load config…", self._load_plot_config, None)]
         grid = QGridLayout()
@@ -2499,7 +2500,10 @@ class MainWindow(StatusMixin, QMainWindow):
         self._canvas = PlotCanvas()
         self._toolbar = NavigationToolbar(self._canvas, self)
         tools = []
-        for text, fn, tip in (("Figure options…", self._show_fig_opts, "Fonts, colours, sizes, axis limits"),
+        for text, fn, tip in (("Export figure…", self._export_figure, "Final image: preview, size, fonts, colours, "
+                                                                       "labels, traces (the working view stays as is)"),
+                              ("View options…", self._show_fig_opts, "Look of this working view: log axes, limits, "
+                                                                     "markers, grid, fonts"),
                               ("Peak fitting…", self._show_peak_fit, "Fit rocking curves, integrated intensities"),
                               ("Smoothing…", self._show_smooth, "Smooth a CTR built from the peak fits"),
                               ("Per-scan Y…", self._show_perscan_y, "Different Y columns for some scans"),
@@ -2520,6 +2524,7 @@ class MainWindow(StatusMixin, QMainWindow):
     # ---- Potential (EC-Lab) and time zero ----
     def _potential_group(self):
         self._ec = None                 # ECData shown with the scans (file or defined by hand)
+        self._export_window = None      # the Export figure window, while open
         self._last_traces = []          # what the last plot drew (for 'Export I vs E')
         box, f = group("Potential and time")
         # time zero of the X axis
@@ -2611,10 +2616,7 @@ class MainWindow(StatusMixin, QMainWindow):
         self._ec_ref = QLineEdit("V vs Ag/AgCl")
         self._ec_ref.setToolTip("Unit / reference electrode in the potential axis label")
         self._ec_ref.editingFinished.connect(self._update_plot)
-        b_iv = QPushButton("Export t, E, I…")
-        b_iv.setToolTip("Every plotted trace: time on the axis, potential there, intensity")
-        b_iv.clicked.connect(self._export_potential_data)
-        f.addRow("Label", row(self._ec_ref, b_iv))
+        f.addRow("Label", self._ec_ref)
         self._ec_info = hint("No potential record")
         f.addRow(self._ec_info)
         self._ec_file_row.setVisible(False)
@@ -3232,6 +3234,23 @@ class MainWindow(StatusMixin, QMainWindow):
             setattr(self, attr, cfg.get(key, default))
         self._fig_opts_dialog._sync_color_buttons(); self._update_plot()
         self.say(f"Config loaded: {path}")
+
+    def _export_figure(self):
+        """Open the export window on a snapshot of the working plot."""
+        from .figure_export import FigureExportWindow, spec_from_canvas
+        try:
+            spec = spec_from_canvas(self._canvas.fig)
+        except ValueError as e:
+            self.say(f"Nothing to export: {e}", error=True)
+            return None
+        sel = self._get_selected_scans()
+        name = ("S" + "_".join(str(s) for s in sel[:4])) if sel else "plot"
+        if self._export_window is not None:
+            self._export_window.close()
+        self._export_window = FigureExportWindow(spec, lambda: spec_from_canvas(self._canvas.fig), self, name)
+        self._export_window.show()
+        self._export_window.raise_()
+        return self._export_window
 
     def _save_plot(self, fmt):
         path, _ = QFileDialog.getSaveFileName(self, f"Save {fmt.upper()}", f"plot.{fmt}", f"{fmt.upper()} (*.{fmt})")

@@ -767,6 +767,7 @@ def test_smoothing_takes_every_plotted_trace(qapp, no_dialogs, tmp_path, monkeyp
     assert np.nanmin(E) >= w._ec.potential.min() - 1e-9 and np.nanmax(E) <= w._ec.potential.max() + 1e-9
     d._grab_from_plot()                                                                   # again: along time
     assert d._on_time and max(np.nanmax(src["x"]) for src in d._sources) > 100          # seconds, not volts
+    d._apply_smoothing()
     w._ec_mode.setCurrentIndex(0)
     out = tmp_path / "smooth.txt"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))

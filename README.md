@@ -320,7 +320,7 @@ in a dialog):
   potentiostat's first sample on the time axis to line the two records up, or "At point #N, Align"
   sets it from a SPEC point number (0-based) of the scan selected in the shift table: the first sweep (after any hold,
   found from the potential) or the start of the potentiostat record happens at that point. Show the potential on a
-  second y axis against time, or plot intensity against potential; "Export t, E, I" writes both.
+  second y axis against time ("Potential trace" hides or shows that curve), or plot intensity against potential; "Export t, E, I" writes both.
   "Export figure…" opens the final image in its own window, the working view staying as it is:
   a preview with the proportions of the saved file, size (in or cm) and DPI with presets (paper one
   or two columns, slide, poster, dark), format (PNG, SVG, PDF, EPS, TIFF, JPG), title and axis

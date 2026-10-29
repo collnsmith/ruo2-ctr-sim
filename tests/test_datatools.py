@@ -509,6 +509,10 @@ def test_plotter_potential_axis_and_time_zero(qapp, no_dialogs, tmp_path, monkey
     w._ec_offset.setValue(truth["cv_delay"] - 1.1)      # CV 60 s after the scan's #D; the first point ends 1.1 s in
     w._update_plot()
     assert len(w._canvas.fig.axes) == 2 and "Ag/AgCl" in w._canvas.fig.axes[1].get_ylabel()
+    w._chk_show_E.setChecked(False)                                                      # hide the potential trace
+    assert len(w._canvas.fig.axes) == 1 and w._last_traces[0]["E"] is not None          # still known per point
+    w._chk_show_E.setChecked(True)
+    assert len(w._canvas.fig.axes) == 2
     E = w._last_traces[0]["E"]
     assert np.nanmin(E) == pytest.approx(truth["lower"], abs=0.01) and np.nanmax(E) == pytest.approx(truth["upper"], abs=0.01)
     # alignment by SPEC point number: the first sweep (after the 300 s hold) starts at point #326

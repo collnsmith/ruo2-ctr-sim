@@ -2334,6 +2334,7 @@ class MainWindow(StatusMixin, QMainWindow):
             'cv_rate': repr(self._cv_rate.value()), 'cv_cycles': str(self._cv_cycles.value()),
             'cv_first': self._cv_first.currentText(), 'offset': repr(self._ec_offset.value()),
             'mode': self._ec_mode.currentText(), 'label': self._ec_ref.text(),
+            'show_trace': str(self._chk_show_E.isChecked()),
             'align_point': str(self._align_point.value()), 'align_marks': self._align_marks.currentText(),
         }
         c['window'] = {
@@ -2653,7 +2654,11 @@ class MainWindow(StatusMixin, QMainWindow):
         self._ec_mode = QComboBox()
         self._ec_mode.addItems(list(MODES))
         self._ec_mode.currentIndexChanged.connect(self._update_plot)
-        f.addRow("Show", self._ec_mode)
+        self._chk_show_E = QCheckBox("Potential trace")
+        self._chk_show_E.setChecked(True)
+        self._chk_show_E.setToolTip("Show or hide the potential curve on the second axis (vs time)")
+        self._chk_show_E.toggled.connect(self._update_plot)
+        f.addRow("Show", row(self._ec_mode, self._chk_show_E))
         self._ec_ref = QLineEdit("V vs Ag/AgCl")
         self._ec_ref.setToolTip("Unit / reference electrode in the potential axis label")
         self._ec_ref.editingFinished.connect(self._update_plot)
@@ -2665,7 +2670,7 @@ class MainWindow(StatusMixin, QMainWindow):
         return box
 
     def _load_potential_settings(self, get, getbool):
-        widgets = [self._zero_mode, self._ec_source, self._ec_path, self._cv_start, self._cv_hold,
+        widgets = [self._zero_mode, self._chk_show_E, self._ec_source, self._ec_path, self._cv_start, self._cv_hold,
                    self._cv_upper, self._cv_lower, self._cv_rate, self._cv_cycles, self._cv_first,
                    self._ec_offset, self._ec_mode, self._ec_ref]
         for w in widgets:
@@ -2692,6 +2697,7 @@ class MainWindow(StatusMixin, QMainWindow):
                     combo.setCurrentIndex(i)
             self._ec_path.setText(get('potential', 'file', ''))
             self._ec_ref.setText(get('potential', 'label', 'V vs Ag/AgCl'))
+            self._chk_show_E.setChecked(getbool('potential', 'show_trace', True))
             self._align_point.setValue(int(get('potential', 'align_point', '0')))
             i = self._align_marks.findText(get('potential', 'align_marks', MARKS[0]))
             if i >= 0:
@@ -2774,7 +2780,7 @@ class MainWindow(StatusMixin, QMainWindow):
 
     def _draw_potential_axis(self, ax, t_lo, t_hi, tc, lw, tick_dir):
         """E(t) on a second y axis over the plotted time range."""
-        if self._ec is None or not (np.isfinite(t_lo) and t_hi > t_lo):
+        if self._ec is None or not self._chk_show_E.isChecked() or not (np.isfinite(t_lo) and t_hi > t_lo):
             return
         ref = self._ec_ref.text().strip() or "V"
         ax2 = ax.twinx()

@@ -61,6 +61,9 @@ def build_parser():
     cv.add_argument("--cv", default=None, metavar="HOLD_V,HOLD_S,LOWER,UPPER,RATE_mVs,CYCLES[,up|down[,DELAY_S]]",
                     help="define the CV by hand instead of --ec, e.g. '0.5,300,0.4,1.4,10,3,up,60'")
     cv.add_argument("--counter", default=None)
+    cv.add_argument("--intensity-file", default=None,
+                    help="intensity from a ROI sums file (background subtraction) or a plotter / smoothing trace file")
+    cv.add_argument("--intensity-column", default=None, help="its ROI name or trace label (default: first / this scan's)")
     cv.add_argument("--monitor", default=None)
     cv.add_argument("--sync", default="absolute", choices=["absolute", "manual", "events"])
     cv.add_argument("--offset", type=float, default=0.0, help="EC time = SPEC time + offset (s)")
@@ -141,7 +144,8 @@ def cmd_cv(a):
     from matplotlib.figure import Figure
     from .echem.session import Options, Session
     from .project import plots
-    o = Options(scan=a.scan, counter=a.counter, monitor=a.monitor, sync_mode=a.sync, offset=a.offset,
+    o = Options(scan=a.scan, counter=a.counter, intensity_file=a.intensity_file,
+                intensity_column=a.intensity_column, monitor=a.monitor, sync_mode=a.sync, offset=a.offset,
                 background=a.background, n_transitions=a.transitions, cycles=a.cycles, states=a.path,
                 transitions=a.path_transitions, reference=a.reference, ns_dB=a.ns_dB, ns_du=a.ns_du, ns_tl=a.ns_tl,
                 fit_ns_B=a.fit_ns, fit_ns_u=a.fit_ns_u)

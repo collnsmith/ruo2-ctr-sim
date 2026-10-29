@@ -27,6 +27,8 @@ from .spec import SpecFile, poisson_sigma
 class Options:
     scan: int = None
     counter: str = None
+    intensity_file: str = None       # intensity from a ROI sums file or a plotter / smoothing trace file
+    intensity_column: str = None     # its ROI name or trace label (None: first ROI / this scan's trace)
     monitor: str = None              # None: no monitor normalisation
     transmission: str = None         # attenuator transmission column (intensity / transmission), None: none
     per_second: bool = True
@@ -163,8 +165,18 @@ class Session:
     # ------------------------------------------------------------------ steps
     def intensity(self):
         s, o = self.scan, self.opt
-        counter = o.counter or s.default_counter()
-        raw = s.column(counter).astype(float)
+        if o.intensity_file:
+            from .external import read_intensity
+            try:
+                elapsed = s.times(o.time_column, o.time_kind, o.time_mark)
+            except (ValueError, KeyError):
+                elapsed = None
+            raw, self.intensity_note = read_intensity(o.intensity_file, s.number, s.npts, elapsed,
+                                                      o.intensity_column)
+        else:
+            counter = o.counter or s.default_counter()
+            raw = s.column(counter).astype(float)
+            self.intensity_note = f"intensity: SPEC column {counter}"
         sig = poisson_sigma(raw)
         f = np.ones_like(raw)
         if o.transmission:
@@ -247,6 +259,8 @@ class Session:
             raise ValueError("load a SPEC file first")
         s = self.scan
         r.I_raw, r.I, r.sigma = self.intensity()
+        if self.opt.intensity_file:
+            r.notes.append(self.intensity_note)
         col, kind = (o.time_column, o.time_kind) if o.time_column else s.default_time_column()
         t_abs = s.times(col, kind, o.time_mark)
         r.t = t_abs - t_abs[0]

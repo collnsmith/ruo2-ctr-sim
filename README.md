@@ -238,6 +238,14 @@ or a phi scan that does not move (start = end), recorded while the potentiostat 
 - **Example.** `python examples/insitu_cv/make_data.py` writes a synthetic loopscan, an unmoving phi
   scan and an `.mpt` with a known truth (`truth.txt`); with offset +7.3 s the path fit recovers it.
 
+
+Intensity: a SPEC counter, or a file (Intensity: "File"): ROI sums from the background subtraction
+tool (one row per image, the image number being the SPEC point) or a trace from the plotter
+("Export data", "Export t, E, I", the smoothing's "Export smoothed data"); pick the ROI or trace (blank:
+the first ROI / this scan's trace). Missing images are interpolated; a trace with another number of
+points (e.g. a spline) is interpolated on its x as seconds from the scan's first point. Monitor,
+transmission and count time still apply: switch them off for a trace that is already normalised.
+Command line: `--intensity-file sums.txt --intensity-column ROI1`.
 ## Beamline helper (SPEC psic)
 
 `python ctr_beamline.py` (or `python -m ctrfit beamline`) opens a helper for the run itself. The

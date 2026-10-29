@@ -164,7 +164,32 @@ class EchemWindow(QtWidgets.QMainWindow):
         self.transm.setToolTip("Attenuator transmission column: the intensity is divided by it")
         self.per_second = QtWidgets.QCheckBox("divide by the count time")
         self.per_second.setChecked(True)
+        self.int_source = QtWidgets.QComboBox()
+        self.int_source.addItems(["SPEC counter", "File: ROI sums or plotter trace"])
+        self.int_source.setToolTip(
+            "SPEC counter: a column of the scan.\n"
+            "File: ROI sums from background subtraction (one row per image = SPEC point), or a trace from "
+            "the plotter ('Export data', 'Export t, E, I', smoothing 'Export smoothed data').\n"
+            "Monitor, transmission and count time below still apply: set them to (none) / off for a trace "
+            "that is already normalised.")
+        self.int_path = QtWidgets.QLineEdit()
+        self.int_path.setReadOnly(True)
+        self.int_path.setPlaceholderText("ROI sums .txt or trace file")
+        b_int = QtWidgets.QPushButton("Browse…")
+        b_int.clicked.connect(lambda: self.open_intensity_file())
+        self.int_column = QtWidgets.QComboBox()
+        self.int_column.setToolTip("ROI (ROI sums) or trace (trace file); blank: the first ROI / this scan's trace")
+        self.int_file_row = QtWidgets.QWidget()
+        fr = QtWidgets.QHBoxLayout(self.int_file_row)
+        fr.setContentsMargins(0, 0, 0, 0)
+        fr.addWidget(self.int_path, 1)
+        fr.addWidget(b_int)
+        fr.addWidget(self.int_column)
+        f.addRow("Intensity", self.int_source)
         f.addRow("Counter", self.counter)
+        f.addRow("", self.int_file_row)
+        self.int_source.currentIndexChanged.connect(lambda *_: self._int_source_changed())
+        self._int_source_changed()
         f.addRow("Monitor", self.monitor)
         f.addRow("Transmission", self.transm)
         f.addRow("", self.per_second)
@@ -485,6 +510,31 @@ class EchemWindow(QtWidgets.QMainWindow):
             self.say(f"{Path(path).name}: {ec.time.size} samples" + ("; " + "; ".join(ec.notes) if ec.notes else ""))
         self._run(go)
 
+    def _int_source_changed(self):
+        from_file = self.int_source.currentIndex() == 1
+        self.int_file_row.setVisible(from_file)
+        self.counter.setEnabled(not from_file)
+
+    def open_intensity_file(self, path=None):
+        """Intensity from a ROI sums file or a plotter / smoothing trace file."""
+        from ..echem.external import choices
+        path = path or QtWidgets.QFileDialog.getOpenFileName(
+            self, "Intensity file", "", "Text (*.txt *.dat *.csv);;All files (*)")[0]
+        if not path:
+            return
+
+        def go():
+            kind, names = choices(path)
+            self.int_path.setText(str(path))
+            self.int_column.clear()
+            self.int_column.addItem("")
+            self.int_column.addItems(names)
+            if self.int_source.currentIndex() != 1:
+                self.int_source.setCurrentIndex(1)
+            self.say(f"{Path(path).name}: {'ROI sums' if kind == 'roi' else 'trace file'} "
+                     f"({len(names)} {'ROIs' if kind == 'roi' else 'traces'})")
+        self._run(go)
+
     def load_sim_settings(self, path=None, clear=False):
         if clear:
             self.session.opt.sim_settings = None
@@ -499,6 +549,11 @@ class EchemWindow(QtWidgets.QMainWindow):
     def gather(self):
         o = self.session.opt
         o.counter = self.counter.currentText() or None
+        from_file = self.int_source.currentIndex() == 1
+        if from_file and not self.int_path.text():
+            raise ValueError("Intensity from a file: choose the ROI sums or trace file")
+        o.intensity_file = self.int_path.text() if from_file else None
+        o.intensity_column = (self.int_column.currentText() or None) if from_file else None
         o.monitor = None if self.monitor.currentText() in ("", "(none)") else self.monitor.currentText()
         o.transmission = None if self.transm.currentText() in ("", "(none)") else self.transm.currentText()
         o.per_second = self.per_second.isChecked()
@@ -547,6 +602,12 @@ class EchemWindow(QtWidgets.QMainWindow):
 
     def apply_options(self, o):
         self.session.opt = o
+        if o.intensity_file:
+            self.int_path.setText(o.intensity_file)
+            self.int_column.clear()
+            self.int_column.addItems(["", o.intensity_column] if o.intensity_column else [""])
+            self.int_column.setCurrentText(o.intensity_column or "")
+        self.int_source.setCurrentIndex(1 if o.intensity_file else 0)
         sets = ((self.per_second, o.per_second), (self.average, o.average), (self.slope, o.slope),
                 (self.fit_shift, o.fit_shift), (self.fit_theta, o.fit_theta), (self.fit_ns_B, o.fit_ns_B),
                 (self.fit_ns_u, o.fit_ns_u))

@@ -540,3 +540,71 @@ def test_joint_fit_tab(joint_scans, tmp_path, monkeypatch):
     w.joint_load(str(tmp_path / "j.json"))
     assert w.j_scans.rowCount() == 2 and not msgs
     w.close()
+
+
+# ---------------------------------------------------------------------------- intensity from files
+def test_intensity_from_roi_sums_and_trace_files(files, tmp_path):
+    from ctrfit.echem import external as ex
+    s, tr = session(files)
+    s.opt.scan = 2
+    ref = s.run()
+    det = s.scan.column("Detector").astype(float)
+    n = det.size
+    # ROI sums from background subtraction (one image missing), tab and '#'-space styles
+    rows = [f"2\t{i}\t{v:.6g}\t{2 * v:.6g}" for i, v in enumerate(det) if i != 5]
+    roi = tmp_path / "sums.txt"
+    roi.write_text("scan\timage\tROI1\tROI2\n" + "\n".join(rows) + "\n")
+    old = tmp_path / "old_sums.txt"
+    old.write_text("# scan  image  ROI1\n" + "\n".join(f"002  {i:03d}  {v:.6g}" for i, v in enumerate(det)) + "\n")
+    assert ex.choices(roi) == ("roi", ["ROI1", "ROI2"])
+    y, note = ex.read_intensity(str(roi), 2, n)
+    assert np.allclose(np.delete(y, 5), np.delete(det, 5), rtol=1e-5) and "interpolated" in note
+    assert np.allclose(ex.read_intensity(str(old), 2, n)[0], det, rtol=1e-5)
+    s.opt.intensity_file, s.opt.intensity_column = str(old), "ROI1"
+    r = s.run()
+    assert np.allclose(r.I, ref.I, rtol=1e-5) and any("ROI 'ROI1'" in x for x in r.notes)
+    s.opt.intensity_column = "nope"
+    with pytest.raises(ValueError):
+        s.run()
+    # plotter / smoothing traces: same length -> per point; resampled -> on time from the first point
+    t = s.scan.times()
+    t = t - t[0]
+    tr_file = tmp_path / "smoothed.txt"
+    tr_file.write_text("# Smoothed (Savitzky-Golay), 2 trace(s)\n\n# Trace: S1_Detector\nx\tS1_Detector_smoothed\n1\t5\n2\t6\n"
+                       "\n# Trace: S2_Detector\nx\tS2_Detector_smoothed\n" +
+                       "".join(f"{a:.6g}\t{b:.6g}\n" for a, b in zip(t, det)))
+    assert ex.choices(tr_file) == ("trace", ["S1_Detector", "S2_Detector"])
+    s.opt.intensity_file, s.opt.intensity_column = str(tr_file), None                   # picks this scan's
+    assert np.allclose(s.run().I, ref.I, rtol=1e-5)
+    half = tmp_path / "spline.txt"
+    half.write_text("# Trace: S2_Detector\nx\tS2_Detector_smoothed\n" +
+                    "".join(f"{a:.6g}\t{b:.6g}\n" for a, b in zip(t[::2], det[::2])))
+    y, note = ex.read_intensity(str(half), 2, n, s.scan.times())
+    assert "interpolated" in note and np.allclose(y[::2], det[::2], rtol=1e-4)
+    tei = tmp_path / "tei.txt"
+    tei.write_text("# Trace: S2_Detector\nt_s\tE_V_vs_Ag/AgCl\tS2_Detector\n" +
+                   "".join(f"{a:.6g}\t0.5\t{b:.6g}\n" for a, b in zip(t, det)))
+    assert np.allclose(ex.read_intensity(str(tei), 2, n)[0], det, rtol=1e-5)
+    with pytest.raises(ValueError):
+        ex.read_intensity(str(roi), 7, n)                                                # scan not in the file
+
+
+def test_window_intensity_file(files, tmp_path, monkeypatch):
+    pytest.importorskip("PyQt5")
+    from PyQt5 import QtWidgets
+    from ctrfit.app.echem_window import EchemWindow
+    msgs = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: msgs.append(a[2])))
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])  # noqa: F841
+    spec, mpt, tr = files["loopscan"]
+    w = EchemWindow()
+    w.open_spec(str(spec))
+    det = w.session.scan.column("Detector")
+    roi = tmp_path / "sums.txt"
+    roi.write_text("scan\timage\tROI1\n" + "".join(f"2\t{i}\t{v:.6g}\n" for i, v in enumerate(det)))
+    w.open_intensity_file(str(roi))
+    assert w.int_source.currentIndex() == 1 and w.int_column.findText("ROI1") >= 0 and not w.counter.isEnabled()
+    o = w.gather()
+    assert o.intensity_file == str(roi) and o.intensity_column is None
+    w.apply_options(Options.from_dict(o.to_dict()))
+    assert w.int_path.text() == str(roi) and w.int_source.currentIndex() == 1 and not msgs

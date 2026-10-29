@@ -1785,10 +1785,8 @@ class CTRSmoothDialog(StatusMixin, QDialog):
         self.setWindowTitle("Data Smoothing")
         self.setMinimumSize(850, 550)
         self._mw = main_win
-        self._source_x = None
-        self._source_y = None
-        self._smooth_x = None
-        self._smooth_y = None
+        self._sources = []          # traces to smooth: {'label', 'x', 'y', 'color'}
+        self._smoothed = []         # (x, y) per source, after Apply
         self._setup_ui()
 
     def _setup_ui(self):
@@ -1802,7 +1800,7 @@ class CTRSmoothDialog(StatusMixin, QDialog):
         sg = QGroupBox("Source data")
         sl = QVBoxLayout(sg)
         btn_from_plot = QPushButton("Grab from main plot")
-        btn_from_plot.setToolTip("Takes the first plotted line from the main window")
+        btn_from_plot.setToolTip("Takes every trace plotted on the main window's left axis")
         btn_from_plot.clicked.connect(self._grab_from_plot)
         sl.addWidget(btn_from_plot)
         btn_from_file = QPushButton("Load from text file")
@@ -1904,27 +1902,26 @@ class CTRSmoothDialog(StatusMixin, QDialog):
         self._spline_k.setEnabled(m == "Spline interpolation")
         self._gauss_sigma.setEnabled(m == "Gaussian convolution")
 
-    def _grab_from_plot(self):
-        """Get data from the first line on the main canvas."""
-        ax = self._mw._canvas.ax
-        lines = ax.get_lines()
-        if not lines:
-            # Try overlay
-            if self._mw._overlay is not None:
-                self._source_x = self._mw._overlay['x'].copy()
-                self._source_y = self._mw._overlay['y'].copy()
-                self._source_info.setText(
-                    f"From overlay: {len(self._source_x)} pts")
-                self._update_preview(); return
-            self.say("No data on main plot", error=True); return
-        line = lines[0]
-        self._source_x = np.array(line.get_xdata(), dtype=float)
-        self._source_y = np.array(line.get_ydata(), dtype=float)
-        self._source_info.setText(
-            f"From plot: {len(self._source_x)} pts, "
-            f"x=[{self._source_x.min():.4g}, {self._source_x.max():.4g}]")
-        self._smooth_x = None; self._smooth_y = None
+    def _set_sources(self, sources, info):
+        self._sources = sources
+        self._smoothed = []
+        self._source_info.setText(info)
         self._update_preview()
+
+    def _grab_from_plot(self):
+        """Every trace on the main plot's left axis (the potential on a second axis is not smoothed)."""
+        lines = [ln for ln in self._mw._canvas.ax.get_lines() if np.asarray(ln.get_xdata()).size]
+        if not lines:
+            self.say("No data on main plot", error=True)
+            return
+        sources = []
+        for k, ln in enumerate(lines):
+            label = ln.get_label()
+            sources.append({'label': label if label and not label.startswith('_') else f"trace {k + 1}",
+                            'x': np.array(ln.get_xdata(), dtype=float), 'y': np.array(ln.get_ydata(), dtype=float),
+                            'color': ln.get_color()})
+        n = sum(len(src['x']) for src in sources)
+        self._set_sources(sources, f"From plot: {len(sources)} trace(s), {n} points")
 
     def _load_from_file(self):
         path, _ = QFileDialog.getOpenFileName(self, "Load data", "", "Text (*.txt *.dat *.csv);;All (*)")
@@ -1932,115 +1929,104 @@ class CTRSmoothDialog(StatusMixin, QDialog):
         try:
             data = np.loadtxt(path, comments='#')
             if data.ndim == 1:
-                self._source_x = np.arange(len(data), dtype=float)
-                self._source_y = data
+                x, y = np.arange(len(data), dtype=float), data
             else:
-                self._source_x = data[:, 0]
-                self._source_y = data[:, 1]
-            self._source_info.setText(
-                f"From file: {len(self._source_x)} pts")
-            self._smooth_x = None; self._smooth_y = None
-            self._update_preview()
+                x, y = data[:, 0], data[:, 1]
+            self._set_sources([{'label': os.path.basename(path), 'x': x, 'y': y, 'color': '#1f77b4'}],
+                              f"From file: {len(x)} pts")
         except Exception as e:
             self.say(str(e), error=True)
 
-    def _apply_smoothing(self):
-        if self._source_x is None:
-            self.say("Load data first", error=True); return
-
-        x = self._source_x; y = self._source_y
+    def _smooth_one(self, x, y):
+        """(x, y) smoothed with the chosen method; non-finite points are left out first."""
+        ok = np.isfinite(x) & np.isfinite(y)
+        x, y = x[ok], y[ok]
         method = self._method_combo.currentText()
+        if method == "Savitzky-Golay":
+            from scipy.signal import savgol_filter
+            win = self._window_size.value()
+            if win % 2 == 0: win += 1  # must be odd
+            win = min(win, len(y) if len(y) % 2 else len(y) - 1)
+            order = min(self._poly_order.value(), win - 1)
+            return x.copy(), savgol_filter(y, win, order)
+        if method == "Moving average":
+            win = self._window_size.value()
+            return x.copy(), np.convolve(y, np.ones(win) / win, mode='same')
+        if method == "Spline interpolation":
+            from scipy.interpolate import UnivariateSpline
+            sort_idx = np.argsort(x)
+            xs, ys = x[sort_idx], y[sort_idx]
+            unique_mask = np.diff(xs, prepend=-np.inf) > 0
+            xs, ys = xs[unique_mask], ys[unique_mask]
+            if len(xs) < 4:
+                raise ValueError("not enough unique points for a spline")
+            k = min(self._spline_k.value(), len(xs) - 1)
+            spl = UnivariateSpline(xs, ys, k=k, s=len(xs))
+            sx = np.linspace(xs.min(), xs.max(), self._spline_pts.value())
+            return sx, spl(sx)
+        from scipy.ndimage import gaussian_filter1d
+        return x.copy(), gaussian_filter1d(y, sigma=self._gauss_sigma.value())
 
-        try:
-            if method == "Savitzky-Golay":
-                from scipy.signal import savgol_filter
-                win = self._window_size.value()
-                if win % 2 == 0: win += 1  # must be odd
-                order = min(self._poly_order.value(), win - 1)
-                self._smooth_x = x.copy()
-                self._smooth_y = savgol_filter(y, win, order)
-
-            elif method == "Moving average":
-                win = self._window_size.value()
-                kernel = np.ones(win) / win
-                self._smooth_x = x.copy()
-                self._smooth_y = np.convolve(y, kernel, mode='same')
-
-            elif method == "Spline interpolation":
-                from scipy.interpolate import UnivariateSpline
-                # Sort by x for spline
-                sort_idx = np.argsort(x)
-                xs, ys = x[sort_idx], y[sort_idx]
-                # Remove duplicates
-                unique_mask = np.diff(xs, prepend=-np.inf) > 0
-                xs, ys = xs[unique_mask], ys[unique_mask]
-                if len(xs) < 4:
-                    self.say("Not enough unique points for spline", error=True); return
-                k = min(self._spline_k.value(), len(xs) - 1)
-                spl = UnivariateSpline(xs, ys, k=k, s=len(xs))
-                n_pts = self._spline_pts.value()
-                self._smooth_x = np.linspace(xs.min(), xs.max(), n_pts)
-                self._smooth_y = spl(self._smooth_x)
-
-            elif method == "Gaussian convolution":
-                from scipy.ndimage import gaussian_filter1d
-                sigma = self._gauss_sigma.value()
-                self._smooth_x = x.copy()
-                self._smooth_y = gaussian_filter1d(y, sigma=sigma)
-
-            self._smooth_info.setText(
-                f"{method}: {len(self._smooth_x)} pts output")
-            self._update_preview()
-
-        except Exception as e:
-            self.say(f"Smoothing failed:\n{e}", error=True)
+    def _apply_smoothing(self):
+        if not self._sources:
+            self.say("Load data first", error=True); return
+        smoothed = []
+        for src in self._sources:
+            try:
+                smoothed.append(self._smooth_one(src['x'], src['y']))
+            except Exception as e:
+                self.say(f"Smoothing {src['label']} failed:\n{e}", error=True)
+                return
+        self._smoothed = smoothed
+        n = sum(len(sx) for sx, _ in smoothed)
+        self._smooth_info.setText(f"{self._method_combo.currentText()}: {len(smoothed)} trace(s), {n} pts output")
+        self._update_preview()
 
     def _update_preview(self):
         self._ax.clear()
         self._ax.set_facecolor('white')
         self._ax.tick_params(colors='#222')
         for sp in self._ax.spines.values(): sp.set_color('#999')
-
-        if self._source_x is not None and self._chk_show_orig.isChecked():
-            self._ax.plot(self._source_x, self._source_y, 'o', color='#1f77b4',
-                         markersize=3, alpha=0.6, label='original')
-
-        if self._smooth_x is not None:
-            self._ax.plot(self._smooth_x, self._smooth_y, '-', color='#d62728',
-                         linewidth=1.5, label='smoothed')
-
+        for k, src in enumerate(self._sources):
+            if self._chk_show_orig.isChecked():
+                self._ax.plot(src['x'], src['y'], 'o', color=src['color'], markersize=3, alpha=0.4,
+                              label=f"{src['label']}")
+            if k < len(self._smoothed):
+                sx, sy = self._smoothed[k]
+                self._ax.plot(sx, sy, '-', color=src['color'], linewidth=1.6, label=f"{src['label']} (smoothed)")
         if self._chk_logy.isChecked():
             self._ax.set_yscale('log')
-
-        if self._source_x is not None or self._smooth_x is not None:
+        if self._sources:
             self._ax.legend(facecolor='white', edgecolor='#999', labelcolor='#222', fontsize=8)
         self._ax.set_title("Smoothing preview", color='#222')
         self._fig.tight_layout()
         self._canvas.draw()
 
     def _send_to_main(self):
-        if self._smooth_x is None:
+        if not self._smoothed:
             self.say("Apply smoothing first", error=True); return
+        ax = self._mw._canvas.ax
         self._mw._overlay = {
-            'x': self._smooth_x.copy(),
-            'y': self._smooth_y.copy(),
-            'xlabel': 'X',
-            'ylabel': 'Y (smoothed)',
+            'traces': [{'x': sx.copy(), 'y': sy.copy(), 'label': f"{src['label']} (smoothed)", 'color': src['color']}
+                       for src, (sx, sy) in zip(self._sources, self._smoothed)],
+            'xlabel': ax.get_xlabel() or 'X',
+            'ylabel': (ax.get_ylabel() or 'Y') + ' (smoothed)',
             'title': f"Smoothed ({self._method_combo.currentText()})",
-            'label': 'smoothed',
         }
         self._mw._update_plot()
 
     def _export_smooth(self):
-        if self._smooth_x is None:
+        if not self._smoothed:
             self.say("Apply smoothing first", error=True); return
         path, _ = QFileDialog.getSaveFileName(self, "Export smoothed", "smoothed.txt", "Text (*.txt)")
         if not path: return
         with open(path, 'w') as f:
-            f.write("x\ty_smoothed\n")
-            for xi, yi in zip(self._smooth_x, self._smooth_y):
-                f.write(f"{xi:.6g}\t{yi:.6g}\n")
-        self.say(f"Exported to {path}")
+            f.write(f"# Smoothed ({self._method_combo.currentText()}), {len(self._smoothed)} trace(s)\n")
+            for src, (sx, sy) in zip(self._sources, self._smoothed):
+                f.write(f"\n# Trace: {src['label']}\nx\t{src['label']}_smoothed\n")
+                for xi, yi in zip(sx, sy):
+                    f.write(f"{xi:.6g}\t{yi:.6g}\n")
+        self.say(f"Exported {len(self._smoothed)} smoothed trace(s) to {path}")
 
 
 class PerScanYDialog(QDialog):
@@ -2210,6 +2196,13 @@ class PlotCanvas(FigureCanvas):
         self.ax.set_facecolor('white')
         self.ax.tick_params(colors='#222')
         for sp in self.ax.spines.values(): sp.set_color('#999')
+
+
+def overlay_traces(ov):
+    """The traces of a main-plot overlay: a list under 'traces', or one trace as 'x' / 'y'."""
+    if 'traces' in ov:
+        return ov['traces']
+    return [{'x': ov['x'], 'y': ov['y'], 'label': ov.get('label', 'data'), 'color': '#2ca02c'}]
 
 
 ZERO_MODES = ('off (raw X)', 'start of each scan', 'start of the first scan')
@@ -3033,8 +3026,9 @@ class MainWindow(StatusMixin, QMainWindow):
             kw = {'linestyle': ls if ls else 'None'}
             if show_m and ms_style: kw['marker'] = ms_style; kw['markersize'] = ms_sz
             elif not ls: kw['marker'] = 'o'; kw['markersize'] = ms_sz
-            ax.plot(ov['x'], ov['y'], color='#2ca02c', label=ov.get('label', 'data'),
-                    linewidth=lw, **kw)
+            for tr in overlay_traces(ov):
+                ax.plot(tr['x'], tr['y'], color=tr.get('color', '#2ca02c'), label=tr.get('label', 'data'),
+                        linewidth=lw, **kw)
             ax.set_xlabel(ov.get('xlabel', ''), color=tc, fontsize=self._font_axis.value())
             ax.set_ylabel(ov.get('ylabel', ''), color=tc, fontsize=self._font_axis.value())
             title = self._plot_title.text() or ov.get('title', '')
@@ -3331,9 +3325,13 @@ class MainWindow(StatusMixin, QMainWindow):
             path, _ = QFileDialog.getSaveFileName(self, "Export plot data", "plot_data.txt", "Text (*.txt)")
             if not path: return
             with open(path, 'w') as f:
-                f.write(f"{self._overlay.get('xlabel','x')}\t{self._overlay.get('ylabel','y')}\n")
-                for xi, yi in zip(self._overlay['x'], self._overlay['y']):
-                    f.write(f"{xi:.6g}\t{yi:.6g}\n")
+                traces = overlay_traces(self._overlay)
+                for tr in traces:
+                    if len(traces) > 1:
+                        f.write(f"\n# Trace: {tr.get('label', 'data')}\n")
+                    f.write(f"{self._overlay.get('xlabel','x')}\t{self._overlay.get('ylabel','y')}\n")
+                    for xi, yi in zip(tr['x'], tr['y']):
+                        f.write(f"{xi:.6g}\t{yi:.6g}\n")
             self.say(f"Exported overlay to {path}")
             return
 
@@ -3475,8 +3473,8 @@ class MainWindow(StatusMixin, QMainWindow):
         # Build traces the same way as _export_plot_data
         if self._overlay is not None:
             # Overlay: single trace, ask for HK
-            x = self._overlay['x']; y = self._overlay['y']
-            traces = [{'label': 'overlay', 'x': x, 'y': y}]
+            traces = [{'label': tr.get('label', 'overlay'), 'x': tr['x'], 'y': tr['y']}
+                      for tr in overlay_traces(self._overlay)]
         else:
             selected = self._get_selected_scans()
             if not selected: return

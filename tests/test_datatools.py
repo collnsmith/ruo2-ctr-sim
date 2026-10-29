@@ -731,3 +731,37 @@ def test_plotter_several_scans_time_zero_and_shifts(qapp, no_dialogs, tmp_path, 
     w2 = MainWindow()
     assert w2._scan_shift.get(2) == 12.5 and w2._scan_point.get(2) == 0
     w2.close()
+
+
+def test_smoothing_takes_every_plotted_trace(qapp, no_dialogs, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QFileDialog
+    from ctrfit.app.datatools.plotter import MainWindow
+    from ctrfit.echem.synthetic import write_experiment
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    spec, mpt, truth = write_experiment(tmp_path / "exp")
+    w = MainWindow()
+    w.show()
+    w._load_spec_file(str(spec))
+    for i in range(w._scan_list.count()):
+        w._scan_list.item(i).setSelected(True)
+    qapp.processEvents()
+    w._col_sel.set_selection("Epoch", ["Detector"], "")
+    w._zero_mode.setCurrentIndex(1)
+    w._ec_source.setCurrentText("Defined by hand")                                      # E on a second axis
+    w._rebuild_ec()
+    assert len(w._canvas.ax.get_lines()) == 2                                           # one per scan
+    d = w._smooth_dialog
+    d._grab_from_plot()
+    assert len(d._sources) == 2 and "2 trace(s)" in d._source_info.text()               # not the potential
+    d._apply_smoothing()
+    assert len(d._smoothed) == 2
+    d._send_to_main()
+    lines = w._canvas.ax.get_lines()
+    assert len(lines) == 2 and all(ln.get_label().endswith("(smoothed)") for ln in lines)
+    out = tmp_path / "smooth.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    d._export_smooth()
+    assert out.read_text().count("# Trace:") == 2
+    w._export_plot_data()                                                                # overlay with 2 traces
+    assert out.read_text().count("# Trace:") == 2
+    w.close()

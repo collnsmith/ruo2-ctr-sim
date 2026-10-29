@@ -512,6 +512,21 @@ def test_plotter_potential_axis_and_time_zero(qapp, no_dialogs, tmp_path, monkey
     assert len(w._canvas.fig.axes) == 2 and "Ag/AgCl" in w._canvas.fig.axes[1].get_ylabel()
     E = w._last_traces[0]["E"]
     assert np.nanmin(E) == pytest.approx(truth["lower"], abs=0.01) and np.nanmax(E) == pytest.approx(truth["upper"], abs=0.01)
+    # alignment by SPEC point number: the first sweep (after the 300 s hold) starts at point #326
+    w._ec_offset.setValue(0.0)
+    w._align_point.setValue(326)
+    w._align_marks.setCurrentIndex(0)
+    w._align_at_point()
+    assert w._ec_offset.value() == pytest.approx(truth["cv_delay"] - 1.1, abs=1.5)
+    w._align_marks.setCurrentIndex(1)                                                    # or the record start there
+    w._align_point.setValue(54)
+    w._align_at_point()
+    assert w._ec_offset.value() == pytest.approx(54 * 1.1, abs=1e-6)
+    w._align_point.setValue(10 ** 6)
+    w._align_at_point()
+    assert "not in the scan" in no_dialogs[-1][1]
+    w._ec_offset.setValue(truth["cv_delay"] - 1.1)
+    w._update_plot()
     # intensity vs potential: x is the potential, no second axis (the old one is removed)
     w._ec_mode.setCurrentIndex(1)
     assert len(w._canvas.fig.axes) == 1 and w._canvas.ax.get_xlabel().startswith("E (")

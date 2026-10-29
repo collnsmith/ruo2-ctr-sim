@@ -30,8 +30,8 @@ from ctrfit.app.datatools.common import (HINT_STYLE, PRIMARY_STYLE, StatusMixin,
 from ctrfit.datatools.paths import settings_dir, settings_file
 from ctrfit.datatools.peaks import (FIT_MODELS, display_label, fit_peak, integrate_peak, load_label_map,
                                     numerical_area, parse_bgsub_dir, save_label_map)
-from ctrfit.datatools.potential import (FIRST_SWEEPS, MODES, hand_cv, load_potential, potential_at,
-                                        time_zero, trace_between)
+from ctrfit.datatools.potential import (FIRST_SWEEPS, MARKS, MODES, hand_cv, load_potential, offset_for_point,
+                                        point_time, potential_at, time_zero, trace_between)
 from ctrfit.datatools.specfile import parse_spec_file
 
 
@@ -2298,6 +2298,7 @@ class MainWindow(StatusMixin, QMainWindow):
             'cv_rate': repr(self._cv_rate.value()), 'cv_cycles': str(self._cv_cycles.value()),
             'cv_first': self._cv_first.currentText(), 'offset': repr(self._ec_offset.value()),
             'mode': self._ec_mode.currentText(), 'label': self._ec_ref.text(),
+            'align_point': str(self._align_point.value()), 'align_marks': self._align_marks.currentText(),
         }
         c['window'] = {
             'geometry': self.saveGeometry().toBase64().data().decode(),
@@ -2591,6 +2592,18 @@ class MainWindow(StatusMixin, QMainWindow):
                                    "(after t0). Raise it if the potential leads the intensity.")
         self._ec_offset.editingFinished.connect(self._update_plot)
         f.addRow("EC start at t =", self._ec_offset)
+        self._align_point = QSpinBox()
+        self._align_point.setRange(0, 10 ** 7)
+        self._align_point.setPrefix("#")
+        self._align_point.setToolTip("SPEC point number (0-based, as SPEC counts) in the scan chosen above")
+        self._align_marks = QComboBox()
+        self._align_marks.addItems(list(MARKS))
+        self._align_marks.setToolTip("What happens at that point: the first sweep starts (after any hold; found "
+                                     "from the potential) or the potentiostat record starts")
+        b_align = QPushButton("Align")
+        b_align.setToolTip("Set 'EC start at t' so that this happens at the chosen point's X (time) value")
+        b_align.clicked.connect(self._align_at_point)
+        f.addRow("At point", row(self._align_point, self._align_marks, b_align, stretch_first=False))
         self._ec_mode = QComboBox()
         self._ec_mode.addItems(list(MODES))
         self._ec_mode.currentIndexChanged.connect(self._update_plot)
@@ -2628,6 +2641,10 @@ class MainWindow(StatusMixin, QMainWindow):
                     combo.setCurrentIndex(i)
             self._ec_path.setText(get('potential', 'file', ''))
             self._ec_ref.setText(get('potential', 'label', 'V vs Ag/AgCl'))
+            self._align_point.setValue(int(get('potential', 'align_point', '0')))
+            i = self._align_marks.findText(get('potential', 'align_marks', MARKS[0]))
+            if i >= 0:
+                self._align_marks.setCurrentIndex(i)
         finally:
             for w in widgets:
                 w.blockSignals(False)
@@ -2701,6 +2718,29 @@ class MainWindow(StatusMixin, QMainWindow):
         self._chk_t0.setChecked(True)
         self._chk_t0.blockSignals(False)
         self.say(f"t = 0 at the start of scan {sn} ({x_col} = {t0:.6g})")
+        self._update_plot()
+
+    def _align_at_point(self):
+        """Put the first sweep (or the record start) at the time of a SPEC point of the chosen scan."""
+        if self._ec is None:
+            self.say("Choose a potential (EC-Lab file or defined by hand) first", error=True)
+            return
+        x_col = self._col_sel.get_selection()[0]
+        sn = self._t0_scan.currentData()
+        x = self._x_values(sn, x_col) if (x_col and sn is not None) else None
+        if x is None:
+            self.say("Pick the X (time) column and the scan (it must be plotted)", error=True)
+            return
+        try:
+            t = point_time(self._shift_x(np.asarray(x, dtype=float)), self._align_point.value())
+            off = offset_for_point(self._ec, t, self._align_marks.currentText())
+        except ValueError as e:
+            self.say(str(e), error=True)
+            return
+        self._ec_offset.setValue(off)
+        what = "First sweep starts" if self._align_marks.currentIndex() == 0 else "EC record starts"
+        self.say(f"{what} at point #{self._align_point.value()} of scan {sn} (t = {t:.6g} s): "
+                 f"EC start at t = {off:.6g} s")
         self._update_plot()
 
     def _refresh_t0_scans(self):

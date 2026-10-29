@@ -7,13 +7,38 @@ plotter's time axis (s), so on the axis the potential is E(t - offset).
 
     potential_at(ec, t, offset)        E at the plotted times (NaN outside the record)
     trace_between(ec, offset, lo, hi)  the potential curve over [lo, hi] for a second axis
+    offset_for_point(ec, t_point, marks)  the offset that puts the first sweep (or the first sample)
+                                       at the time of a chosen SPEC point
 """
 import numpy as np
 
 from ..echem.ec import make_cv, read_ec
+from ..echem.sync import detect_sweep_start
 
 MODES = ("Potential on a second axis (vs time)", "Intensity vs potential")
 FIRST_SWEEPS = ("up", "down")
+MARKS = ("first sweep starts", "EC record starts")
+
+
+def offset_for_point(ec, t_point, marks=MARKS[0]):
+    """The offset (s) that puts an event of the potentiostat record at t_point on the plotted time
+    axis: the start of the first sweep (after any hold, found from dE/dt) or the first sample."""
+    if marks == MARKS[1]:
+        return float(t_point - ec.time[0])
+    if marks != MARKS[0]:
+        raise ValueError(f"marks must be one of {MARKS}")
+    t_sweep, _ = detect_sweep_start(ec.time, ec.potential)
+    return float(t_point - t_sweep)
+
+
+def point_time(x, point):
+    """X value (e.g. Epoch, already shifted by t0) of SPEC point `point` (0-based, as SPEC counts)."""
+    x = np.asarray(x, dtype=float)
+    if not 0 <= int(point) < x.size:
+        raise ValueError(f"point #{point} is not in the scan (points 0 to {x.size - 1})")
+    if not np.isfinite(x[int(point)]):
+        raise ValueError(f"point #{point} has no finite X value")
+    return float(x[int(point)])
 
 
 def time_zero(x):

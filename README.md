@@ -314,7 +314,9 @@ in a dialog):
   (e.g. Epoch) by t0, with "t = 0 at scan start" for any selected scan; add the potential from an
   EC-Lab file (.mpr with galvani, .mpt / .txt export, .csv) or a sweep defined by hand (start and
   hold, lower and upper vertex, rate in mV/s, cycles, first direction); "EC start at t =" puts the
-  potentiostat's first sample on the time axis to line the two records up. Show the potential on a
+  potentiostat's first sample on the time axis to line the two records up, or "At point #N, Align"
+  sets it from a SPEC point number (0-based) of the chosen scan: the first sweep (after any hold,
+  found from the potential) or the start of the potentiostat record happens at that point. Show the potential on a
   second y axis against time, or plot intensity against potential; "Export t, E, I" writes both.
 - **CTR fit.** Quick kinematic rods (substrate, film, adlayer, liquid, three layers) on integrated
   intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.

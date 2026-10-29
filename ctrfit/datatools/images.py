@@ -427,6 +427,29 @@ def lock_offset(roi, master):
     roi.offset_dy = fcy - mcy
 
 
+
+def apply_rois(config, keys, rois, keep_masters=False, set_default=False):
+    """Give every image in `keys` ((scan, image) pairs) a copy of `rois`. By default the copy is exact:
+    the images get these positions. With keep_masters, each image keeps the position of its own master
+    ROIs (those that follow no other ROI, e.g. a per-image tracked signal) and only the followers are
+    placed again from their offsets. Other images are not touched. set_default also makes `rois` the
+    defaults (for images without their own ROIs). Returns the number of images changed."""
+    n = 0
+    for key in keys:
+        new = [r.copy() for r in rois]
+        if keep_masters:
+            existing = config.overrides.get(key)
+            if existing is not None:
+                for i, r in enumerate(new):
+                    if r.follow_id is None and i < len(existing):
+                        r.x, r.y = existing[i].x, existing[i].y
+            apply_offsets(new)
+        config.overrides[key] = new
+        n += 1
+    if set_default:
+        config.set_default(rois)
+    return n
+
 # ============================================================
 # DISPLAY (shared by the image view and the batch PNGs)
 # ============================================================

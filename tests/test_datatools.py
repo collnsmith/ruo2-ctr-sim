@@ -639,3 +639,47 @@ def test_plotter_export_window(qapp, no_dialogs, tmp_path, monkeypatch):
     assert ex2.style.width == pytest.approx(8.5 / 2.54) and ex2.style.dpi == 600
     ex2.close()
     w.close()
+
+
+def test_apply_rois_copies_positions_unless_masters_are_kept():
+    cfg = images.ROIConfig()
+    sig = images.ROI(10, 10, 5, 5, "signal", "S")
+    bg = images.ROI(30, 10, 5, 5, "background", "B")
+    bg.follow_id, bg.offset_dx, bg.offset_dy = 0, 20, 0
+    cfg.overrides[(1, 0)] = [images.ROI(2, 2, 5, 5, "signal", "S"), images.ROI(22, 2, 5, 5, "background", "B")]
+    cfg.overrides[(9, 9)] = [images.ROI(1, 1, 1, 1, "signal", "X")]                     # not in keys: untouched
+    keys = [(1, 0), (1, 1)]
+    assert images.apply_rois(cfg, keys, [sig, bg], set_default=True) == 2
+    assert [r.to_tuple() for r in cfg.overrides[(1, 0)]] == [(10, 10, 5, 5), (30, 10, 5, 5)]   # exact copy
+    assert [r.to_tuple() for r in cfg.default_rois] == [(10, 10, 5, 5), (30, 10, 5, 5)]
+    assert cfg.overrides[(9, 9)][0].name == "X"
+    cfg.overrides[(1, 0)][0].x, cfg.overrides[(1, 0)][0].y = 3, 4                        # tracked signal there
+    images.apply_rois(cfg, keys, [sig, bg], keep_masters=True)
+    r0 = cfg.overrides[(1, 0)]
+    assert (r0[0].x, r0[0].y) == (3, 4) and r0[1].x == 3 + 20                            # follower placed from it
+    assert cfg.overrides[(1, 1)][0].to_tuple() == (10, 10, 5, 5)
+
+
+def test_apply_rois_to_all_and_to_scan_in_the_window(qapp, bgsub_window, no_dialogs, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    w = bgsub_window
+    # every image already has its own (old) ROIs: visit them all
+    for _ in range(2):
+        w._nav(1)
+    w._nav(-2)
+    w._roi_config.overrides = {(28, i): [images.ROI(30, 20, 20, 20, "signal", "S"),
+                                         images.ROI(0, 0, 15, 15, "background", "B")] for i in range(3)}
+    w._load_current()
+    rois = w._roi_w.get_rois()
+    rois[0].x, rois[0].y = 44, 33                                                         # move the signal here
+    w._roi_w._btn_apply.click()                                                           # All ROIs -> all images
+    for i in range(3):
+        assert w._roi_config.get_rois(28, i)[0].to_tuple() == (44, 33, 20, 20), i
+    w._nav(1)
+    assert w._roi_w.get_rois()[0].to_tuple() == (44, 33, 20, 20)                         # shown on the next image
+    w._roi_w.get_rois()[0].x = 50
+    w._roi_w._btn_apply_scan.click()                                                      # All ROIs -> this scan
+    assert all(w._roi_config.get_rois(28, i)[0].x == 50 for i in range(3))
+    w.undo()
+    assert w._roi_config.get_rois(28, 0)[0].x == 44

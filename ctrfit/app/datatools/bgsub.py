@@ -26,7 +26,7 @@ from PyQt5.QtWidgets import (QShortcut, QFormLayout, QApplication, QMainWindow, 
 
 from ctrfit.app.datatools.common import (HINT_STYLE, StatusMixin, group, hint, mono_font, primary_button,
                                          row, run_tool, sidebar)
-from ctrfit.datatools.images import (EditHistory, EditState, ImageCache, colormap_lut, display_rgb,
+from ctrfit.datatools.images import (apply_rois, EditHistory, EditState, ImageCache, colormap_lut, display_rgb,
                                      process_image, BG_METHODS, HAS_TIFF, ROI, ROIConfig, apply_offsets,
                                      lock_offset, scan_directory, tifffile)
 from ctrfit.datatools.paths import settings_file
@@ -625,6 +625,15 @@ class ROIListWidget(QWidget):
                 btn.setToolTip(tip + (" → all images" if c == 1 else " → the images of the current scan"))
                 grid.addWidget(btn, r, c)
         layout.addLayout(grid)
+        self._chk_keep_masters = QCheckBox("Keep each image's master positions")
+        self._chk_keep_masters.setToolTip(
+            "Off: 'All ROIs' copies these ROIs and positions exactly.\n"
+            "On: each image keeps the position of its own master ROIs (ROIs that follow no other ROI, e.g. a\n"
+            "signal tracked per image); only followers are placed again from their offsets.")
+        layout.addWidget(self._chk_keep_masters)
+
+    def keep_masters(self):
+        return self._chk_keep_masters.isChecked()
 
     def set_apply_callback(self, cb):
         self._btn_apply.clicked.connect(cb)
@@ -1471,60 +1480,24 @@ class MainWindow(StatusMixin, QMainWindow):
         self.say(f"{what} (Ctrl+Z undo, Ctrl+Y redo)")
 
     def _apply_rois_all(self):
-        """Set the current widget ROIs as the new defaults, and propagate to
-        every frame. For frames that already had overrides, preserve the
-        master ROI positions from the existing overrides (so per-frame manual
-        tracking is kept) but recompute follower positions from the new
-        offset values."""
-        n_overrides = len(self._roi_config.overrides)
-        n_files = len(self._files)
+        """Copy the ROIs of this image to every loaded image (and make them the defaults). With 'Keep
+        each image's master positions', images keep their own master (e.g. tracked signal) positions
+        and only the followers move."""
+        keep = self._roi_w.keep_masters()
         reply = QMessageBox.question(
-            self,
-            "Apply all ROIs to all images?",
-            f"This will overwrite ROI configuration for ALL {n_files} images, "
-            f"including {n_overrides} frames with existing overrides.\n\n"
-            f"Master ROI positions from existing overrides will be preserved, "
-            f"but all other ROIs will be replaced by the current widget config.\n\n"
-            f"Manual edits to non-master ROIs (e.g. powder ring dodges) WILL BE LOST.\n\n"
-            f"Use 'Apply selected ROI offset to all images' instead if you only "
-            f"want to update one follower.\n\n"
-            f"Continue?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No)
+            self, "Apply all ROIs to all images?",
+            f"Replace the ROIs of all {len(self._files)} loaded images with the ROIs of this image?\n\n"
+            + ("Each image keeps the position of its own master ROIs (those that follow no other ROI); "
+               "followers are placed from their offsets." if keep else
+               "Every image gets exactly these ROIs and positions; edits made on other images are replaced.")
+            + "\n\nCtrl+Z undoes this.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
         if reply != QMessageBox.Yes:
             self.say("Apply all cancelled")
             return
-
-        widget_rois = self._roi_w.get_rois()
-        # Identify which slots are masters (no follow_id) vs followers
-        # in the current widget config.
-        n = len(widget_rois)
-
-        # Strategy:
-        # - For each frame:
-        #     - take its existing override (if any) and read out the masters'
-        #       positions; if no override, use widget master positions
-        #     - reconstruct rois from widget config but place each master at
-        #       the saved position, then call apply_offsets
-        new_overrides = {}
-        for f in self._files:
-            key = (f['scan'], f['image'])
-            existing = self._roi_config.overrides.get(key)
-            # Build fresh roi list from widget config
-            new_rois = [r.copy() for r in widget_rois]
-            # Carry over master positions from existing override
-            if existing is not None:
-                for i, r in enumerate(new_rois):
-                    if r.follow_id is None and i < len(existing):
-                        new_rois[i].x = existing[i].x
-                        new_rois[i].y = existing[i].y
-            apply_offsets(new_rois)
-            new_overrides[key] = new_rois
-
-        self._roi_config.set_default(widget_rois)
-        self._roi_config.overrides = new_overrides
-        self.say(f"Applied to all {len(new_overrides)} images "
-            f"(per-frame master positions preserved)")
+        keys = [(f['scan'], f['image']) for f in self._files]
+        n = apply_rois(self._roi_config, keys, self._roi_w.get_rois(), keep_masters=keep, set_default=True)
+        self.say(f"ROIs applied to all {n} images" + (" (each image's master positions kept)" if keep else ""))
 
     def _apply_one_roi_all(self):
         """Update only the selected ROI across all defaults and overrides."""
@@ -1547,30 +1520,16 @@ class MainWindow(StatusMixin, QMainWindow):
         self.say(f"'{updated_roi.name}' (ROI {idx+1}) applied to all images")
 
     def _apply_rois_scan(self):
-        """Apply current widget ROIs as overrides for every image in the
-        CURRENT scan only. Preserves master positions from existing
-        overrides; recomputes follower positions from the new offsets."""
+        """Copy the ROIs of this image to every image of the current scan (see _apply_rois_all)."""
         if not self._files:
             self.say("No files loaded")
             return
-        widget_rois = self._roi_w.get_rois()
+        keep = self._roi_w.keep_masters()
         cur_scan = self._files[self._current_idx]['scan']
-        count = 0
-        for f in self._files:
-            if f['scan'] != cur_scan:
-                continue
-            key = (f['scan'], f['image'])
-            existing = self._roi_config.overrides.get(key)
-            new_rois = [r.copy() for r in widget_rois]
-            if existing is not None:
-                for i, r in enumerate(new_rois):
-                    if r.follow_id is None and i < len(existing):
-                        new_rois[i].x = existing[i].x
-                        new_rois[i].y = existing[i].y
-            apply_offsets(new_rois)
-            self._roi_config.overrides[key] = new_rois
-            count += 1
-        self.say(f"Applied to scan {cur_scan} ({count} images, masters preserved)")
+        keys = [(f['scan'], f['image']) for f in self._files if f['scan'] == cur_scan]
+        n = apply_rois(self._roi_config, keys, self._roi_w.get_rois(), keep_masters=keep)
+        self.say(f"ROIs applied to the {n} images of scan {cur_scan}"
+                 + (" (each image's master positions kept)" if keep else ""))
 
     def _apply_one_roi_scan(self):
         """Update only the selected ROI in every image of the CURRENT scan."""

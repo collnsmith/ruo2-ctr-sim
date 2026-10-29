@@ -13,7 +13,7 @@ from collections import OrderedDict
 import matplotlib
 import numpy as np
 from PyQt5.QtCore import Qt, QEvent, QObject
-from PyQt5.QtGui import QColor
+from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import (QFormLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
                              QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog,
                              QCheckBox, QSplitter, QScrollArea, QListWidget, QListWidgetItem, QGridLayout,
@@ -62,11 +62,40 @@ class ColumnSelectorWidget(QWidget):
         self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         for c in (1, 2, 3):
             self._table.horizontalHeader().setSectionResizeMode(c, QHeaderView.Fixed)
-            self._table.setColumnWidth(c, 30 if c < 3 else 40)
+            self._table.setColumnWidth(c, 34 if c < 3 else 50)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionMode(QAbstractItemView.NoSelection)
         self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._table.setAlternatingRowColors(True)
         layout.addWidget(self._table)
+        self._apply_contrast()
+
+    def _dark(self):
+        return self.palette().color(QPalette.Base).lightness() < 128
+
+    def _apply_contrast(self):
+        """Dark themes: bright grid lines and check boxes with a clear frame and a filled checked state
+        (the native ones nearly vanish on a dark table)."""
+        if self._dark():
+            self._table.setStyleSheet(
+                "QTableWidget { gridline-color: #9aa0a6; alternate-background-color: #2f3337; }"
+                "QHeaderView::section { border: 1px solid #9aa0a6; padding: 2px 4px; }"
+                "QCheckBox::indicator { width: 14px; height: 14px; border: 2px solid #d0d4d8; border-radius: 3px;"
+                " background: #1b1d1f; }"
+                "QCheckBox::indicator:hover { border-color: #ffffff; }"
+                "QCheckBox::indicator:checked { background: #4ea3ff; border-color: #cfe6ff; }")
+        else:
+            self._table.setStyleSheet("")
+        bg = QColor(110, 210, 130) if self._dark() else QColor(30, 130, 60)
+        for i, col in enumerate(self._columns):
+            item = self._table.item(i, 0)
+            if item is not None and self._source_tags.get(col) == 'bgsub':
+                item.setForeground(bg)
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.PaletteChange:          # the system switched between light and dark
+            self._apply_contrast()
 
     def set_columns(self, spec_cols, bgsub_cols=None):
         self._table.blockSignals(True)
@@ -83,7 +112,7 @@ class ColumnSelectorWidget(QWidget):
         for i, col in enumerate(all_cols):
             item = QTableWidgetItem(col)
             if self._source_tags.get(col) == 'bgsub':
-                item.setForeground(QColor(30, 130, 60))
+                item.setForeground(QColor(110, 210, 130) if self._dark() else QColor(30, 130, 60))
             self._table.setItem(i, 0, item)
             for c_idx in (1, 2, 3):
                 chk = QCheckBox()

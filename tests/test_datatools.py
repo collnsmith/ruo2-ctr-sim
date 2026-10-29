@@ -765,3 +765,17 @@ def test_smoothing_takes_every_plotted_trace(qapp, no_dialogs, tmp_path, monkeyp
     w._export_plot_data()                                                                # overlay with 2 traces
     assert out.read_text().count("# Trace:") == 2
     w.close()
+
+
+def test_column_table_contrast_follows_the_theme(qapp):
+    from PyQt5.QtGui import QColor, QPalette
+    from ctrfit.app.datatools.plotter import ColumnSelectorWidget
+    w = ColumnSelectorWidget()
+    w.set_columns(["L", "Detector"], ["ROI1"])
+    light = w._table.styleSheet()
+    pal = QPalette(w.palette())
+    pal.setColor(QPalette.Base, QColor(30, 30, 30))
+    w.setPalette(pal)                                                                     # system turns dark
+    qapp.processEvents()
+    assert "gridline-color" in w._table.styleSheet() and light == ""
+    assert w._table.item(2, 0).foreground().color().lightness() > 128                     # [bg] column readable

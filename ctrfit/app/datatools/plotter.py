@@ -1815,6 +1815,7 @@ class CTRSmoothDialog(StatusMixin, QDialog):
         self.setMinimumSize(850, 550)
         self._mw = main_win
         self._sources = []          # traces to smooth: {'label', 'x', 'y', 'color'}
+        self._on_time = False       # sources are on the plot's time axis (they can follow the potential)
         self._smoothed = []         # (x, y) per source, after Apply
         self._setup_ui()
 
@@ -1939,6 +1940,14 @@ class CTRSmoothDialog(StatusMixin, QDialog):
 
     def _grab_from_plot(self):
         """Every trace on the main plot's left axis (the potential on a second axis is not smoothed)."""
+        self._on_time = False
+        if self._mw._last_traces:                  # scan traces: smooth along time, whatever the X shown
+            sources = [{'label': tr['label'], 'x': np.asarray(tr['t'], float), 'y': np.asarray(tr['y'], float),
+                        'color': tr.get('color', '#1f77b4')} for tr in self._mw._last_traces]
+            self._on_time = True
+            n = sum(len(src['x']) for src in sources)
+            self._set_sources(sources, f"From plot: {len(sources)} trace(s), {n} points (along time)")
+            return
         lines = [ln for ln in self._mw._canvas.ax.get_lines() if np.asarray(ln.get_xdata()).size]
         if not lines:
             self.say("No data on main plot", error=True)
@@ -1961,6 +1970,7 @@ class CTRSmoothDialog(StatusMixin, QDialog):
                 x, y = np.arange(len(data), dtype=float), data
             else:
                 x, y = data[:, 0], data[:, 1]
+            self._on_time = False
             self._set_sources([{'label': os.path.basename(path), 'x': x, 'y': y, 'color': '#1f77b4'}],
                               f"From file: {len(x)} pts")
         except Exception as e:
@@ -2038,9 +2048,10 @@ class CTRSmoothDialog(StatusMixin, QDialog):
         self._mw._overlay = {
             'traces': [{'x': sx.copy(), 'y': sy.copy(), 'label': f"{src['label']} (smoothed)", 'color': src['color']}
                        for src, (sx, sy) in zip(self._sources, self._smoothed)],
-            'xlabel': ax.get_xlabel() or 'X',
+            'xlabel': (getattr(self._mw, '_time_xlabel', None) if self._on_time else None) or ax.get_xlabel() or 'X',
             'ylabel': (ax.get_ylabel() or 'Y') + ' (smoothed)',
             'title': f"Smoothed ({self._method_combo.currentText()})",
+            'time_axis': self._on_time,
         }
         self._mw._update_plot()
 
@@ -2761,6 +2772,21 @@ class MainWindow(StatusMixin, QMainWindow):
                  f"EC start at t = {off:.6g} s")
         self._update_plot()
 
+    def _draw_potential_axis(self, ax, t_lo, t_hi, tc, lw, tick_dir):
+        """E(t) on a second y axis over the plotted time range."""
+        if self._ec is None or not (np.isfinite(t_lo) and t_hi > t_lo):
+            return
+        ref = self._ec_ref.text().strip() or "V"
+        ax2 = ax.twinx()
+        te, Ee = trace_between(self._ec, self._ec_offset.value(), t_lo, t_hi)
+        ax2.plot(te, Ee, color=tc, linestyle='--', linewidth=max(lw * 0.8, 0.8), label='E')
+        ax2.set_ylabel(f"E ({ref})", color=tc, fontsize=self._font_axis.value())
+        ax2.tick_params(colors=tc, labelsize=self._font_tick.value(), direction=tick_dir)
+        for sp in ax2.spines.values(): sp.set_color(tc); sp.set_linewidth(self._spine_width.value())
+        if te.size == 0:
+            ax2.text(0.5, 0.5, "potential record outside the plotted time range\n(check t0 and EC start)",
+                     transform=ax2.transAxes, ha='center', va='center', color='#b00020')
+
     def _refresh_shift_table(self):
         """One row per selected scan in the shift table (keeps the selection and the shifts)."""
         cur = self._chosen_scan()
@@ -3048,6 +3074,7 @@ class MainWindow(StatusMixin, QMainWindow):
         show_m = self._chk_markers.isChecked(); lw = self._line_width.value(); ms_sz = self._marker_size.value()
 
         has_data = False
+        self._last_traces = []                             # filled again by what this plot draws
 
         # If overlay data exists, render it
         if self._overlay is not None:
@@ -3055,10 +3082,25 @@ class MainWindow(StatusMixin, QMainWindow):
             kw = {'linestyle': ls if ls else 'None'}
             if show_m and ms_style: kw['marker'] = ms_style; kw['markersize'] = ms_sz
             elif not ls: kw['marker'] = 'o'; kw['markersize'] = ms_sz
+            ec = self._ec
+            on_time = bool(ov.get('time_axis'))            # e.g. smoothed scans: x is the plot's time axis
+            vs_E = on_time and ec is not None and self._ec_mode.currentIndex() == 1
+            self._last_traces = []
+            t_lo, t_hi = np.inf, -np.inf
             for tr in overlay_traces(ov):
-                ax.plot(tr['x'], tr['y'], color=tr.get('color', '#2ca02c'), label=tr.get('label', 'data'),
+                t = np.asarray(tr['x'], dtype=float)
+                E_pts = potential_at(ec, t, self._ec_offset.value()) if (on_time and ec is not None) else None
+                if t.size and np.isfinite(t).any():
+                    t_lo, t_hi = min(t_lo, np.nanmin(t)), max(t_hi, np.nanmax(t))
+                ax.plot(E_pts if vs_E else t, tr['y'], color=tr.get('color', '#2ca02c'), label=tr.get('label', 'data'),
                         linewidth=lw, **kw)
-            ax.set_xlabel(ov.get('xlabel', ''), color=tc, fontsize=self._font_axis.value())
+                if on_time:
+                    self._last_traces.append({'label': tr.get('label', 'data'), 't': t, 'E': E_pts,
+                                              'y': np.asarray(tr['y'], float), 'color': tr.get('color', '#2ca02c')})
+            ref = self._ec_ref.text().strip() or "V"
+            ax.set_xlabel(f"E ({ref})" if vs_E else ov.get('xlabel', ''), color=tc, fontsize=self._font_axis.value())
+            if on_time and ec is not None and not vs_E:
+                self._draw_potential_axis(ax, t_lo, t_hi, tc, lw, tick_dir)
             ax.set_ylabel(ov.get('ylabel', ''), color=tc, fontsize=self._font_axis.value())
             title = self._plot_title.text() or ov.get('title', '')
             ax.set_title(title, color=tc, fontsize=self._font_title.value())
@@ -3154,7 +3196,7 @@ class MainWindow(StatusMixin, QMainWindow):
                     elif not ls: kw['marker'] = 'o'; kw['markersize'] = ms_sz
                     ax.plot(xd, yd2, color=color, label=label, linewidth=lw, **kw)
                     self._last_traces.append({'label': f"S{sn}_{yc.replace('[bg] ', '')}",
-                                              't': t_plot, 'E': E_pts, 'y': yd2})
+                                              't': t_plot, 'E': E_pts, 'y': yd2, 'color': color})
                     color_idx += 1
                     has_data = True
 
@@ -3164,19 +3206,12 @@ class MainWindow(StatusMixin, QMainWindow):
             elif self._zero_mode.currentIndex() == 2:
                 xlab = f"{xlab} from the start of S{selected[0]}"
             ref = self._ec_ref.text().strip() or "V"
+            self._time_xlabel = xlab                    # the X label on the time axis (for smoothed traces)
             if vs_E:
                 xlab = f"E ({ref})"
             ax.set_xlabel(xlab, color=tc, fontsize=self._font_axis.value())
-            if ec is not None and not vs_E and np.isfinite(t_lo) and t_hi > t_lo:
-                ax2 = ax.twinx()
-                te, Ee = trace_between(ec, self._ec_offset.value(), t_lo, t_hi)
-                ax2.plot(te, Ee, color=tc, linestyle='--', linewidth=max(lw * 0.8, 0.8), label='E')
-                ax2.set_ylabel(f"E ({ref})", color=tc, fontsize=self._font_axis.value())
-                ax2.tick_params(colors=tc, labelsize=self._font_tick.value(), direction=tick_dir)
-                for sp in ax2.spines.values(): sp.set_color(tc); sp.set_linewidth(self._spine_width.value())
-                if te.size == 0:
-                    ax2.text(0.5, 0.5, "potential record outside the plotted time range\n(check t0 and EC start)",
-                             transform=ax2.transAxes, ha='center', va='center', color='#b00020')
+            if ec is not None and not vs_E:
+                self._draw_potential_axis(ax, t_lo, t_hi, tc, lw, tick_dir)
             ylabel = f"Intensity / {display_label(norm_col.replace('[bg] ',''), self._label_map)}" if norm_col else "Intensity"
             if self._chk_transm.isChecked():
                 tcol = self._transm_col.text().strip() or "transm"

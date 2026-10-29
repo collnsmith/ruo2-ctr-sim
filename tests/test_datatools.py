@@ -758,6 +758,16 @@ def test_smoothing_takes_every_plotted_trace(qapp, no_dialogs, tmp_path, monkeyp
     d._send_to_main()
     lines = w._canvas.ax.get_lines()
     assert len(lines) == 2 and all(ln.get_label().endswith("(smoothed)") for ln in lines)
+    assert len(w._canvas.fig.axes) == 2                                                  # potential axis kept
+    # the smoothed traces still go against the potential
+    w._ec_mode.setCurrentIndex(1)
+    lines = w._canvas.ax.get_lines()
+    assert len(lines) == 2 and len(w._canvas.fig.axes) == 1 and w._canvas.ax.get_xlabel().startswith("E (")
+    E = np.concatenate([ln.get_xdata() for ln in lines])
+    assert np.nanmin(E) >= w._ec.potential.min() - 1e-9 and np.nanmax(E) <= w._ec.potential.max() + 1e-9
+    d._grab_from_plot()                                                                   # again: along time
+    assert d._on_time and max(np.nanmax(src["x"]) for src in d._sources) > 100          # seconds, not volts
+    w._ec_mode.setCurrentIndex(0)
     out = tmp_path / "smooth.txt"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
     d._export_smooth()

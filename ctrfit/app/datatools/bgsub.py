@@ -17,16 +17,17 @@ import re
 import tempfile
 
 import numpy as np
-from PyQt5.QtCore import Qt, QEvent, QEventLoop, QObject
-from PyQt5.QtGui import QImage, QPixmap, QPainter, QPen, QColor, QBrush, QFont
-from PyQt5.QtWidgets import (QFormLayout, QApplication, QMainWindow, QWidget, QVBoxLayout, QGridLayout,
-                             QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit,
-                             QFileDialog, QGroupBox, QCheckBox, QSplitter, QListWidget, QMessageBox,
-                             QProgressDialog, QSizePolicy)
+from PyQt5.QtCore import QRectF, QTimer, Qt, QEvent, QEventLoop, QObject
+from PyQt5.QtGui import QKeySequence, QImage, QPixmap, QPainter, QPen, QColor, QBrush, QFont
+from PyQt5.QtWidgets import (QShortcut, QFormLayout, QApplication, QMainWindow, QWidget, QVBoxLayout,
+                             QGridLayout, QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox,
+                             QLineEdit, QFileDialog, QGroupBox, QCheckBox, QSplitter, QListWidget,
+                             QMessageBox, QProgressDialog, QSizePolicy)
 
 from ctrfit.app.datatools.common import (HINT_STYLE, StatusMixin, group, hint, mono_font, primary_button,
                                          row, run_tool, sidebar)
-from ctrfit.datatools.images import (BG_METHODS, HAS_TIFF, ROI, ROIConfig, apply_offsets, load_image,
+from ctrfit.datatools.images import (EditHistory, EditState, ImageCache, colormap_lut, display_rgb,
+                                     process_image, BG_METHODS, HAS_TIFF, ROI, ROIConfig, apply_offsets,
                                      lock_offset, scan_directory, tifffile)
 from ctrfit.datatools.paths import settings_file
 
@@ -43,6 +44,9 @@ class ImageCanvas(QLabel):
 
         self._img_data = None
         self._display_pixmap = None
+        self._dirty = False
+        self._label_font = QFont('monospace', 9)
+        self.before_change = None       # called before a ROI drag or a mask stroke (undo checkpoint)
         self._rois = []
         self._interactive = interactive
         self._scale = 1.0
@@ -99,6 +103,7 @@ class ImageCanvas(QLabel):
     def set_mask_data(self, mask):
         """Set reference to mask array for painting."""
         self._mask_data = mask
+        self.mask_changed()
 
     def set_mask_painted_callback(self, cb):
         self._on_mask_painted = cb
@@ -125,6 +130,7 @@ class ImageCanvas(QLabel):
                 px, py = ix + dx, iy + dy
                 if 0 <= py < h and 0 <= px < w:
                     self._mask_data[py, px] = self._mask_paint_value
+        self.mask_changed()
         if self._on_mask_painted:
             self._on_mask_painted()
 
@@ -139,6 +145,10 @@ class ImageCanvas(QLabel):
     def set_rois(self, rois):
         self._rois = rois
         self.update()
+
+    def is_busy(self):
+        """True while the mouse drags a ROI or paints the mask (callers can defer heavy work)."""
+        return self._drag_roi_idx >= 0 or (self._mask_paint_mode and QApplication.mouseButtons() & Qt.LeftButton)
 
     def set_log_scale(self, enabled):
         self._log_scale = enabled
@@ -155,84 +165,30 @@ class ImageCanvas(QLabel):
 
     @staticmethod
     def _build_lut(name):
-        """Build a 256-entry RGB lookup table for the given colormap name."""
-        x = np.linspace(0, 1, 256)
-        lut = np.zeros((256, 3), dtype=np.uint8)
-        if name == 'gray':
-            lut[:, 0] = lut[:, 1] = lut[:, 2] = (x * 255).astype(np.uint8)
-        elif name == 'hot':
-            r = np.clip(x * 3, 0, 1)
-            g = np.clip(x * 3 - 1, 0, 1)
-            b = np.clip(x * 3 - 2, 0, 1)
-            lut[:, 0] = (r * 255).astype(np.uint8)
-            lut[:, 1] = (g * 255).astype(np.uint8)
-            lut[:, 2] = (b * 255).astype(np.uint8)
-        elif name == 'viridis':
-            # Simplified viridis approximation
-            r = np.clip(0.267004 + x * (0.282327 + x * (-1.964 + x * 1.596)), 0, 1)
-            g = np.clip(0.004874 + x * (1.015 + x * (-0.474 + x * 0.153)), 0, 1)
-            b = np.clip(0.329415 + x * (1.406 + x * (-3.192 + x * 1.820)), 0, 1)
-            lut[:, 0] = (r * 255).astype(np.uint8)
-            lut[:, 1] = (g * 255).astype(np.uint8)
-            lut[:, 2] = (b * 255).astype(np.uint8)
-        elif name == 'inferno':
-            r = np.clip(x * 2.8 - 0.15, 0, 1)
-            g = np.clip(x * 2.0 - 0.6, 0, 1)
-            b = np.clip(0.45 + x * 1.2 - x * x * 2.8, 0, 1)
-            lut[:, 0] = (r * 255).astype(np.uint8)
-            lut[:, 1] = (g * 255).astype(np.uint8)
-            lut[:, 2] = (b * 255).astype(np.uint8)
-        elif name == 'coolwarm':
-            r = np.clip(0.23 + x * 1.5 - (1 - x) * 0.0, 0, 1)
-            g = np.clip(0.3 + 2.0 * (0.5 - np.abs(x - 0.5)), 0, 1)
-            b = np.clip(1.0 - x * 1.5 + (1 - x) * 0.0, 0, 1)
-            lut[:, 0] = (r * 255).astype(np.uint8)
-            lut[:, 1] = (g * 255).astype(np.uint8)
-            lut[:, 2] = (b * 255).astype(np.uint8)
-        elif name == 'jet':
-            r = np.clip(1.5 - np.abs(x - 0.75) * 4, 0, 1)
-            g = np.clip(1.5 - np.abs(x - 0.5) * 4, 0, 1)
-            b = np.clip(1.5 - np.abs(x - 0.25) * 4, 0, 1)
-            lut[:, 0] = (r * 255).astype(np.uint8)
-            lut[:, 1] = (g * 255).astype(np.uint8)
-            lut[:, 2] = (b * 255).astype(np.uint8)
-        else:
-            lut[:, 0] = lut[:, 1] = lut[:, 2] = (x * 255).astype(np.uint8)
-        return lut
+        """256-entry RGB lookup table for the given colormap name."""
+        return colormap_lut(name)
 
     def _update_display(self):
+        """Mark the picture out of date; it is rebuilt once, right before the next paint, however
+        many settings changed in between."""
+        self._dirty = True
+        self.update()
+
+    def _ensure_rendered(self):
+        if getattr(self, "_dirty", False):
+            self._dirty = False
+            self._render()
+
+    def _render(self):
         if self._img_data is None:
-            self.setText("No image")
             self._display_pixmap = None
             return
-        img = self._img_data.copy()
-        if self._log_scale:
-            img = np.where(img > 0, np.log10(img + 1), 0)
-
-        # Determine display range
-        pos = img[img > 0] if np.any(img > 0) else img.ravel()
-        if self._vmin is not None:
-            vmin = np.log10(self._vmin + 1) if self._log_scale and self._vmin > 0 else self._vmin
-        else:
-            vmin = np.percentile(pos, 1) if pos.size > 0 else 0
-        if self._vmax is not None:
-            vmax = np.log10(self._vmax + 1) if self._log_scale and self._vmax > 0 else self._vmax
-        else:
-            vmax = np.percentile(pos, 99.5) if pos.size > 0 else 1
-
-        idx = np.clip((img - vmin) / (vmax - vmin + 1e-10) * 255, 0, 255).astype(np.uint8)
-
-        # Apply colormap LUT
-        lut = self._build_lut(self._colormap)
-        h, w = idx.shape
-        rgb = lut[idx.ravel()].reshape(h, w, 3)
-
-        # Convert to QImage (RGB888)
-        bytes_per_line = w * 3
-        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        rgb = np.ascontiguousarray(display_rgb(self._img_data, self._log_scale, self._vmin, self._vmax,
+                                               self._colormap))
+        h, w = rgb.shape[:2]
+        qimg = QImage(rgb.data, w, h, w * 3, QImage.Format_RGB888)
         self._display_pixmap = QPixmap.fromImage(qimg.copy())
         self._fit_to_widget()
-        self.update()
 
     def _fit_to_widget(self):
         if self._display_pixmap is None:
@@ -266,6 +222,7 @@ class ImageCanvas(QLabel):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        self._ensure_rendered()
         self._fit_to_widget()
         self.update()
 
@@ -277,7 +234,27 @@ class ImageCanvas(QLabel):
         return ((wx - self._offset_x) / self._scale,
                 (wy - self._offset_y) / self._scale)
 
+    def _mask_image(self):
+        """The mask as one translucent red RGBA image (rebuilt only when the mask changed)."""
+        m = self._mask_data
+        if m is None:
+            return None
+        key = (id(m), m.shape, getattr(self, "_mask_version", 0))
+        if getattr(self, "_mask_qimage_key", None) != key:
+            rgba = np.zeros(m.shape + (4,), np.uint8)
+            rgba[m] = (255, 40, 40, 150)
+            self._mask_rgba = rgba                      # keep the buffer alive for the QImage
+            self._mask_qimage = QImage(rgba.data, m.shape[1], m.shape[0], m.shape[1] * 4, QImage.Format_RGBA8888)
+            self._mask_qimage_key = key
+        return self._mask_qimage
+
+    def mask_changed(self):
+        """The mask array was edited in place."""
+        self._mask_version = getattr(self, "_mask_version", 0) + 1
+        self.update()
+
     def paintEvent(self, event):
+        self._ensure_rendered()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
         painter.fillRect(self.rect(), QColor('#1a1a1a'))
@@ -305,8 +282,7 @@ class ImageCanvas(QLabel):
             painter.drawRect(int(wx), int(wy), int(ww), int(wh))
 
             painter.setPen(QPen(color, 1))
-            font = QFont('monospace', 9)
-            painter.setFont(font)
+            painter.setFont(self._label_font)
             label = f"{roi.name} ({roi.roi_type[0].upper()})"
             painter.drawText(int(wx + 3), int(wy - 4), label)
 
@@ -326,55 +302,28 @@ class ImageCanvas(QLabel):
             painter.drawRect(int(min(x1,x2)), int(min(y1,y2)),
                              int(abs(x2-x1)), int(abs(y2-y1)))
 
-        # Draw mask overlay when in mask paint mode
+        # Mask overlay when in mask paint mode: one scaled image, crosshairs on masked pixels when zoomed in
         if self._mask_paint_mode and self._mask_data is not None and self._display_pixmap is not None:
             h, w = self._mask_data.shape
-            # Only draw visible region for performance
-            ww = self.width()
-            wh = self.height()
+            overlay = self._mask_image()
+            painter.drawImage(QRectF(self._offset_x, self._offset_y, w * self._scale, h * self._scale), overlay)
             ix1, iy1 = self._widget_to_img(0, 0)
-            ix2, iy2 = self._widget_to_img(ww, wh)
+            ix2, iy2 = self._widget_to_img(self.width(), self.height())
             ix1 = max(0, int(ix1)); iy1 = max(0, int(iy1))
-            ix2 = min(w, int(ix2)+1); iy2 = min(h, int(iy2)+1)
-
-            n_visible = (ix2 - ix1) * (iy2 - iy1)
-            # Draw individual pixels if not too many (performance guard)
-            if n_visible < 500000 and self._scale >= 0.5:
-                pixel_w = max(1, int(self._scale))
-                pixel_h = max(1, int(self._scale))
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(QBrush(QColor(255, 40, 40, 150)))
-                for py in range(iy1, iy2):
-                    for px in range(ix1, ix2):
-                        if self._mask_data[py, px]:
-                            wx_p, wy_p = self._img_to_widget(px, py)
-                            painter.drawRect(int(wx_p), int(wy_p), pixel_w, pixel_h)
-                # Draw crosshair on masked pixels when zoomed in
-                if self._scale > 4:
-                    painter.setPen(QPen(QColor(255, 255, 255, 100), 1))
-                    for py in range(iy1, iy2):
-                        for px in range(ix1, ix2):
-                            if self._mask_data[py, px]:
-                                wx_p, wy_p = self._img_to_widget(px, py)
-                                cx = int(wx_p + pixel_w / 2)
-                                cy = int(wy_p + pixel_h / 2)
-                                painter.drawLine(cx - 3, cy, cx + 3, cy)
-                                painter.drawLine(cx, cy - 3, cx, cy + 3)
-            else:
-                painter.setPen(QPen(QColor(255, 80, 80), 1))
-                font = QFont('monospace', 10)
-                painter.setFont(font)
-                painter.drawText(10, 20, "MASK PAINT MODE — zoom in to see/edit pixels")
-
-            # Mode indicator
+            ix2 = min(w, int(ix2) + 1); iy2 = min(h, int(iy2) + 1)
+            view = self._mask_data[iy1:iy2, ix1:ix2]
+            if self._scale > 4:
+                painter.setPen(QPen(QColor(255, 255, 255, 100), 1))
+                half = self._scale / 2
+                for py, px in zip(*np.nonzero(view)):
+                    wx_p, wy_p = self._img_to_widget(px + ix1, py + iy1)
+                    cx, cy = int(wx_p + half), int(wy_p + half)
+                    painter.drawLine(cx - 3, cy, cx + 3, cy)
+                    painter.drawLine(cx, cy - 3, cx, cy + 3)
             painter.setPen(QPen(QColor(255, 80, 80, 200), 1))
-            font = QFont('monospace', 9)
-            painter.setFont(font)
-            n_masked = int(self._mask_data[iy1:iy2, ix1:ix2].sum()) if n_visible < 500000 else -1
-            mode_text = "MASK: click=add, click masked=remove"
-            if n_masked >= 0:
-                mode_text += f"  ({n_masked} masked in view)"
-            painter.drawText(10, self.height() - 8, mode_text)
+            painter.setFont(self._label_font)
+            painter.drawText(10, self.height() - 8,
+                             f"MASK: click=add, click masked=remove  ({int(view.sum())} masked in view)")
 
         painter.end()
 
@@ -432,6 +381,8 @@ class ImageCanvas(QLabel):
 
         # Mask paint mode: click to toggle mask pixels
         if self._mask_paint_mode and self._mask_data is not None:
+            if self.before_change:
+                self.before_change()
             self._paint_mask_at(event.x(), event.y(), determine_mode=True)
             self.update()
             return
@@ -440,6 +391,8 @@ class ImageCanvas(QLabel):
         if self._interactive:
             idx, mode = self._hit_test(event.x(), event.y())
             if idx >= 0:
+                if self.before_change:
+                    self.before_change()
                 self._drag_roi_idx = idx
                 self._drag_mode = mode
                 self._drag_start = (event.x(), event.y())
@@ -601,6 +554,7 @@ class ROIListWidget(QWidget):
         self._on_change = on_change
         self._current_image = None
         self._current_mask = None
+        self.before_change = None       # called before an edit (undo checkpoint)
         self._setup_ui()
 
     def _setup_ui(self):
@@ -741,6 +695,8 @@ class ROIListWidget(QWidget):
         self._populate_follow_combo()
 
     def _add_roi(self):
+        if self.before_change:
+            self.before_change()
         n = len(self._rois) + 1
         self._rois.append(ROI(50, 50, 100, 100, 'signal', f'ROI{n}'))
         self._refresh()
@@ -749,6 +705,8 @@ class ROIListWidget(QWidget):
             self._on_change()
 
     def _remove_roi(self):
+        if self.before_change:
+            self.before_change()
         idx = self._list.currentRow()
         if 0 <= idx < len(self._rois):
             self._rois.pop(idx)
@@ -799,6 +757,8 @@ class ROIListWidget(QWidget):
                 self._lbl_offset.setText("offset: —")
 
     def _update_from_fields(self):
+        if self.before_change:
+            self.before_change()
         idx = self._list.currentRow()
         if 0 <= idx < len(self._rois):
             r = self._rois[idx]
@@ -828,7 +788,7 @@ class ROIListWidget(QWidget):
             if self._on_change:
                 self._on_change()
 
-    def sync_from_canvas(self):
+    def sync_from_canvas(self, refresh=True):
         idx = self._list.currentRow()
         if 0 <= idx < len(self._rois):
             r = self._rois[idx]
@@ -840,8 +800,9 @@ class ROIListWidget(QWidget):
             self._h.setValue(r.h)
             for w in (self._x, self._y, self._w, self._h):
                 w.blockSignals(False)
-            self._refresh()
-            self._list.setCurrentRow(idx)
+            if refresh:
+                self._refresh()
+                self._list.setCurrentRow(idx)
 
 
 class _ScrollBlockFilter(QObject):
@@ -889,8 +850,20 @@ class MainWindow(StatusMixin, QMainWindow):
         self._mask = None
         self._roi_config = ROIConfig()
         self._show_full_sub = True
+        self._cache = ImageCache()          # recent images + read-ahead (slow or busy disks)
+        self._history = EditHistory()       # Ctrl+Z / Ctrl+Y over ROI and mask edits
+        # heavy redraws (subtraction, list) at most every 40 ms while dragging or painting
+        self._busy_timer = QTimer(self)
+        self._busy_timer.setSingleShot(True)
+        self._busy_timer.setInterval(40)
+        self._busy_timer.timeout.connect(self._refresh_after_edit)
+        self._busy_orig = False
 
         self._setup_ui()
+        for seq, fn in (("Ctrl+Z", self.undo), ("Ctrl+Y", self.redo), ("Ctrl+Shift+Z", self.redo)):
+            sc = QShortcut(QKeySequence(seq), self)
+            sc.setContext(Qt.WidgetWithChildrenShortcut)
+            sc.activated.connect(fn)
         self._install_key_filter()
         self._install_scroll_blocker()
         self._load_settings()
@@ -925,6 +898,7 @@ class MainWindow(StatusMixin, QMainWindow):
         c['background'] = {
             'method': self._method.currentText(),
             'clip_negatives': str(self._chk_clip_neg.isChecked()),
+            'save_images': str(self._chk_save_png.isChecked()),
         }
 
         c['display'] = {
@@ -1013,6 +987,7 @@ class MainWindow(StatusMixin, QMainWindow):
         if idx >= 0:
             self._method.setCurrentIndex(idx)
         self._chk_clip_neg.setChecked(getbool('background', 'clip_negatives', False))
+        self._chk_save_png.setChecked(getbool('background', 'save_images', True))
 
         # Display
         self._chk_log.setChecked(getbool('display', 'log_scale', True))
@@ -1099,21 +1074,23 @@ class MainWindow(StatusMixin, QMainWindow):
         dl.addRow(self._lbl_count)
 
         self._roi_w = ROIListWidget(on_change=self._on_rois_changed)
-        self._roi_w.set_apply_callback(self._apply_rois_all)
-        self._roi_w.set_apply_one_callback(self._apply_one_roi_all)
-        self._roi_w.set_apply_scan_callback(self._apply_rois_scan)
-        self._roi_w.set_apply_one_scan_callback(self._apply_one_roi_scan)
-        self._roi_w.set_lock_offset_callback(self._lock_selected_offset)
-        self._roi_w.set_apply_offset_callback(self._apply_offset_all)
-        self._roi_w.set_apply_offset_scan_callback(self._apply_offset_scan)
+        u = self._undoable
+        self._roi_w.before_change = self.checkpoint
+        self._roi_w.set_apply_callback(u(self._apply_rois_all))
+        self._roi_w.set_apply_one_callback(u(self._apply_one_roi_all))
+        self._roi_w.set_apply_scan_callback(u(self._apply_rois_scan))
+        self._roi_w.set_apply_one_scan_callback(u(self._apply_one_roi_scan))
+        self._roi_w.set_lock_offset_callback(u(self._lock_selected_offset))
+        self._roi_w.set_apply_offset_callback(u(self._apply_offset_all))
+        self._roi_w.set_apply_offset_scan_callback(u(self._apply_offset_scan))
         ig, il = group("ROI file", form=False)
         bs, bl2 = QPushButton("Save…"), QPushButton("Load…")
         bs.clicked.connect(self._save_rois)
-        bl2.clicked.connect(self._load_rois)
+        bl2.clicked.connect(self._undoable(self._load_rois))
         bfind = QPushButton("Find background ROIs…")
         bfind.setToolTip("Open the background ROI finder on this folder and scan range; "
                          "its background boxes replace the background ROIs (signals are kept).")
-        bfind.clicked.connect(self._launch_bg_finder)
+        bfind.clicked.connect(self._undoable(self._launch_bg_finder))
         il.addWidget(row(bs, bl2, bfind, stretch_first=False))
 
         bg, bl = group("Background")
@@ -1146,9 +1123,9 @@ class MainWindow(StatusMixin, QMainWindow):
         self._mask_brush.valueChanged.connect(self._on_mask_brush_change)
         ml.addRow(row(self._chk_mask_paint, self._mask_brush, stretch_first=False))
         bm, bm_save, bm_clear = QPushButton("Load…"), QPushButton("Save…"), QPushButton("Clear")
-        bm.clicked.connect(self._load_mask)
+        bm.clicked.connect(self._undoable(self._load_mask))
         bm_save.clicked.connect(self._save_mask)
-        bm_clear.clicked.connect(self._clear_mask)
+        bm_clear.clicked.connect(self._undoable(self._clear_mask))
         self._lbl_mask_count = hint("0 masked pixels")
         ml.addRow(row(bm, bm_save, bm_clear, self._lbl_mask_count, stretch_first=False))
 
@@ -1156,6 +1133,10 @@ class MainWindow(StatusMixin, QMainWindow):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.addWidget(sidebar(dg, self._roi_w, ig, bg, mg, width=360), 1)
+        self._chk_save_png = QCheckBox("Also save the subtracted images (.png)")
+        self._chk_save_png.setChecked(True)
+        self._chk_save_png.setToolTip("Off: only the ROI sums file is written (much faster for long scans)")
+        lv.addWidget(self._chk_save_png)
         self._btn_run = primary_button("Process all images", self._run_batch, "Ctrl+R", self)
         lv.addWidget(self._btn_run)
         self._hsplitter = QSplitter(Qt.Horizontal)
@@ -1208,6 +1189,7 @@ class MainWindow(StatusMixin, QMainWindow):
         self._cv_orig.set_roi_changed_callback(self._on_canvas_drag)
         self._cv_orig.set_mask_painted_callback(self._on_mask_painted)
         self._cv_orig.set_cursor_callback(self._on_cursor_orig)
+        self._cv_orig.before_change = self.checkpoint
         ol.addWidget(self._cv_orig)
         self._vsplitter.addWidget(oc)
         sc = QWidget()
@@ -1365,7 +1347,9 @@ class MainWindow(StatusMixin, QMainWindow):
             f"Scan {info['scan']:03d} / Img {info['image']:03d}  "
             f"[{self._current_idx+1}/{len(self._files)}]")
         try:
-            self._current_image = load_image(info['path'], info['ext'])
+            self._current_image = self._cache.get(info['path'], info['ext'])
+            i = self._current_idx
+            self._cache.prefetch([self._files[k] for k in (i + 1, i + 2, i - 1) if 0 <= k < len(self._files)])
         except Exception as e:
             self.say(f"Error: {e}")
             self._current_image = None
@@ -1374,7 +1358,7 @@ class MainWindow(StatusMixin, QMainWindow):
         if self._chk_auto.isChecked() and self._current_image is not None:
             self._mask = self._current_image > self._thresh.value()
 
-        disp = self._current_image.copy()
+        disp = np.array(self._current_image, dtype=float, copy=True)
         if self._mask is not None and self._mask.shape == disp.shape:
             disp[self._mask] = 0
 
@@ -1416,14 +1400,75 @@ class MainWindow(StatusMixin, QMainWindow):
         self._update_sub()
 
     def _on_canvas_drag(self):
-        self._roi_w.sync_from_canvas()
+        busy = self._cv_orig.is_busy()
+        self._roi_w.sync_from_canvas(refresh=not busy)
         rois = self._roi_w.get_rois()
         sel_idx = self._roi_w._list.currentRow()
         if 0 <= sel_idx < len(rois) and rois[sel_idx].follow_id is None:
             apply_offsets(rois)
-            self._roi_w.set_rois(rois)  # push back so widget display refreshes
+            if not busy:
+                self._roi_w.set_rois(rois)  # push back so widget display refreshes
         self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
+        if busy:
+            self._defer_refresh()
+        else:
+            self._busy_timer.stop()
+            self._update_sub()
+
+    def _defer_refresh(self, orig=False):
+        """Redo the subtraction (and the ROI list, the original view if orig) soon, at most every 40 ms."""
+        self._busy_orig = self._busy_orig or orig
+        if not self._busy_timer.isActive():
+            self._busy_timer.start()
+
+    def _refresh_after_edit(self):
+        if self._busy_orig and self._current_image is not None:
+            self._show_original()
+        self._busy_orig = False
+        if not self._cv_orig.is_busy():
+            self._roi_w._refresh()
         self._update_sub()
+
+    def _show_original(self):
+        disp = np.array(self._current_image, dtype=float, copy=True)
+        if self._mask is not None and self._mask.shape == disp.shape:
+            disp[self._mask] = 0
+        self._cv_orig.set_image(disp)
+
+    # ---- Undo / redo ----
+    def _state(self):
+        return EditState(self._roi_config, self._roi_w.get_rois(), self._mask)
+
+    def checkpoint(self):
+        """Remember the ROIs and the mask before a change (Ctrl+Z goes back here)."""
+        self._history.checkpoint(self._state())
+
+    def _undoable(self, fn):
+        def run(*_):
+            self.checkpoint()
+            return fn()
+        return run
+
+    def undo(self):
+        self._restore(self._history.undo(self._state()), "Undone")
+
+    def redo(self):
+        self._restore(self._history.redo(self._state()), "Redone")
+
+    def _restore(self, state, what):
+        if state is None:
+            self.say(f"Nothing to {'undo' if what == 'Undone' else 'redo'}")
+            return
+        rois, mask = state.apply_to(self._roi_config)
+        self._mask = mask
+        self._cv_orig.set_mask_data(self._mask)
+        self._update_mask_label()
+        self._roi_w.set_rois(rois)
+        self._cv_orig.set_rois(rois if self._chk_roi_orig.isChecked() else [])
+        if self._current_image is not None:
+            self._show_original()
+        self._update_sub()
+        self.say(f"{what} (Ctrl+Z undo, Ctrl+Y redo)")
 
     def _apply_rois_all(self):
         """Set the current widget ROIs as the new defaults, and propagate to
@@ -1747,7 +1792,7 @@ class MainWindow(StatusMixin, QMainWindow):
         bg = [r for r in rois if r.roi_type == 'background']
 
         if not sig or not bg:
-            disp = self._current_image.copy()
+            disp = np.array(self._current_image, dtype=float, copy=True)
             if self._mask is not None and self._mask.shape == disp.shape:
                 disp[self._mask] = 0
             self._cv_sub.set_log_scale(self._chk_log.isChecked())
@@ -1840,13 +1885,7 @@ class MainWindow(StatusMixin, QMainWindow):
     def _on_mask_painted(self):
         """Called by canvas when mask pixels are painted."""
         self._update_mask_label()
-        # Refresh display with updated mask
-        if self._current_image is not None:
-            disp = self._current_image.copy()
-            if self._mask is not None and self._mask.shape == disp.shape:
-                disp[self._mask] = 0
-            self._cv_orig.set_image(disp)
-        self._update_sub()
+        self._defer_refresh(orig=True)          # at most every 40 ms while the brush moves
 
     def _update_mask_label(self):
         n = int(self._mask.sum()) if self._mask is not None else 0
@@ -1966,9 +2005,10 @@ class MainWindow(StatusMixin, QMainWindow):
             out_dir = '.'
         txt_stem = os.path.splitext(os.path.basename(sum_path))[0]
 
-        # Image subdirectory named after the chosen text file
-        img_subdir = os.path.join(out_dir, txt_stem + "_images")
-        os.makedirs(img_subdir, exist_ok=True)
+        save_png = self._chk_save_png.isChecked()
+        img_subdir = os.path.join(out_dir, txt_stem + "_images")      # named after the sums file
+        if save_png:
+            os.makedirs(img_subdir, exist_ok=True)
 
         method = BG_METHODS[self._method.currentText()]
         n = len(self._files)
@@ -1990,96 +2030,26 @@ class MainWindow(StatusMixin, QMainWindow):
                 break
             progress.setValue(i)
 
+            self._cache.prefetch(self._files[i + 1:i + 3])            # read the next images meanwhile
             try:
-                img = load_image(info['path'], info['ext'])
+                img = self._cache.get(info['path'], info['ext'])
             except Exception:
                 continue
 
             mask = None
             if self._chk_auto.isChecked():
                 mask = img > self._thresh.value()
-
-            # Combine with loaded/painted mask
-            if self._mask is not None and self._mask.shape == img.shape:
-                if mask is None:
-                    mask = self._mask.copy()
-                else:
-                    mask = mask | self._mask
+            if self._mask is not None and self._mask.shape == img.shape:   # with the loaded / painted mask
+                mask = self._mask.copy() if mask is None else (mask | self._mask)
 
             rois = self._roi_config.get_rois(info['scan'], info['image'])
-            # Only auto-apply offsets when this image has no saved override.
-            # Saved overrides represent explicit user-edited positions and are
-            # the source of truth for batch processing.
+            # Saved overrides are the user's positions for that image; offsets only for fresh defaults.
             if not self._roi_config.has_override(info['scan'], info['image']):
                 apply_offsets(rois)
-            sig = [r for r in rois if r.roi_type == 'signal']
-            bg = [r for r in rois if r.roi_type == 'background']
+            sub, sums = process_image(img, rois, method, mask, self._chk_clip_neg.isChecked())
 
-            sub = method(img, sig, bg, mask) if sig and bg else img.copy()
-            if mask is not None:
-                sub[mask] = 0
-            if self._chk_clip_neg.isChecked():
-                sub = np.clip(sub, 0, None)
-
-            # Save subtracted image as colormapped PNG
-            base = os.path.basename(info['path'])
-            out_name = re.sub(r'\.(h5|tif|tiff)$', '_sub.png', base)
-            try:
-                # Apply same display transform as the preview
-                img_disp = sub.copy()
-                if self._chk_log.isChecked():
-                    img_disp = np.where(img_disp > 0, np.log10(img_disp + 1), 0)
-
-                pos = img_disp[img_disp > 0] if np.any(img_disp > 0) else img_disp.ravel()
-                vmin = self._vmin_spin.value()
-                vmax = self._vmax_spin.value()
-                if self._chk_log.isChecked():
-                    if vmin > 0:
-                        vmin = np.log10(vmin + 1)
-                    if vmax > 0:
-                        vmax = np.log10(vmax + 1)
-                if vmin == 0 and not self._chk_log.isChecked():
-                    vmin = np.percentile(pos, 1) if pos.size > 0 else 0
-                elif vmin == 0:
-                    vmin = np.percentile(pos, 1) if pos.size > 0 else 0
-                if vmax == 0:
-                    vmax = np.percentile(pos, 99.5) if pos.size > 0 else 1
-
-                idx_arr = np.clip((img_disp - vmin) / (vmax - vmin + 1e-10) * 255,
-                                  0, 255).astype(np.uint8)
-
-                # Apply colormap LUT
-                lut = ImageCanvas._build_lut(self._cmap_combo.currentText())
-                h_img, w_img = idx_arr.shape
-                rgb = lut[idx_arr.ravel()].reshape(h_img, w_img, 3)
-
-                try:
-                    from PIL import Image
-                    pil_img = Image.fromarray(rgb, 'RGB')
-                    pil_img.save(os.path.join(img_subdir, out_name), compress_level=6)
-                except ImportError:
-                    out_name = out_name.replace('.png', '_sub.tif')
-                    if HAS_TIFF:
-                        tifffile.imwrite(
-                            os.path.join(img_subdir, out_name),
-                            rgb, compression='zlib')
-            except Exception:
-                out_name = re.sub(r'\.(png|tif)$', '_sub.tif', out_name)
-                if HAS_TIFF:
-                    tifffile.imwrite(os.path.join(img_subdir, out_name), sub.astype(np.float32))
-
-            # ROI sums on subtracted image
-            sums = {}
-            for r in rois:
-                region = r.extract(sub)
-                if region.size > 0:
-                    if mask is not None:
-                        m = r.extract(mask)
-                        sums[r.name] = float(np.sum(region[~m])) if m.size == region.size else float(np.sum(region))
-                    else:
-                        sums[r.name] = float(np.sum(region))
-                else:
-                    sums[r.name] = 0.0
+            if save_png:
+                self._save_png(sub, info, img_subdir)
 
             row = [info['scan'], info['image']] + [sums.get(n, 0.0) for n in roi_names]
             sum_rows.append(row)
@@ -2095,8 +2065,25 @@ class MainWindow(StatusMixin, QMainWindow):
                 parts += [f"{v:.6g}" for v in row[2:]]
                 f.write("\t".join(parts) + "\n")
 
-        self.say(f"Processed {len(sum_rows)} images.\n"
-            f"Images: {img_subdir}\nSums: {sum_path}")
+        self.say(f"Processed {len(sum_rows)} images. Sums: {sum_path}" + (f"; images in {img_subdir}" if save_png else ""))
+
+    def _save_png(self, sub, info, img_subdir):
+        """The subtracted image as a colour-mapped PNG, as shown in the preview (else a TIFF)."""
+        base = os.path.basename(info['path'])
+        out_name = re.sub(r'\.(h5|tif|tiff)$', '_sub.png', base)
+        vmin = self._vmin_spin.value() or None
+        vmax = self._vmax_spin.value() or None
+        try:
+            rgb = display_rgb(sub, self._chk_log.isChecked(), vmin, vmax, self._cmap_combo.currentText(), exact=True)
+            try:
+                from PIL import Image
+                Image.fromarray(rgb, 'RGB').save(os.path.join(img_subdir, out_name), compress_level=1)
+            except ImportError:
+                if HAS_TIFF:
+                    tifffile.imwrite(os.path.join(img_subdir, out_name.replace('.png', '.tif')), rgb, compression='zlib')
+        except Exception:
+            if HAS_TIFF:
+                tifffile.imwrite(os.path.join(img_subdir, re.sub(r'\.png$', '.tif', out_name)), sub.astype(np.float32))
 
 
 def main(argv=None):

@@ -4,9 +4,12 @@ Files are <prefix>_<scan:3>_<image:3>_data_<n>.h5 (Eiger, needs h5py) or .tif (n
 ROI / ROIConfig hold signal and background boxes, per-image overrides and offsets; BG_METHODS
 maps a name to subtract(img, signal_rois, bg_rois, mask) -> (corrected image, per-ROI sums).
 """
+import functools
 import os
+import threading
 import re
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -370,14 +373,16 @@ def subtract_bg_polyfit(img, signal_rois, bg_rois, mask=None, order=2):
         coeffs, _, _, _ = np.linalg.lstsq(A, vals, rcond=None)
     except np.linalg.LinAlgError:
         return subtract_bg_average(img, signal_rois, bg_rois, mask)
-    yy_full, xx_full = np.mgrid[0:img.shape[0], 0:img.shape[1]]
-    bg_surface = np.zeros_like(img)
+    # surface sum_ij c_ij y^i x^j = Y C X^T (separable: no full-size coordinate grids)
+    C = np.zeros((order + 1, order + 1))
     idx = 0
     for i in range(order + 1):
         for j in range(order + 1 - i):
-            bg_surface += coeffs[idx] * (yy_full ** i) * (xx_full ** j)
+            C[i, j] = coeffs[idx]
             idx += 1
-    result = img - bg_surface
+    Y = np.arange(img.shape[0], dtype=float)[:, None] ** np.arange(order + 1)
+    X = np.arange(img.shape[1], dtype=float)[:, None] ** np.arange(order + 1)
+    result = img - (Y @ C) @ X.T
     if mask is not None:
         result[mask] = 0
     return result
@@ -420,3 +425,238 @@ def lock_offset(roi, master):
     mcx, mcy = master.center()
     roi.offset_dx = fcx - mcx
     roi.offset_dy = fcy - mcy
+
+
+# ============================================================
+# DISPLAY (shared by the image view and the batch PNGs)
+# ============================================================
+
+@functools.lru_cache(maxsize=None)
+def _lut(name):
+    x = np.linspace(0, 1, 256)
+    if name == 'hot':
+        rgb = (np.clip(x * 3, 0, 1), np.clip(x * 3 - 1, 0, 1), np.clip(x * 3 - 2, 0, 1))
+    elif name == 'viridis':      # simplified viridis approximation
+        rgb = (np.clip(0.267004 + x * (0.282327 + x * (-1.964 + x * 1.596)), 0, 1),
+               np.clip(0.004874 + x * (1.015 + x * (-0.474 + x * 0.153)), 0, 1),
+               np.clip(0.329415 + x * (1.406 + x * (-3.192 + x * 1.820)), 0, 1))
+    elif name == 'inferno':
+        rgb = (np.clip(x * 2.8 - 0.15, 0, 1), np.clip(x * 2.0 - 0.6, 0, 1), np.clip(0.45 + x * 1.2 - x * x * 2.8, 0, 1))
+    elif name == 'coolwarm':
+        rgb = (np.clip(0.23 + x * 1.5, 0, 1), np.clip(0.3 + 2.0 * (0.5 - np.abs(x - 0.5)), 0, 1), np.clip(1.0 - x * 1.5, 0, 1))
+    elif name == 'jet':
+        rgb = (np.clip(1.5 - np.abs(x - 0.75) * 4, 0, 1), np.clip(1.5 - np.abs(x - 0.5) * 4, 0, 1),
+               np.clip(1.5 - np.abs(x - 0.25) * 4, 0, 1))
+    else:                        # gray
+        rgb = (x, x, x)
+    lut = np.stack([(c * 255).astype(np.uint8) for c in rgb], axis=1)
+    lut.setflags(write=False)
+    return lut
+
+
+def colormap_lut(name):
+    """256 x 3 uint8 lookup table of a colormap (gray, hot, viridis, inferno, coolwarm, jet)."""
+    return _lut(name)
+
+
+AUTO_LIMIT_SAMPLES = 200_000
+
+
+def display_limits(img, vmin=None, vmax=None, log=True, exact=False):
+    """Colour limits in display units: given limits (counts) go through the log like the image; missing
+    ones are the 1 % and 99.5 % percentiles of the positive pixels. Unless exact, large images use an
+    even subsample for the percentiles (the same limits to a fraction of a percent, several times faster)."""
+    if vmin is not None:
+        vmin = np.log10(vmin + 1) if log and vmin > 0 else vmin
+    if vmax is not None:
+        vmax = np.log10(vmax + 1) if log and vmax > 0 else vmax
+    if vmin is None or vmax is None:
+        flat = img.ravel()
+        if not exact and flat.size > AUTO_LIMIT_SAMPLES:
+            flat = flat[::flat.size // AUTO_LIMIT_SAMPLES + 1]
+        pos = flat[flat > 0]
+        if pos.size == 0:
+            pos = flat
+        if pos.size:
+            lo, hi = np.percentile(pos, [1, 99.5])
+        else:
+            lo, hi = 0.0, 1.0
+        vmin = lo if vmin is None else vmin
+        vmax = hi if vmax is None else vmax
+    return float(vmin), float(vmax)
+
+
+def display_rgb(img, log=True, vmin=None, vmax=None, cmap='gray', exact=False):
+    """(H, W, 3) uint8 image as the viewer shows it: log10(I + 1) of the positive part (if log), scaled
+    between the limits (see display_limits), through the colormap."""
+    data = np.asarray(img, dtype=np.float64 if exact else np.float32)     # exact: the batch PNGs, as before
+    if log:
+        data = np.log10(np.fmax(data, 0) + 1)          # <= 0 and NaN -> 0
+    lo, hi = display_limits(data, vmin, vmax, log, exact)
+    if exact:
+        idx = np.clip((data - lo) / (hi - lo + 1e-10) * 255, 0, 255).astype(np.uint8)
+    else:
+        idx = np.clip((data - lo) * np.float32(255.0 / (hi - lo + 1e-10)), 0, 255).astype(np.uint8)
+    return colormap_lut(cmap)[idx]
+
+
+# ============================================================
+# IMAGE CACHE (slow or busy disks: keep recent images, read ahead)
+# ============================================================
+
+class ImageCache:
+    """Recently used images in memory, and read-ahead in background threads, so stepping through a
+    scan does not wait on the disk (network drives, a transfer running on the same disk). Entries
+    are keyed by path, size and modification time, so a file that is still being written is read
+    again once it changes. Images are returned read-only; copy before changing one."""
+
+    def __init__(self, maxsize=24, workers=2):
+        self.maxsize = maxsize
+        self._items = OrderedDict()            # key -> array
+        self._pending = {}                     # key -> Future
+        self._lock = threading.Lock()
+        self._pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="image-read")
+
+    @staticmethod
+    def _key(path):
+        try:
+            st = os.stat(path)
+            return (str(path), st.st_size, st.st_mtime_ns)
+        except OSError:
+            return (str(path), None, None)
+
+    @staticmethod
+    def _read(path, ext):
+        img = load_image(path, ext)
+        img.setflags(write=False)
+        return img
+
+    def _store(self, key, img):
+        with self._lock:
+            self._items[key] = img
+            self._items.move_to_end(key)
+            while len(self._items) > self.maxsize:
+                self._items.popitem(last=False)
+
+    def get(self, path, ext):
+        """The image (from memory, a read already under way, or the disk)."""
+        key = self._key(path)
+        with self._lock:
+            if key in self._items:
+                self._items.move_to_end(key)
+                return self._items[key]
+            fut = self._pending.pop(key, None)
+        img = fut.result() if fut is not None else self._read(path, ext)
+        self._store(key, img)
+        return img
+
+    def prefetch(self, files):
+        """Start reading these ({'path', 'ext'} dicts) in the background; errors are ignored here and
+        raised again by get()."""
+        for f in files:
+            key = self._key(f['path'])
+            with self._lock:
+                if key in self._items or key in self._pending:
+                    continue
+                self._pending[key] = self._pool.submit(self._read, f['path'], f['ext'])
+            with self._lock:
+                while len(self._pending) > 2 * self.maxsize:          # drop the oldest unfinished reads
+                    self._pending.pop(next(iter(self._pending))).cancel()
+
+    def clear(self):
+        with self._lock:
+            self._items.clear()
+            for fut in self._pending.values():
+                fut.cancel()
+            self._pending.clear()
+
+
+# ============================================================
+# ONE IMAGE OF THE BATCH
+# ============================================================
+
+def process_image(img, rois, method, mask=None, clip_negative=False):
+    """Background-subtracted image and ROI sums {name: sum} as the batch writes them: masked pixels
+    are 0 and left out of the sums."""
+    sig = [r for r in rois if r.roi_type == 'signal']
+    bg = [r for r in rois if r.roi_type == 'background']
+    sub = method(img, sig, bg, mask) if sig and bg else np.array(img, dtype=float, copy=True)
+    if mask is not None:
+        sub[mask] = 0
+    if clip_negative:
+        sub = np.clip(sub, 0, None)
+    sums = {}
+    for r in rois:
+        region = r.extract(sub)
+        if region.size > 0:
+            if mask is not None:
+                m = r.extract(mask)
+                sums[r.name] = float(np.sum(region[~m])) if m.size == region.size else float(np.sum(region))
+            else:
+                sums[r.name] = float(np.sum(region))
+        else:
+            sums[r.name] = 0.0
+    return sub, sums
+
+
+# ============================================================
+# UNDO / REDO OF ROI AND MASK EDITS
+# ============================================================
+
+class EditState:
+    """A snapshot of what the user edits: the default ROIs, the per-image overrides, the ROIs of the
+    image on screen and the mask (copies)."""
+
+    def __init__(self, config, current_rois, mask):
+        self.defaults = [r.copy() for r in config.default_rois]
+        self.overrides = {k: [r.copy() for r in v] for k, v in config.overrides.items()}
+        self.current = [r.copy() for r in current_rois]
+        self.mask = None if mask is None else mask.copy()
+        self.signature = (tuple(tuple(r.to_dict().items()) for r in self.defaults),
+                          tuple((k, tuple(tuple(r.to_dict().items()) for r in v)) for k, v in sorted(self.overrides.items())),
+                          tuple(tuple(r.to_dict().items()) for r in self.current),
+                          None if mask is None else (mask.shape, hash(np.packbits(mask).tobytes())))
+
+    def apply_to(self, config):
+        """Put the ROIs back into the config; returns (ROIs of the image on screen, mask)."""
+        config.default_rois = [r.copy() for r in self.defaults]
+        config.overrides = {k: [r.copy() for r in v] for k, v in self.overrides.items()}
+        return [r.copy() for r in self.current], (None if self.mask is None else self.mask.copy())
+
+
+class EditHistory:
+    """Undo and redo stacks of EditState snapshots. checkpoint() before every change (repeats of the
+    same state are kept once); undo(current) / redo(current) return the state to restore or None."""
+
+    def __init__(self, limit=100):
+        self.limit = limit
+        self.undo_stack, self.redo_stack = [], []
+
+    def checkpoint(self, state):
+        if self.undo_stack and self.undo_stack[-1].signature == state.signature:
+            return
+        self.undo_stack.append(state)
+        del self.undo_stack[:-self.limit]
+        self.redo_stack.clear()
+
+    def _step(self, src, dst, current):
+        while src and src[-1].signature == current.signature:      # nothing changed since that checkpoint
+            src.pop()
+        if not src:
+            return None
+        dst.append(current)
+        return src.pop()
+
+    def undo(self, current):
+        return self._step(self.undo_stack, self.redo_stack, current)
+
+    def redo(self, current):
+        return self._step(self.redo_stack, self.undo_stack, current)
+
+    @property
+    def can_undo(self):
+        return bool(self.undo_stack)
+
+    @property
+    def can_redo(self):
+        return bool(self.redo_stack)

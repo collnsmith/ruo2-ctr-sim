@@ -299,8 +299,13 @@ in a dialog):
 - **Background subtraction.** Eiger 500K `.h5` (h5py) or `.tif` (tifffile) images named
   `<prefix>_<scan>_<image>_data_<n>`: signal and background ROIs, per-image overrides, ROIs that
   follow a master ROI or track the peak, average / median / polynomial background, a pixel mask,
-  batch ROI sums and subtracted images. "Find background ROIs" opens the ROI finder on the same
-  folder and scan range and merges its background boxes. Manual: `docs/data_tools_bgsub_manual.txt`.
+  batch ROI sums and, optionally, the subtracted images as PNGs ("Also save the subtracted images").
+  "Find background ROIs" opens the ROI finder on the same folder and scan range and merges its
+  background boxes. Ctrl+Z / Ctrl+Y undo and redo ROI and mask edits (drags, fields, add/remove,
+  copies to other images, mask painting, loaded ROI files and masks). Images are kept in memory and
+  the next ones read ahead in the background, so a slow or busy disk (network drive, a transfer
+  running) does not stall stepping through a scan; while a ROI is dragged or the mask painted the
+  preview updates at most every 40 ms. Manual: `docs/data_tools_bgsub_manual.txt`.
 - **Background ROI finder.** Per-scan pixel statistics (on the GPU with CuPy if installed), a mask of
   persistent bright spots (powder rings, hot pixels), background boxes around a clicked signal centre.
 - **Plotter.** SPEC scans with the ROI sums, figure options, peak fits of rocking curves (Gaussian,

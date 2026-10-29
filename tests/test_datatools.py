@@ -276,3 +276,192 @@ def test_tools_follow_the_window_standard(qapp, no_dialogs, monkeypatch, tmp_pat
     bg._roi_w._btn_apply_scan.click()
     assert calls == ["scan"]
     w.close()
+
+
+# ------------------------------------------------------------------ background subtraction: speed, undo, batch
+def _old_display(img, log, vmin, vmax, lut):
+    """The viewer's display transform before the speed-up (reference)."""
+    img = img.copy()
+    if log:
+        img = np.where(img > 0, np.log10(img + 1), 0)
+    pos = img[img > 0] if np.any(img > 0) else img.ravel()
+    vmin = (np.log10(vmin + 1) if log and vmin > 0 else vmin) if vmin is not None else np.percentile(pos, 1)
+    vmax = (np.log10(vmax + 1) if log and vmax > 0 else vmax) if vmax is not None else np.percentile(pos, 99.5)
+    idx = np.clip((img - vmin) / (vmax - vmin + 1e-10) * 255, 0, 255).astype(np.uint8)
+    return lut[idx]
+
+
+def test_display_and_polynomial_background_match_the_old_code():
+    rng = np.random.default_rng(4)
+    img = rng.poisson(30, (120, 200)).astype(float)
+    img[5, 5] = -3
+    for log, lims in ((True, (None, None)), (False, (None, None)), (True, (5.0, 200.0))):
+        new = images.display_rgb(img, log, *lims, "gray", exact=True)                   # gray: RGB = the level
+        with np.errstate(invalid="ignore"):
+            old = _old_display(img, log, *lims, images.colormap_lut("gray"))
+        assert np.array_equal(new, old)                                               # batch PNGs unchanged
+        view = images.display_rgb(img, log, *lims, "gray")                              # the viewer (float32)
+        assert np.abs(view.astype(int) - old.astype(int)).max() <= 1
+    big = rng.poisson(30, (600, 1000)).astype(float)
+    fast = images.display_limits(np.log10(big + 1))
+    exact = images.display_limits(np.log10(big + 1), exact=True)
+    assert np.allclose(fast, exact, rtol=0.01)                                         # subsampled percentiles
+    # the separable polynomial surface equals the term-by-term one
+    yy, xx = np.mgrid[:120, :200]
+    surf = 3 + 0.01 * yy + 0.02 * xx + 1e-4 * yy * xx + 2e-4 * xx ** 2
+    bgs = [images.ROI(0, 0, 40, 120, "background"), images.ROI(160, 0, 40, 120, "background")]
+    sub = images.subtract_bg_polyfit(surf, [], bgs)
+    assert np.abs(sub).max() < 1e-9
+
+
+def test_image_cache_reads_ahead_and_sees_changed_files(tmp_path):
+    h5py = pytest.importorskip("h5py")
+    paths = []
+    for im in range(4):
+        p = tmp_path / f"run_028_{im:03d}_data_000001.h5"
+        with h5py.File(p, "w") as f:
+            f["entry/data/data"] = np.full((1, 4, 5), float(im))
+        paths.append({"path": str(p), "ext": "h5"})
+    cache = images.ImageCache(maxsize=2)
+    cache.prefetch(paths[1:3])
+    assert cache.get(paths[1]["path"], "h5")[0, 0] == 1 and cache.get(paths[2]["path"], "h5")[0, 0] == 2
+    a = cache.get(paths[0]["path"], "h5")
+    assert a is cache.get(paths[0]["path"], "h5") and not a.flags.writeable                # cached, read-only
+    import time
+    time.sleep(0.01)
+    with h5py.File(paths[0]["path"], "w") as f:                                         # rewritten (a transfer)
+        f["entry/data/data"] = np.full((1, 4, 5), 9.0)
+    assert cache.get(paths[0]["path"], "h5")[0, 0] == 9
+    assert len(cache._items) <= 2
+    with pytest.raises(Exception):
+        cache.get(str(tmp_path / "missing.h5"), "h5")
+
+
+def test_process_image_and_edit_history():
+    img = np.full((20, 30), 10.0)
+    img[5:10, 5:10] += 100
+    rois = [images.ROI(5, 5, 5, 5, "signal", "S"), images.ROI(20, 10, 8, 8, "background", "B")]
+    mask = np.zeros_like(img, bool)
+    mask[6, 6] = True
+    sub, sums = images.process_image(img, rois, images.BG_METHODS["Average"], mask)
+    assert sums["S"] == pytest.approx(24 * 100) and sums["B"] == pytest.approx(0) and sub[6, 6] == 0
+    cfg = images.ROIConfig()
+    cfg.default_rois = [rois[0].copy()]
+    hist = images.EditHistory()
+    hist.checkpoint(images.EditState(cfg, rois, mask))
+    hist.checkpoint(images.EditState(cfg, rois, mask))                                  # same state kept once
+    assert len(hist.undo_stack) == 1
+    moved = [r.copy() for r in rois]
+    moved[0].x = 12
+    back = hist.undo(images.EditState(cfg, moved, mask))
+    cur, m = back.apply_to(cfg)
+    assert cur[0].x == 5 and m[6, 6] and hist.can_redo
+    fwd = hist.redo(images.EditState(cfg, cur, m))
+    assert fwd.apply_to(cfg)[0][0].x == 12
+    assert hist.redo(images.EditState(cfg, moved, mask)) is None
+
+
+@pytest.fixture
+def bgsub_window(qapp, tmp_path, monkeypatch):
+    h5py = pytest.importorskip("h5py")
+    from ctrfit.app.datatools.bgsub import MainWindow
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    rng = np.random.default_rng(5)
+    folder = tmp_path / "imgs"
+    folder.mkdir()
+    for im in range(3):
+        with h5py.File(folder / f"run_028_{im:03d}_data_000001.h5", "w") as f:
+            f["entry/data/data"] = make_image(rng)[None]
+    w = MainWindow()
+    w.resize(1200, 800)
+    w.show()
+    w._dir.setText(str(folder))
+    w._reload()
+    w._roi_w.set_rois([images.ROI(30, 20, 20, 20, "signal", "S"), images.ROI(0, 0, 15, 15, "background", "B")])
+    w._on_rois_changed()
+    qapp.processEvents()
+    yield w
+    w.close()
+
+
+def _drag(qapp, cv, start, steps, dx=1.0):
+    from PyQt5.QtCore import QEvent, QPointF, Qt
+    from PyQt5.QtGui import QMouseEvent
+
+    def ev(kind, x, y, btns):
+        qapp.sendEvent(cv, QMouseEvent(kind, QPointF(x, y), Qt.LeftButton, btns, Qt.NoModifier))
+    x0, y0 = start
+    ev(QEvent.MouseButtonPress, x0, y0, Qt.LeftButton)
+    for k in range(1, steps + 1):
+        ev(QEvent.MouseMove, x0 + k * dx, y0, Qt.LeftButton)
+    ev(QEvent.MouseButtonRelease, x0 + steps * dx, y0, Qt.NoButton)
+    qapp.processEvents()
+
+
+def test_roi_drag_is_throttled_and_undoable(qapp, bgsub_window, no_dialogs, monkeypatch):
+    from PyQt5.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))
+    w = bgsub_window
+    cv = w._cv_orig
+    calls = []
+    real = w._update_sub
+    monkeypatch.setattr(w, "_update_sub", lambda: (calls.append(1), real()))
+    renders = []
+    real_render = w._cv_sub._render
+    monkeypatch.setattr(w._cv_sub, "_render", lambda: (renders.append(1), real_render()))
+    x0, y0 = cv._img_to_widget(40, 30)                                                   # inside S
+    _drag(qapp, cv, (x0, y0), 40, dx=cv._scale)                                         # 40 moves of one pixel
+    moved = w._roi_w.get_rois()[0].x
+    assert abs(moved - 70) <= 1                                                         # the ROI followed the mouse
+    assert len(calls) <= 3 and len(renders) <= 3                                        # not once per mouse move
+    # undo / redo of the drag (Ctrl+Z / Ctrl+Y)
+    from PyQt5.QtCore import Qt
+    from PyQt5.QtTest import QTest
+    w.setFocus()
+    QTest.keyClick(w, Qt.Key_Z, Qt.ControlModifier)
+    assert w._roi_w.get_rois()[0].x == 30 and w._cv_orig._rois[0].x == 30
+    QTest.keyClick(w, Qt.Key_Y, Qt.ControlModifier)
+    assert w._roi_w.get_rois()[0].x == moved
+    # adding a ROI and copying ROIs to all images are undone too
+    w._roi_w._add_roi()
+    assert len(w._roi_w.get_rois()) == 3
+    w.undo()
+    assert len(w._roi_w.get_rois()) == 2
+    w._roi_w._btn_apply.click()
+    assert len(w._roi_config.overrides) == 3
+    w.undo()
+    assert len(w._roi_config.overrides) < 3
+    w.undo()
+    w.undo()
+    w.undo()
+    assert "Nothing to undo" in w._status_label.text()
+
+
+def test_mask_paint_undo(qapp, bgsub_window, no_dialogs):
+    w = bgsub_window
+    w._chk_auto.setChecked(False)
+    w._mask = np.zeros((64, 80), bool)
+    w._cv_orig.set_mask_data(w._mask)
+    w._chk_mask_paint.setChecked(True)
+    x0, y0 = w._cv_orig._img_to_widget(60.2, 10.2)
+    _drag(qapp, w._cv_orig, (x0, y0), 3, dx=w._cv_orig._scale)
+    assert w._mask.sum() >= 3
+    w.undo()
+    assert w._mask.sum() == 0 and w._cv_orig._mask_data is w._mask
+    w.redo()
+    assert w._mask.sum() >= 3
+
+
+def test_batch_png_images_are_optional(qapp, bgsub_window, no_dialogs, tmp_path, monkeypatch):
+    from PyQt5.QtWidgets import QFileDialog
+    w = bgsub_window
+    for save, name in ((False, "a_sums.txt"), (True, "b_sums.txt")):
+        monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, n=name, **k: (str(tmp_path / n), "")))
+        w._chk_save_png.setChecked(save)
+        w._run_batch()
+        lines = (tmp_path / name).read_text().splitlines()
+        assert lines[0].split("\t") == ["scan", "image", "B", "S"] and len(lines) == 4
+        folder = tmp_path / (name[:-4] + "_images")
+        assert folder.exists() == save
+        if save:
+            assert len(list(folder.glob("*_sub.png"))) == 3

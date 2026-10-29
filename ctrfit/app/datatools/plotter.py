@@ -14,11 +14,11 @@ import matplotlib
 import numpy as np
 from PyQt5.QtCore import Qt, QEvent, QObject
 from PyQt5.QtGui import QColor
-from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel, QPushButton,
-                             QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog, QCheckBox,
-                             QSplitter, QScrollArea, QListWidget, QListWidgetItem, QGridLayout, QColorDialog,
-                             QDialog, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-                             QDialogButtonBox)
+from PyQt5.QtWidgets import (QFormLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+                             QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog,
+                             QCheckBox, QSplitter, QScrollArea, QListWidget, QListWidgetItem, QGridLayout,
+                             QColorDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
+                             QAbstractItemView, QDialogButtonBox)
 from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
                                                 NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
@@ -30,6 +30,8 @@ from ctrfit.app.datatools.common import (HINT_STYLE, PRIMARY_STYLE, StatusMixin,
 from ctrfit.datatools.paths import settings_dir, settings_file
 from ctrfit.datatools.peaks import (FIT_MODELS, display_label, fit_peak, integrate_peak, load_label_map,
                                     numerical_area, parse_bgsub_dir, save_label_map)
+from ctrfit.datatools.potential import (FIRST_SWEEPS, MODES, hand_cv, load_potential, potential_at,
+                                        time_zero, trace_between)
 from ctrfit.datatools.specfile import parse_spec_file
 
 
@@ -2202,6 +2204,8 @@ class PlotCanvas(FigureCanvas):
         self.fig.tight_layout()
 
     def clear_and_setup(self):
+        for extra in self.fig.axes[1:]:          # e.g. the potential axis of the last plot
+            extra.remove()
         self.ax.clear()
         self.ax.set_facecolor('white')
         self.ax.tick_params(colors='#222')
@@ -2286,6 +2290,15 @@ class MainWindow(StatusMixin, QMainWindow):
             'xlim_min': self._xlim_min.text(), 'xlim_max': self._xlim_max.text(),
             'ylim_min': self._ylim_min.text(), 'ylim_max': self._ylim_max.text(),
         }
+        c['potential'] = {
+            't0': repr(self._t0.value()), 'shift_x': str(self._chk_t0.isChecked()),
+            'source': self._ec_source.currentText(), 'file': self._ec_path.text(),
+            'cv_start': repr(self._cv_start.value()), 'cv_hold': repr(self._cv_hold.value()),
+            'cv_upper': repr(self._cv_upper.value()), 'cv_lower': repr(self._cv_lower.value()),
+            'cv_rate': repr(self._cv_rate.value()), 'cv_cycles': str(self._cv_cycles.value()),
+            'cv_first': self._cv_first.currentText(), 'offset': repr(self._ec_offset.value()),
+            'mode': self._ec_mode.currentText(), 'label': self._ec_ref.text(),
+        }
         c['window'] = {
             'geometry': self.saveGeometry().toBase64().data().decode(),
             'hsplitter': self._hsplitter.saveState().toBase64().data().decode(),
@@ -2365,6 +2378,11 @@ class MainWindow(StatusMixin, QMainWindow):
             setattr(self, attr, get('display', key, default))
         self._fig_opts_dialog._sync_color_buttons()
 
+        try:
+            self._load_potential_settings(get, getbool)
+        except ValueError:
+            pass
+
         from PyQt5.QtCore import QByteArray
         geo = get('window', 'geometry')
         if geo: self.restoreGeometry(QByteArray.fromBase64(geo.encode()))
@@ -2428,6 +2446,8 @@ class MainWindow(StatusMixin, QMainWindow):
         self._transm_col.editingFinished.connect(self._update_plot)
         al.addRow("Per image", row(self._chk_transm, self._transm_col, stretch_first=False))
 
+        pg = self._potential_group()
+
         lg, ll = group("Axis labels")
         self._lbl_from = QLineEdit()
         self._lbl_from.setPlaceholderText("VTH")
@@ -2445,7 +2465,7 @@ class MainWindow(StatusMixin, QMainWindow):
         self._col_sel = ColumnSelectorWidget(on_change=self._update_plot)
         cl.addWidget(self._col_sel)
         left_vs = QSplitter(Qt.Vertical)
-        left_vs.addWidget(sidebar(fg, sg, ag, lg))
+        left_vs.addWidget(sidebar(fg, sg, ag, pg, lg))
         left_vs.addWidget(cg)
         left_vs.setStretchFactor(0, 1)
         left_vs.setStretchFactor(1, 1)
@@ -2495,6 +2515,226 @@ class MainWindow(StatusMixin, QMainWindow):
         self._hsplitter.setSizes([400, 1000])
         self.setCentralWidget(self._hsplitter)
         self.say("Open a SPEC file (and the ROI sums folder), pick scans and the X / Y columns.")
+
+    # ---- Potential (EC-Lab) and time zero ----
+    def _potential_group(self):
+        self._ec = None                 # ECData shown with the scans (file or defined by hand)
+        self._last_traces = []          # what the last plot drew (for 'Export I vs E')
+        box, f = group("Potential and time")
+        # time zero of the X axis
+        self._t0 = QDoubleSpinBox()
+        self._t0.setRange(-1e12, 1e12)
+        self._t0.setDecimals(3)
+        self._t0.setSuffix(" s")
+        self._t0.setToolTip("Subtracted from the X column (e.g. Epoch) when 'Shift X' is on")
+        self._chk_t0 = QCheckBox("Shift X by t0")
+        self._t0_scan = QComboBox()
+        self._t0_scan.setToolTip("Scan whose first point becomes t = 0")
+        b_zero = QPushButton("t = 0 at scan start")
+        b_zero.setToolTip("Set t0 to the first X value (e.g. Epoch) of the chosen scan and shift X")
+        b_zero.clicked.connect(self._zero_at_scan)
+        self._t0.editingFinished.connect(self._update_plot)
+        self._chk_t0.toggled.connect(self._update_plot)
+        f.addRow("t0", row(self._t0, self._chk_t0))
+        f.addRow("Scan", row(self._t0_scan, b_zero))
+        # potentiostat record
+        self._ec_source = QComboBox()
+        self._ec_source.addItems(["None", "EC-Lab file", "Defined by hand"])
+        self._ec_source.currentIndexChanged.connect(self._ec_source_changed)
+        f.addRow("Potential", self._ec_source)
+        self._ec_file_row = QWidget()
+        fl = QHBoxLayout(self._ec_file_row)
+        fl.setContentsMargins(0, 0, 0, 0)
+        self._ec_path = QLineEdit()
+        self._ec_path.setReadOnly(True)
+        self._ec_path.setPlaceholderText(".mpr (needs galvani), .mpt / .txt export or .csv")
+        b_ec = QPushButton("Browse…")
+        b_ec.clicked.connect(self._browse_ec)
+        fl.addWidget(self._ec_path, 1)
+        fl.addWidget(b_ec)
+        f.addRow(self._ec_file_row)
+        self._cv_box = QWidget()
+        cf = QFormLayout(self._cv_box)
+        cf.setContentsMargins(0, 0, 0, 0)
+
+        def dspin(lo, hi, val, dec, suffix, tip):
+            w = QDoubleSpinBox()
+            w.setRange(lo, hi)
+            w.setDecimals(dec)
+            w.setValue(val)
+            w.setSuffix(suffix)
+            w.setToolTip(tip)
+            w.editingFinished.connect(self._rebuild_ec)
+            return w
+        self._cv_start = dspin(-5, 5, 0.0, 3, " V", "Potential of the hold before the first sweep")
+        self._cv_hold = dspin(0, 1e6, 0.0, 1, " s", "Hold at the start potential before sweeping")
+        self._cv_upper = dspin(-5, 5, 0.7, 3, " V", "Upper vertex")
+        self._cv_lower = dspin(-5, 5, 0.0, 3, " V", "Lower vertex")
+        self._cv_rate = dspin(0.001, 1e5, 5.0, 3, " mV/s", "Sweep rate")
+        self._cv_cycles = QSpinBox()
+        self._cv_cycles.setRange(1, 10000)
+        self._cv_cycles.setValue(3)
+        self._cv_cycles.editingFinished.connect(self._rebuild_ec)
+        self._cv_first = QComboBox()
+        self._cv_first.addItems(list(FIRST_SWEEPS))
+        self._cv_first.currentIndexChanged.connect(self._rebuild_ec)
+        cf.addRow("Start, hold", row(self._cv_start, self._cv_hold, stretch_first=False))
+        cf.addRow("Lower, upper", row(self._cv_lower, self._cv_upper, stretch_first=False))
+        cf.addRow("Rate", self._cv_rate)
+        cf.addRow("Cycles, first", row(self._cv_cycles, self._cv_first, stretch_first=False))
+        f.addRow(self._cv_box)
+        self._ec_offset = QDoubleSpinBox()
+        self._ec_offset.setRange(-1e12, 1e12)
+        self._ec_offset.setDecimals(3)
+        self._ec_offset.setSuffix(" s")
+        self._ec_offset.setToolTip("Where the potentiostat's first sample lies on the plotted time axis "
+                                   "(after t0). Raise it if the potential leads the intensity.")
+        self._ec_offset.editingFinished.connect(self._update_plot)
+        f.addRow("EC start at t =", self._ec_offset)
+        self._ec_mode = QComboBox()
+        self._ec_mode.addItems(list(MODES))
+        self._ec_mode.currentIndexChanged.connect(self._update_plot)
+        f.addRow("Show", self._ec_mode)
+        self._ec_ref = QLineEdit("V vs Ag/AgCl")
+        self._ec_ref.setToolTip("Unit / reference electrode in the potential axis label")
+        self._ec_ref.editingFinished.connect(self._update_plot)
+        b_iv = QPushButton("Export t, E, I…")
+        b_iv.setToolTip("Every plotted trace: time on the axis, potential there, intensity")
+        b_iv.clicked.connect(self._export_potential_data)
+        f.addRow("Label", row(self._ec_ref, b_iv))
+        self._ec_info = hint("No potential record")
+        f.addRow(self._ec_info)
+        self._ec_file_row.setVisible(False)
+        self._cv_box.setVisible(False)
+        return box
+
+    def _load_potential_settings(self, get, getbool):
+        widgets = [self._t0, self._chk_t0, self._ec_source, self._ec_path, self._cv_start, self._cv_hold,
+                   self._cv_upper, self._cv_lower, self._cv_rate, self._cv_cycles, self._cv_first,
+                   self._ec_offset, self._ec_mode, self._ec_ref]
+        for w in widgets:
+            w.blockSignals(True)
+        try:
+            self._t0.setValue(float(get('potential', 't0', '0')))
+            self._chk_t0.setChecked(getbool('potential', 'shift_x'))
+            for spin, key, d in ((self._cv_start, 'cv_start', '0'), (self._cv_hold, 'cv_hold', '0'),
+                                 (self._cv_upper, 'cv_upper', '0.7'), (self._cv_lower, 'cv_lower', '0'),
+                                 (self._cv_rate, 'cv_rate', '5'), (self._ec_offset, 'offset', '0')):
+                spin.setValue(float(get('potential', key, d)))
+            self._cv_cycles.setValue(int(get('potential', 'cv_cycles', '3')))
+            for combo, key in ((self._cv_first, 'cv_first'), (self._ec_mode, 'mode'), (self._ec_source, 'source')):
+                i = combo.findText(get('potential', key, combo.currentText()))
+                if i >= 0:
+                    combo.setCurrentIndex(i)
+            self._ec_path.setText(get('potential', 'file', ''))
+            self._ec_ref.setText(get('potential', 'label', 'V vs Ag/AgCl'))
+        finally:
+            for w in widgets:
+                w.blockSignals(False)
+        src = self._ec_source.currentText()
+        self._ec_file_row.setVisible(src == "EC-Lab file")
+        self._cv_box.setVisible(src == "Defined by hand")
+        if src == "Defined by hand" or (src == "EC-Lab file" and os.path.isfile(self._ec_path.text())):
+            self._rebuild_ec()
+
+    def _ec_source_changed(self, *_):
+        src = self._ec_source.currentText()
+        self._ec_file_row.setVisible(src == "EC-Lab file")
+        self._cv_box.setVisible(src == "Defined by hand")
+        self._rebuild_ec()
+
+    def _browse_ec(self):
+        path, _ = QFileDialog.getOpenFileName(self, "Potentiostat file", "",
+                                              "EC-Lab (*.mpr *.mpt *.txt);;Tables (*.csv *.dat *.txt);;All (*)")
+        if path:
+            self._ec_path.setText(path)
+            self._rebuild_ec()
+
+    def _rebuild_ec(self, *_):
+        """Read the file or build the hand-defined CV; errors go to the status bar."""
+        src = self._ec_source.currentText()
+        self._ec = None
+        try:
+            if src == "EC-Lab file" and self._ec_path.text():
+                self._ec = load_potential(self._ec_path.text())
+            elif src == "Defined by hand":
+                self._ec = hand_cv(self._cv_start.value(), self._cv_hold.value(), self._cv_upper.value(),
+                                   self._cv_lower.value(), self._cv_rate.value(), self._cv_cycles.value(),
+                                   self._cv_first.currentText())
+        except ImportError as e:
+            self.say(f"Cannot read .mpr files: {e}. Install galvani or export the file as .mpt from EC-Lab.", error=True)
+        except Exception as e:
+            self.say(f"Potential: {e}", error=True)
+        if self._ec is not None:
+            t, E = self._ec.time, self._ec.potential
+            self._ec_info.setText(f"{t.size} points over {t[-1] - t[0]:.0f} s, E {E.min():.3f} to {E.max():.3f} V")
+        else:
+            self._ec_info.setText("No potential record")
+        if hasattr(self, "_fig_opts_dialog"):          # not while the window is being built
+            self._update_plot()
+
+    def _x_values(self, sn, x_col):
+        scan = self._spec_scans.get(sn)
+        if scan is None:
+            return None
+        if x_col.startswith('[bg] '):
+            return self._bgsub_data.get(sn, {}).get(x_col[5:])
+        return scan.data.get(x_col)
+
+    def _zero_at_scan(self):
+        x_col = self._col_sel.get_selection()[0]
+        if not x_col:
+            self.say("Pick the X (time) column first", error=True)
+            return
+        sn = self._t0_scan.currentData()
+        x = self._x_values(sn, x_col) if sn is not None else None
+        if x is None:
+            self.say("Select the scan to start at t = 0 (it must be plotted)", error=True)
+            return
+        try:
+            t0 = time_zero(x)
+        except ValueError as e:
+            self.say(str(e), error=True)
+            return
+        self._t0.setValue(t0)
+        self._chk_t0.blockSignals(True)
+        self._chk_t0.setChecked(True)
+        self._chk_t0.blockSignals(False)
+        self.say(f"t = 0 at the start of scan {sn} ({x_col} = {t0:.6g})")
+        self._update_plot()
+
+    def _refresh_t0_scans(self):
+        cur = self._t0_scan.currentData()
+        self._t0_scan.blockSignals(True)
+        self._t0_scan.clear()
+        for sn in self._get_selected_scans():
+            self._t0_scan.addItem(f"S{sn}", sn)
+        i = self._t0_scan.findData(cur)
+        if i >= 0:
+            self._t0_scan.setCurrentIndex(i)
+        self._t0_scan.blockSignals(False)
+
+    def _shift_x(self, xd):
+        return xd - self._t0.value() if self._chk_t0.isChecked() else xd
+
+    def _export_potential_data(self):
+        if not self._last_traces:
+            self.say("Nothing plotted to export", error=True)
+            return
+        path, _ = QFileDialog.getSaveFileName(self, "Export t, E, I", "intensity_vs_potential.txt", "Text (*.txt)")
+        if not path:
+            return
+        ref = self._ec_ref.text().strip() or "V"
+        with open(path, 'w') as f:
+            f.write("# Exported from SXRD Plotter: time on the plot's axis, potential there, intensity\n")
+            f.write(f"# t0 = {self._t0.value() if self._chk_t0.isChecked() else 0:.6g} s, EC start at "
+                    f"t = {self._ec_offset.value():.6g} s\n")
+            for tr in self._last_traces:
+                f.write(f"\n# Trace: {tr['label']}\nt_s\tE_{ref.replace(' ', '_')}\t{tr['label']}\n")
+                E = tr['E'] if tr['E'] is not None else np.full(len(tr['t']), np.nan)
+                for ti, ei, yi in zip(tr['t'], E, tr['y']):
+                    f.write(f"{ti:.6g}\t{ei:.6g}\t{yi:.6g}\n")
+        self.say(f"Exported {len(self._last_traces)} traces to {path}")
 
     def _show_fig_opts(self):
         self._fig_opts_dialog._sync_color_buttons()
@@ -2605,6 +2845,7 @@ class MainWindow(StatusMixin, QMainWindow):
         if not selected: return
         # Clear overlay when user switches to scan data
         self._overlay = None
+        self._refresh_t0_scans()
         sn = selected[0]
         scan = self._spec_scans.get(sn)
         if not scan: return
@@ -2715,6 +2956,10 @@ class MainWindow(StatusMixin, QMainWindow):
             att = self._get_att_factor()
             color_idx = 0
             multi_scan = len(selected) > 1
+            ec = self._ec
+            vs_E = ec is not None and self._ec_mode.currentIndex() == 1
+            self._last_traces = []
+            t_lo, t_hi = np.inf, -np.inf
 
             for sn in selected:
                 scan = self._spec_scans.get(sn)
@@ -2772,6 +3017,13 @@ class MainWindow(StatusMixin, QMainWindow):
                         yd2 = self._apply_transm(scan, yd2, None)
 
                     if att != 1: yd2 *= att
+                    xd = self._shift_x(np.asarray(xd, dtype=float))
+                    E_pts = potential_at(ec, xd, self._ec_offset.value()) if ec is not None else None
+                    if xd.size:
+                        t_lo, t_hi = min(t_lo, np.nanmin(xd)), max(t_hi, np.nanmax(xd))
+                    t_plot = xd
+                    if vs_E:
+                        xd = E_pts
                     color = self._plot_colors[color_idx % len(self._plot_colors)]
                     col_label = display_label(yc.replace('[bg] ', ''), self._label_map)
                     if yc.startswith('[bg] '): col_label = f"[bg] {col_label}"
@@ -2780,10 +3032,28 @@ class MainWindow(StatusMixin, QMainWindow):
                     if show_m and ms_style: kw['marker'] = ms_style; kw['markersize'] = ms_sz
                     elif not ls: kw['marker'] = 'o'; kw['markersize'] = ms_sz
                     ax.plot(xd, yd2, color=color, label=label, linewidth=lw, **kw)
+                    self._last_traces.append({'label': f"S{sn}_{yc.replace('[bg] ', '')}",
+                                              't': t_plot, 'E': E_pts, 'y': yd2})
                     color_idx += 1
                     has_data = True
 
-            ax.set_xlabel(display_label(x_col.replace('[bg] ', ''), self._label_map), color=tc, fontsize=self._font_axis.value())
+            xlab = display_label(x_col.replace('[bg] ', ''), self._label_map)
+            if self._chk_t0.isChecked() and self._t0.value():
+                xlab = f"{xlab} − {self._t0.value():.6g}"
+            ref = self._ec_ref.text().strip() or "V"
+            if vs_E:
+                xlab = f"E ({ref})"
+            ax.set_xlabel(xlab, color=tc, fontsize=self._font_axis.value())
+            if ec is not None and not vs_E and np.isfinite(t_lo) and t_hi > t_lo:
+                ax2 = ax.twinx()
+                te, Ee = trace_between(ec, self._ec_offset.value(), t_lo, t_hi)
+                ax2.plot(te, Ee, color=tc, linestyle='--', linewidth=max(lw * 0.8, 0.8), label='E')
+                ax2.set_ylabel(f"E ({ref})", color=tc, fontsize=self._font_axis.value())
+                ax2.tick_params(colors=tc, labelsize=self._font_tick.value(), direction=tick_dir)
+                for sp in ax2.spines.values(): sp.set_color(tc); sp.set_linewidth(self._spine_width.value())
+                if te.size == 0:
+                    ax2.text(0.5, 0.5, "potential record outside the plotted time range\n(check t0 and EC start)",
+                             transform=ax2.transAxes, ha='center', va='center', color='#b00020')
             ylabel = f"Intensity / {display_label(norm_col.replace('[bg] ',''), self._label_map)}" if norm_col else "Intensity"
             if self._chk_transm.isChecked():
                 tcol = self._transm_col.text().strip() or "transm"

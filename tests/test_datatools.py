@@ -465,3 +465,74 @@ def test_batch_png_images_are_optional(qapp, bgsub_window, no_dialogs, tmp_path,
         assert folder.exists() == save
         if save:
             assert len(list(folder.glob("*_sub.png"))) == 3
+
+
+# ------------------------------------------------------------------ plotter: potential next to the scans
+def test_potential_helpers():
+    from ctrfit.datatools import potential as pot
+    assert pot.time_zero([np.nan, 5.0, 6.0]) == 5.0
+    with pytest.raises(ValueError):
+        pot.time_zero([np.nan])
+    ec = pot.hand_cv(0.0, 10.0, 0.7, 0.0, 10.0, 1, "up")                                # 10 s hold, 70 s up, 70 s down
+    assert ec.time[-1] == pytest.approx(150.0) and ec.potential.max() == pytest.approx(0.7)
+    E = pot.potential_at(ec, [0.0, 105.0, 125.0, 500.0], offset=20.0)                   # EC t = -20, 85, 105, 480
+    assert np.isnan(E[0])
+    assert E[1] == pytest.approx(0.7 - (85 - 80) * 0.01, abs=1e-6) and E[2] == pytest.approx(0.45, abs=1e-6)
+    assert np.isnan(E[3])
+    t, Ev = pot.trace_between(ec, 20.0, 50.0, 100.0)
+    assert t[0] == 50.0 and t[-1] == 100.0 and Ev[0] == pytest.approx(0.2, abs=1e-6)
+    for bad in ((0, 0, 0.7, 0, 0, 1, "up"), (0, 0, 0.0, 0.7, 5, 1, "up"), (0, 0, 0.7, 0, 5, 1, "sideways")):
+        with pytest.raises(ValueError):
+            pot.hand_cv(*bad)
+
+
+def test_plotter_potential_axis_and_time_zero(qapp, no_dialogs, tmp_path, monkeypatch):
+    from ctrfit.app.datatools.plotter import MainWindow
+    from ctrfit.echem.synthetic import write_experiment
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    spec, mpt, truth = write_experiment(tmp_path / "exp")
+    w = MainWindow()
+    w.show()
+    w._load_spec_file(str(spec))
+    for i in range(w._scan_list.count()):
+        w._scan_list.item(i).setSelected("loopscan" in w._scan_list.item(i).text())
+    qapp.processEvents()
+    w._col_sel.set_selection("Epoch", ["Detector"], "Monitor")
+    w._update_plot()
+    w._zero_at_scan()                                                                     # the button
+    epoch = w._spec_scans[2].data["Epoch"]
+    assert w._t0.value() == pytest.approx(epoch[0]) and w._chk_t0.isChecked()
+    assert w._last_traces[0]["t"][0] == pytest.approx(0.0)
+    # EC-Lab file, aligned by the offset: E on a second axis over the data's time range
+    w._ec_source.setCurrentText("EC-Lab file")
+    w._ec_path.setText(str(mpt))
+    w._rebuild_ec()
+    w._ec_offset.setValue(truth["cv_delay"] - 1.1)      # CV 60 s after the scan's #D; the first point ends 1.1 s in
+    w._update_plot()
+    assert len(w._canvas.fig.axes) == 2 and "Ag/AgCl" in w._canvas.fig.axes[1].get_ylabel()
+    E = w._last_traces[0]["E"]
+    assert np.nanmin(E) == pytest.approx(truth["lower"], abs=0.01) and np.nanmax(E) == pytest.approx(truth["upper"], abs=0.01)
+    # intensity vs potential: x is the potential, no second axis (the old one is removed)
+    w._ec_mode.setCurrentIndex(1)
+    assert len(w._canvas.fig.axes) == 1 and w._canvas.ax.get_xlabel().startswith("E (")
+    x = w._canvas.ax.lines[0].get_xdata()
+    assert np.nanmax(x) == pytest.approx(truth["upper"], abs=0.01)
+    # the intensity drops at high potential (the synthetic H2O -> OH -> O path)
+    y = w._canvas.ax.lines[0].get_ydata()
+    assert np.nanmean(y[x > 1.3]) < 0.3 * np.nanmean(y[x < 0.6])
+    # a sweep defined by hand, export, settings round trip
+    w._ec_source.setCurrentText("Defined by hand")
+    w._cv_upper.setValue(1.2)
+    w._rebuild_ec()
+    assert w._ec.potential.max() == pytest.approx(1.2)
+    from PyQt5.QtWidgets import QFileDialog
+    out = tmp_path / "ive.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(out), "")))
+    w._export_potential_data()
+    lines = out.read_text().splitlines()
+    assert any(l.startswith("t_s\tE_V_vs_Ag/AgCl") for l in lines)
+    w.close()
+    w2 = MainWindow()
+    assert w2._ec_source.currentText() == "Defined by hand" and w2._cv_upper.value() == pytest.approx(1.2)
+    assert w2._chk_t0.isChecked() and w2._ec is not None
+    w2.close()

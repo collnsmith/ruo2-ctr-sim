@@ -310,7 +310,12 @@ in a dialog):
   persistent bright spots (powder rings, hot pixels), background boxes around a clicked signal centre.
 - **Plotter.** SPEC scans with the ROI sums, figure options, peak fits of rocking curves (Gaussian,
   Lorentzian, pseudo-Voigt with a linear background; fitted or numerical areas), smoothing, per-scan
-  Y columns, exports. "CTR fitting" switches to the CTR fit tab.
+  Y columns, exports. "CTR fitting" switches to the CTR fit tab. "Potential and time": shift X
+  (e.g. Epoch) by t0, with "t = 0 at scan start" for any selected scan; add the potential from an
+  EC-Lab file (.mpr with galvani, .mpt / .txt export, .csv) or a sweep defined by hand (start and
+  hold, lower and upper vertex, rate in mV/s, cycles, first direction); "EC start at t =" puts the
+  potentiostat's first sample on the time axis to line the two records up. Show the potential on a
+  second y axis against time, or plot intensity against potential; "Export t, E, I" writes both.
 - **CTR fit.** Quick kinematic rods (substrate, film, adlayer, liquid, three layers) on integrated
   intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.
 - **HKL appender.** H, K, L from the SPEC scan added to plotter exports and peak-fit tables

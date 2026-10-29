@@ -310,12 +310,13 @@ in a dialog):
   persistent bright spots (powder rings, hot pixels), background boxes around a clicked signal centre.
 - **Plotter.** SPEC scans with the ROI sums, figure options, peak fits of rocking curves (Gaussian,
   Lorentzian, pseudo-Voigt with a linear background; fitted or numerical areas), smoothing, per-scan
-  Y columns, exports. "CTR fitting" switches to the CTR fit tab. "Potential and time": shift X
-  (e.g. Epoch) by t0, with "t = 0 at scan start" for any selected scan; add the potential from an
+  Y columns, exports. "CTR fitting" switches to the CTR fit tab. "Potential and time": "t = 0 at" the
+  start of each scan (every selected scan from 0, e.g. scans with their own CV) or of the first
+  scan (one clock for all), and a shift per scan in the small table to line scans up; add the potential from an
   EC-Lab file (.mpr with galvani, .mpt / .txt export, .csv) or a sweep defined by hand (start and
   hold, lower and upper vertex, rate in mV/s, cycles, first direction); "EC start at t =" puts the
   potentiostat's first sample on the time axis to line the two records up, or "At point #N, Align"
-  sets it from a SPEC point number (0-based) of the chosen scan: the first sweep (after any hold,
+  sets it from a SPEC point number (0-based) of the scan selected in the shift table: the first sweep (after any hold,
   found from the potential) or the start of the potentiostat record happens at that point. Show the potential on a
   second y axis against time, or plot intensity against potential; "Export t, E, I" writes both.
   "Export figure…" opens the final image in its own window, the working view staying as it is:

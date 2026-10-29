@@ -499,9 +499,8 @@ def test_plotter_potential_axis_and_time_zero(qapp, no_dialogs, tmp_path, monkey
     qapp.processEvents()
     w._col_sel.set_selection("Epoch", ["Detector"], "Monitor")
     w._update_plot()
-    w._zero_at_scan()                                                                     # the button
+    w._zero_mode.setCurrentIndex(1)                                                      # t = 0 at each scan's start
     epoch = w._spec_scans[2].data["Epoch"]
-    assert w._t0.value() == pytest.approx(epoch[0]) and w._chk_t0.isChecked()
     assert w._last_traces[0]["t"][0] == pytest.approx(0.0)
     # EC-Lab file, aligned by the offset: E on a second axis over the data's time range
     w._ec_source.setCurrentText("EC-Lab file")
@@ -549,7 +548,7 @@ def test_plotter_potential_axis_and_time_zero(qapp, no_dialogs, tmp_path, monkey
     w.close()
     w2 = MainWindow()
     assert w2._ec_source.currentText() == "Defined by hand" and w2._cv_upper.value() == pytest.approx(1.2)
-    assert w2._chk_t0.isChecked() and w2._ec is not None
+    assert w2._zero_mode.currentIndex() == 1 and w2._ec is not None
     w2.close()
 
 
@@ -609,7 +608,7 @@ def test_plotter_export_window(qapp, no_dialogs, tmp_path, monkeypatch):
         w._scan_list.item(i).setSelected("loopscan" in w._scan_list.item(i).text())
     qapp.processEvents()
     w._col_sel.set_selection("Epoch", ["Detector"], "Monitor")
-    w._zero_at_scan()                                                                    # hand CV from t = 0
+    w._zero_mode.setCurrentIndex(1)                                                      # hand CV from t = 0
     w._ec_source.setCurrentText("Defined by hand")
     w._rebuild_ec()
     working_title = w._canvas.ax.get_title()
@@ -683,3 +682,45 @@ def test_apply_rois_to_all_and_to_scan_in_the_window(qapp, bgsub_window, no_dial
     assert all(w._roi_config.get_rois(28, i)[0].x == 50 for i in range(3))
     w.undo()
     assert w._roi_config.get_rois(28, 0)[0].x == 44
+
+
+
+def test_plotter_several_scans_time_zero_and_shifts(qapp, no_dialogs, tmp_path, monkeypatch):
+    from ctrfit.app.datatools.plotter import MainWindow
+    from ctrfit.echem.synthetic import write_experiment
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    spec, mpt, truth = write_experiment(tmp_path / "exp")
+    w = MainWindow()
+    w.show()
+    w._load_spec_file(str(spec))
+    for i in range(w._scan_list.count()):
+        w._scan_list.item(i).setSelected(True)                                           # scans 1 and 2
+    qapp.processEvents()
+    w._col_sel.set_selection("Epoch", ["Detector"], "")
+    w._update_plot()
+    e1, e2 = w._spec_scans[1].data["Epoch"], w._spec_scans[2].data["Epoch"]
+    assert w._shift_table.rowCount() == 2
+    w._zero_mode.setCurrentIndex(1)                                                      # every scan from 0
+    assert [tr["t"][0] for tr in w._last_traces] == [pytest.approx(0.0), pytest.approx(0.0)]
+    w._zero_mode.setCurrentIndex(2)                                                      # one clock, from scan 1
+    assert w._last_traces[1]["t"][0] == pytest.approx(e2[0] - e1[0])
+    w._zero_mode.setCurrentIndex(1)
+    w._shift_table.item(1, 1).setText("12.5")                                            # shift scan 2
+    assert w._last_traces[1]["t"][0] == pytest.approx(12.5) and w._last_traces[0]["t"][0] == pytest.approx(0)
+    w._shift_table.item(1, 1).setText("abc")
+    assert "not a number" in no_dialogs[-1][1]
+    # both scans against one hand-defined potential
+    w._ec_source.setCurrentText("Defined by hand")
+    w._rebuild_ec()
+    w._ec_mode.setCurrentIndex(1)
+    assert len(w._canvas.ax.lines) == 2 and all(np.isfinite(tr["E"]).any() for tr in w._last_traces)
+    # 'At point' uses the scan selected in the shift table
+    w._shift_table.selectRow(1)
+    w._align_point.setValue(0)
+    w._align_marks.setCurrentIndex(1)
+    w._align_at_point()
+    assert w._ec_offset.value() == pytest.approx(12.5)
+    w.close()
+    w2 = MainWindow()
+    assert w2._scan_shift == {1: 0.0, 2: 12.5} or w2._scan_shift.get(2) == 12.5
+    w2.close()

@@ -30,8 +30,8 @@ from ctrfit.app.datatools.common import (HINT_STYLE, PRIMARY_STYLE, StatusMixin,
 from ctrfit.datatools.paths import settings_dir, settings_file
 from ctrfit.datatools.peaks import (FIT_MODELS, display_label, fit_peak, integrate_peak, load_label_map,
                                     numerical_area, parse_bgsub_dir, save_label_map)
-from ctrfit.datatools.potential import (FIRST_SWEEPS, MARKS, MODES, hand_cv, load_potential, offset_for_point,
-                                        point_time, potential_at, time_zero, trace_between)
+from ctrfit.datatools.potential import (FIRST_SWEEPS, MARKS, MODES, hand_cv, load_potential,
+                                        offset_for_point, point_time, potential_at, time_zero, trace_between)
 from ctrfit.datatools.specfile import parse_spec_file
 
 
@@ -2212,6 +2212,8 @@ class PlotCanvas(FigureCanvas):
         for sp in self.ax.spines.values(): sp.set_color('#999')
 
 
+ZERO_MODES = ('off (raw X)', 'start of each scan', 'start of the first scan')
+
 DEFAULT_COLORS = ['#1f77b4', '#d62728', '#2ca02c', '#ff7f0e',
                   '#9467bd', '#8c564b', '#17becf', '#e377c2']
 
@@ -2291,7 +2293,7 @@ class MainWindow(StatusMixin, QMainWindow):
             'ylim_min': self._ylim_min.text(), 'ylim_max': self._ylim_max.text(),
         }
         c['potential'] = {
-            't0': repr(self._t0.value()), 'shift_x': str(self._chk_t0.isChecked()),
+            'zero': self._zero_mode.currentText(), 'shifts': json.dumps({str(k): v for k, v in self._scan_shift.items()}),
             'source': self._ec_source.currentText(), 'file': self._ec_path.text(),
             'cv_start': repr(self._cv_start.value()), 'cv_hold': repr(self._cv_hold.value()),
             'cv_upper': repr(self._cv_upper.value()), 'cv_lower': repr(self._cv_lower.value()),
@@ -2527,22 +2529,25 @@ class MainWindow(StatusMixin, QMainWindow):
         self._export_window = None      # the Export figure window, while open
         self._last_traces = []          # what the last plot drew (for 'Export I vs E')
         box, f = group("Potential and time")
-        # time zero of the X axis
-        self._t0 = QDoubleSpinBox()
-        self._t0.setRange(-1e12, 1e12)
-        self._t0.setDecimals(3)
-        self._t0.setSuffix(" s")
-        self._t0.setToolTip("Subtracted from the X column (e.g. Epoch) when 'Shift X' is on")
-        self._chk_t0 = QCheckBox("Shift X by t0")
-        self._t0_scan = QComboBox()
-        self._t0_scan.setToolTip("Scan whose first point becomes t = 0")
-        b_zero = QPushButton("t = 0 at scan start")
-        b_zero.setToolTip("Set t0 to the first X value (e.g. Epoch) of the chosen scan and shift X")
-        b_zero.clicked.connect(self._zero_at_scan)
-        self._t0.editingFinished.connect(self._update_plot)
-        self._chk_t0.toggled.connect(self._update_plot)
-        f.addRow("t0", row(self._t0, self._chk_t0))
-        f.addRow("Scan", row(self._t0_scan, b_zero))
+        # time axis: zero and a shift per scan
+        self._zero_mode = QComboBox()
+        self._zero_mode.addItems(list(ZERO_MODES))
+        self._zero_mode.setToolTip("Each scan's start: every scan begins at t = 0 (scans with their own CV).\n"
+                                   "The first scan's start: one clock for all scans (one long potentiostat record).")
+        self._zero_mode.currentIndexChanged.connect(self._update_plot)
+        f.addRow("t = 0 at", self._zero_mode)
+        self._scan_shift = {}           # scan number -> extra time shift (s)
+        self._shift_table = QTableWidget(0, 2)
+        self._shift_table.setHorizontalHeaderLabels(["Scan", "Shift (s)"])
+        self._shift_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self._shift_table.verticalHeader().setVisible(False)
+        self._shift_table.setMaximumHeight(120)
+        self._shift_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._shift_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._shift_table.setToolTip("Added to each scan's time to line the scans up. "
+                                     "The selected row is the scan used by 'At point'.")
+        self._shift_table.itemChanged.connect(self._shift_edited)
+        f.addRow(self._shift_table)
         # potentiostat record
         self._ec_source = QComboBox()
         self._ec_source.addItems(["None", "EC-Lab file", "Defined by hand"])
@@ -2624,14 +2629,18 @@ class MainWindow(StatusMixin, QMainWindow):
         return box
 
     def _load_potential_settings(self, get, getbool):
-        widgets = [self._t0, self._chk_t0, self._ec_source, self._ec_path, self._cv_start, self._cv_hold,
+        widgets = [self._zero_mode, self._ec_source, self._ec_path, self._cv_start, self._cv_hold,
                    self._cv_upper, self._cv_lower, self._cv_rate, self._cv_cycles, self._cv_first,
                    self._ec_offset, self._ec_mode, self._ec_ref]
         for w in widgets:
             w.blockSignals(True)
         try:
-            self._t0.setValue(float(get('potential', 't0', '0')))
-            self._chk_t0.setChecked(getbool('potential', 'shift_x'))
+            i = self._zero_mode.findText(get('potential', 'zero', ZERO_MODES[0]))
+            self._zero_mode.setCurrentIndex(max(i, 0))
+            try:
+                self._scan_shift = {int(k): float(v) for k, v in json.loads(get('potential', 'shifts', '{}')).items()}
+            except (ValueError, TypeError, AttributeError):
+                self._scan_shift = {}
             for spin, key, d in ((self._cv_start, 'cv_start', '0'), (self._cv_hold, 'cv_hold', '0'),
                                  (self._cv_upper, 'cv_upper', '0.7'), (self._cv_lower, 'cv_lower', '0'),
                                  (self._cv_rate, 'cv_rate', '5'), (self._ec_offset, 'offset', '0')):
@@ -2700,41 +2709,19 @@ class MainWindow(StatusMixin, QMainWindow):
             return self._bgsub_data.get(sn, {}).get(x_col[5:])
         return scan.data.get(x_col)
 
-    def _zero_at_scan(self):
-        x_col = self._col_sel.get_selection()[0]
-        if not x_col:
-            self.say("Pick the X (time) column first", error=True)
-            return
-        sn = self._t0_scan.currentData()
-        x = self._x_values(sn, x_col) if sn is not None else None
-        if x is None:
-            self.say("Select the scan to start at t = 0 (it must be plotted)", error=True)
-            return
-        try:
-            t0 = time_zero(x)
-        except ValueError as e:
-            self.say(str(e), error=True)
-            return
-        self._t0.setValue(t0)
-        self._chk_t0.blockSignals(True)
-        self._chk_t0.setChecked(True)
-        self._chk_t0.blockSignals(False)
-        self.say(f"t = 0 at the start of scan {sn} ({x_col} = {t0:.6g})")
-        self._update_plot()
-
     def _align_at_point(self):
         """Put the first sweep (or the record start) at the time of a SPEC point of the chosen scan."""
         if self._ec is None:
             self.say("Choose a potential (EC-Lab file or defined by hand) first", error=True)
             return
         x_col = self._col_sel.get_selection()[0]
-        sn = self._t0_scan.currentData()
+        sn = self._chosen_scan()
         x = self._x_values(sn, x_col) if (x_col and sn is not None) else None
         if x is None:
-            self.say("Pick the X (time) column and the scan (it must be plotted)", error=True)
+            self.say("Pick the X (time) column and a scan (select its row in the shift table)", error=True)
             return
         try:
-            t = point_time(self._shift_x(np.asarray(x, dtype=float)), self._align_point.value())
+            t = point_time(self._shift_x(np.asarray(x, dtype=float), sn, x_col), self._align_point.value())
             off = offset_for_point(self._ec, t, self._align_marks.currentText())
         except ValueError as e:
             self.say(str(e), error=True)
@@ -2745,19 +2732,62 @@ class MainWindow(StatusMixin, QMainWindow):
                  f"EC start at t = {off:.6g} s")
         self._update_plot()
 
-    def _refresh_t0_scans(self):
-        cur = self._t0_scan.currentData()
-        self._t0_scan.blockSignals(True)
-        self._t0_scan.clear()
+    def _refresh_shift_table(self):
+        """One row per selected scan in the shift table (keeps the selection and the shifts)."""
+        cur = self._chosen_scan()
+        t = self._shift_table
+        t.blockSignals(True)
+        t.setRowCount(0)
         for sn in self._get_selected_scans():
-            self._t0_scan.addItem(f"S{sn}", sn)
-        i = self._t0_scan.findData(cur)
-        if i >= 0:
-            self._t0_scan.setCurrentIndex(i)
-        self._t0_scan.blockSignals(False)
+            r = t.rowCount()
+            t.insertRow(r)
+            name = QTableWidgetItem(f"S{sn}")
+            name.setFlags(name.flags() & ~Qt.ItemIsEditable)
+            name.setData(Qt.UserRole, sn)
+            t.setItem(r, 0, name)
+            t.setItem(r, 1, QTableWidgetItem(f"{self._scan_shift.get(sn, 0.0):g}"))
+            if sn == cur:
+                t.selectRow(r)
+        if t.rowCount() and not t.selectedItems():
+            t.selectRow(0)
+        t.blockSignals(False)
 
-    def _shift_x(self, xd):
-        return xd - self._t0.value() if self._chk_t0.isChecked() else xd
+    def _chosen_scan(self):
+        """The scan of the selected row of the shift table (else the first selected scan)."""
+        rows = self._shift_table.selectionModel().selectedRows() if self._shift_table.selectionModel() else []
+        if rows:
+            item = self._shift_table.item(rows[0].row(), 0)
+            if item is not None:
+                return item.data(Qt.UserRole)
+        sel = self._get_selected_scans()
+        return sel[0] if sel else None
+
+    def _shift_edited(self, item):
+        if item.column() != 1:
+            return
+        sn = self._shift_table.item(item.row(), 0).data(Qt.UserRole)
+        try:
+            self._scan_shift[sn] = float(item.text().strip() or 0)
+        except ValueError:
+            self.say(f"Shift of S{sn}: '{item.text()}' is not a number", error=True)
+            return
+        self._update_plot()
+
+    def _zero_of(self, sn, x_col):
+        """The time subtracted from scan sn's X: its own start, the first selected scan's start, or 0."""
+        mode = self._zero_mode.currentIndex()
+        if mode == 0 or not x_col:
+            return 0.0
+        ref = sn if mode == 1 else (self._get_selected_scans() or [sn])[0]
+        x = self._x_values(ref, x_col)
+        try:
+            return time_zero(x) if x is not None else 0.0
+        except ValueError:
+            return 0.0
+
+    def _shift_x(self, xd, sn, x_col):
+        """X on the plot's time axis: minus the time zero, plus the scan's own shift."""
+        return xd - self._zero_of(sn, x_col) + self._scan_shift.get(sn, 0.0)
 
     def _export_potential_data(self):
         if not self._last_traces:
@@ -2769,8 +2799,8 @@ class MainWindow(StatusMixin, QMainWindow):
         ref = self._ec_ref.text().strip() or "V"
         with open(path, 'w') as f:
             f.write("# Exported from SXRD Plotter: time on the plot's axis, potential there, intensity\n")
-            f.write(f"# t0 = {self._t0.value() if self._chk_t0.isChecked() else 0:.6g} s, EC start at "
-                    f"t = {self._ec_offset.value():.6g} s\n")
+            f.write(f"# t = 0 at: {self._zero_mode.currentText()}; scan shifts (s): "
+                    f"{ {k: v for k, v in self._scan_shift.items() if v} }; EC start at t = {self._ec_offset.value():.6g} s\n")
             for tr in self._last_traces:
                 f.write(f"\n# Trace: {tr['label']}\nt_s\tE_{ref.replace(' ', '_')}\t{tr['label']}\n")
                 E = tr['E'] if tr['E'] is not None else np.full(len(tr['t']), np.nan)
@@ -2887,7 +2917,7 @@ class MainWindow(StatusMixin, QMainWindow):
         if not selected: return
         # Clear overlay when user switches to scan data
         self._overlay = None
-        self._refresh_t0_scans()
+        self._refresh_shift_table()
         sn = selected[0]
         scan = self._spec_scans.get(sn)
         if not scan: return
@@ -3059,7 +3089,7 @@ class MainWindow(StatusMixin, QMainWindow):
                         yd2 = self._apply_transm(scan, yd2, None)
 
                     if att != 1: yd2 *= att
-                    xd = self._shift_x(np.asarray(xd, dtype=float))
+                    xd = self._shift_x(np.asarray(xd, dtype=float), sn, x_col)
                     E_pts = potential_at(ec, xd, self._ec_offset.value()) if ec is not None else None
                     if xd.size:
                         t_lo, t_hi = min(t_lo, np.nanmin(xd)), max(t_hi, np.nanmax(xd))
@@ -3080,8 +3110,10 @@ class MainWindow(StatusMixin, QMainWindow):
                     has_data = True
 
             xlab = display_label(x_col.replace('[bg] ', ''), self._label_map)
-            if self._chk_t0.isChecked() and self._t0.value():
-                xlab = f"{xlab} − {self._t0.value():.6g}"
+            if self._zero_mode.currentIndex() == 1:
+                xlab = f"{xlab} from each scan's start"
+            elif self._zero_mode.currentIndex() == 2:
+                xlab = f"{xlab} from the start of S{selected[0]}"
             ref = self._ec_ref.text().strip() or "V"
             if vs_E:
                 xlab = f"E ({ref})"

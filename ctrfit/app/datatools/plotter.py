@@ -2294,6 +2294,7 @@ class MainWindow(StatusMixin, QMainWindow):
         }
         c['potential'] = {
             'zero': self._zero_mode.currentText(), 'shifts': json.dumps({str(k): v for k, v in self._scan_shift.items()}),
+            'zero_points': json.dumps({str(k): v for k, v in self._scan_point.items()}),
             'source': self._ec_source.currentText(), 'file': self._ec_path.text(),
             'cv_start': repr(self._cv_start.value()), 'cv_hold': repr(self._cv_hold.value()),
             'cv_upper': repr(self._cv_upper.value()), 'cv_lower': repr(self._cv_lower.value()),
@@ -2537,14 +2538,16 @@ class MainWindow(StatusMixin, QMainWindow):
         self._zero_mode.currentIndexChanged.connect(self._update_plot)
         f.addRow("t = 0 at", self._zero_mode)
         self._scan_shift = {}           # scan number -> extra time shift (s)
-        self._shift_table = QTableWidget(0, 2)
-        self._shift_table.setHorizontalHeaderLabels(["Scan", "Shift (s)"])
+        self._scan_point = {}           # scan number -> point that is t = 0 (0 = the first point)
+        self._shift_table = QTableWidget(0, 3)
+        self._shift_table.setHorizontalHeaderLabels(["Scan", "t = 0 at point #", "Shift (s)"])
         self._shift_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self._shift_table.verticalHeader().setVisible(False)
         self._shift_table.setMaximumHeight(120)
         self._shift_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self._shift_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._shift_table.setToolTip("Added to each scan's time to line the scans up. "
+        self._shift_table.setToolTip("t = 0 at point #: the SPEC point (0-based) of each scan that is time zero, "
+                                     "e.g. where its CV started.\nShift: seconds added to the scan's time.\n"
                                      "The selected row is the scan used by 'At point'.")
         self._shift_table.itemChanged.connect(self._shift_edited)
         f.addRow(self._shift_table)
@@ -2641,6 +2644,10 @@ class MainWindow(StatusMixin, QMainWindow):
                 self._scan_shift = {int(k): float(v) for k, v in json.loads(get('potential', 'shifts', '{}')).items()}
             except (ValueError, TypeError, AttributeError):
                 self._scan_shift = {}
+            try:
+                self._scan_point = {int(k): int(v) for k, v in json.loads(get('potential', 'zero_points', '{}')).items()}
+            except (ValueError, TypeError, AttributeError):
+                self._scan_point = {}
             for spin, key, d in ((self._cv_start, 'cv_start', '0'), (self._cv_hold, 'cv_hold', '0'),
                                  (self._cv_upper, 'cv_upper', '0.7'), (self._cv_lower, 'cv_lower', '0'),
                                  (self._cv_rate, 'cv_rate', '5'), (self._ec_offset, 'offset', '0')):
@@ -2745,7 +2752,8 @@ class MainWindow(StatusMixin, QMainWindow):
             name.setFlags(name.flags() & ~Qt.ItemIsEditable)
             name.setData(Qt.UserRole, sn)
             t.setItem(r, 0, name)
-            t.setItem(r, 1, QTableWidgetItem(f"{self._scan_shift.get(sn, 0.0):g}"))
+            t.setItem(r, 1, QTableWidgetItem(str(self._scan_point.get(sn, 0))))
+            t.setItem(r, 2, QTableWidgetItem(f"{self._scan_shift.get(sn, 0.0):g}"))
             if sn == cur:
                 t.selectRow(r)
         if t.rowCount() and not t.selectedItems():
@@ -2763,13 +2771,27 @@ class MainWindow(StatusMixin, QMainWindow):
         return sel[0] if sel else None
 
     def _shift_edited(self, item):
-        if item.column() != 1:
+        if item.column() == 0:
             return
         sn = self._shift_table.item(item.row(), 0).data(Qt.UserRole)
+        text = item.text().strip() or "0"
         try:
-            self._scan_shift[sn] = float(item.text().strip() or 0)
-        except ValueError:
-            self.say(f"Shift of S{sn}: '{item.text()}' is not a number", error=True)
+            if item.column() == 1:
+                point = int(text)
+                x_col = self._col_sel.get_selection()[0]
+                x = self._x_values(sn, x_col) if x_col else None
+                if x is not None:
+                    point_time(x, point)                       # raises if the point is not in the scan
+                self._scan_point[sn] = point
+            else:
+                self._scan_shift[sn] = float(text)
+        except ValueError as e:
+            what = "point #" if item.column() == 1 else "shift"
+            self.say(f"S{sn} {what}: {e if 'point' in str(e) else repr(item.text()) + ' is not a number'}",
+                     error=True)
+            return
+        if self._zero_mode.currentIndex() == 0 and item.column() == 1:
+            self._zero_mode.setCurrentIndex(1)                 # a zero point means: zero at each scan
             return
         self._update_plot()
 
@@ -2780,8 +2802,11 @@ class MainWindow(StatusMixin, QMainWindow):
             return 0.0
         ref = sn if mode == 1 else (self._get_selected_scans() or [sn])[0]
         x = self._x_values(ref, x_col)
+        if x is None:
+            return 0.0
         try:
-            return time_zero(x) if x is not None else 0.0
+            point = self._scan_point.get(ref, 0)
+            return point_time(x, point) if point else time_zero(x)
         except ValueError:
             return 0.0
 
@@ -2800,7 +2825,8 @@ class MainWindow(StatusMixin, QMainWindow):
         with open(path, 'w') as f:
             f.write("# Exported from SXRD Plotter: time on the plot's axis, potential there, intensity\n")
             f.write(f"# t = 0 at: {self._zero_mode.currentText()}; scan shifts (s): "
-                    f"{ {k: v for k, v in self._scan_shift.items() if v} }; EC start at t = {self._ec_offset.value():.6g} s\n")
+                    f"{ {k: v for k, v in self._scan_shift.items() if v} }; t = 0 at points "
+                    f"{ {k: v for k, v in self._scan_point.items() if v} }; EC start at t = {self._ec_offset.value():.6g} s\n")
             for tr in self._last_traces:
                 f.write(f"\n# Trace: {tr['label']}\nt_s\tE_{ref.replace(' ', '_')}\t{tr['label']}\n")
                 E = tr['E'] if tr['E'] is not None else np.full(len(tr['t']), np.nan)

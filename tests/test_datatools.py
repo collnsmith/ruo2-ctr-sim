@@ -705,10 +705,17 @@ def test_plotter_several_scans_time_zero_and_shifts(qapp, no_dialogs, tmp_path, 
     w._zero_mode.setCurrentIndex(2)                                                      # one clock, from scan 1
     assert w._last_traces[1]["t"][0] == pytest.approx(e2[0] - e1[0])
     w._zero_mode.setCurrentIndex(1)
-    w._shift_table.item(1, 1).setText("12.5")                                            # shift scan 2
+    w._shift_table.item(1, 2).setText("12.5")                                            # shift scan 2
     assert w._last_traces[1]["t"][0] == pytest.approx(12.5) and w._last_traces[0]["t"][0] == pytest.approx(0)
-    w._shift_table.item(1, 1).setText("abc")
+    w._shift_table.item(1, 2).setText("abc")
     assert "not a number" in no_dialogs[-1][1]
+    # t = 0 at a chosen point of a scan (e.g. where its CV started)
+    w._shift_table.item(1, 1).setText("10")
+    assert w._last_traces[1]["t"][10] == pytest.approx(12.5)
+    assert w._last_traces[1]["t"][0] == pytest.approx(12.5 - (e2[10] - e2[0]))
+    w._shift_table.item(1, 1).setText("100000")
+    assert "not in the scan" in no_dialogs[-1][1]
+    w._shift_table.item(1, 1).setText("0")
     # both scans against one hand-defined potential
     w._ec_source.setCurrentText("Defined by hand")
     w._rebuild_ec()
@@ -722,5 +729,5 @@ def test_plotter_several_scans_time_zero_and_shifts(qapp, no_dialogs, tmp_path, 
     assert w._ec_offset.value() == pytest.approx(12.5)
     w.close()
     w2 = MainWindow()
-    assert w2._scan_shift == {1: 0.0, 2: 12.5} or w2._scan_shift.get(2) == 12.5
+    assert w2._scan_shift.get(2) == 12.5 and w2._scan_point.get(2) == 0
     w2.close()

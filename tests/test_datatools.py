@@ -794,3 +794,32 @@ def test_column_table_contrast_follows_the_theme(qapp):
     qapp.processEvents()
     assert "gridline-color" in w._table.styleSheet() and light == ""
     assert w._table.item(2, 0).foreground().color().lightness() > 128                     # [bg] column readable
+
+
+def test_plotter_refresh_rereads_the_files(qapp, no_dialogs, tmp_path, monkeypatch):
+    from ctrfit.app.datatools.plotter import MainWindow
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    spec = write_spec(tmp_path / "s.spec")
+    sums = tmp_path / "sums"
+    sums.mkdir()
+    (sums / "a_sums.txt").write_text("scan\timage\tROI1\n" + "".join(f"464\t{i}\t{10 + i}\n" for i in range(5)))
+    w = MainWindow()
+    w.show()
+    w._spec_path.setText(str(spec))
+    w._bgsub_path.setText(str(sums))
+    w.refresh_sources()
+    for i in range(w._scan_list.count()):
+        w._scan_list.item(i).setSelected(w._scan_list.item(i).text().startswith("464"))
+    qapp.processEvents()
+    w._col_sel.set_selection("L", ["[bg] ROI1"], "")
+    w._update_plot()
+    assert len(w._last_traces[0]["y"]) == 5
+    # background subtraction writes more images, the beamtime adds a scan
+    (sums / "a_sums.txt").write_text("scan\timage\tROI1\n" + "".join(f"464\t{i}\t{99}\n" for i in range(8)))
+    with open(spec, "a") as f:
+        f.write("\n#S 466  ascan  th 1 2 2 1\n#L Theta  Detector\n1 10\n2 20\n")
+    w.refresh_sources()
+    assert w._get_selected_scans() == [464] and w._col_sel.get_selection()[1] == ["[bg] ROI1"]
+    assert len(w._last_traces[0]["y"]) == 8 and np.all(w._last_traces[0]["y"] == 99)
+    assert 466 in w._spec_scans and "Refreshed" in w._status_label.text()
+    w.close()

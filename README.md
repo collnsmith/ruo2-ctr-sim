@@ -311,7 +311,8 @@ in a dialog):
 - **Plotter.** SPEC scans with the ROI sums, figure options, peak fits of rocking curves (Gaussian,
   Lorentzian, pseudo-Voigt with a linear background; fitted or numerical areas), smoothing (of every
   plotted trace at once: "Grab from main plot" takes them all, "Send" puts them all back), per-scan
-  Y columns, exports. "CTR fitting" switches to the CTR fit tab. "Potential and time": "t = 0 at" the
+  Y columns, exports. "Refresh files" (F5) reads the SPEC file, the ROI sums folder and the EC-Lab
+  file again and keeps the selection. "CTR fitting" switches to the CTR fit tab. "Potential and time": "t = 0 at" the
   start of each scan (every selected scan from 0, e.g. scans with their own CV) or of the first
   scan (one clock for all); the small table sets, per scan, the point that is t = 0 ("t = 0 at
   point #", 0-based, e.g. where that scan's CV started) and a shift in seconds, to line scans up; add the potential from an

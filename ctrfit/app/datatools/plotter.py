@@ -13,11 +13,11 @@ from collections import OrderedDict
 import matplotlib
 import numpy as np
 from PyQt5.QtCore import Qt, QEvent, QObject
-from PyQt5.QtGui import QPalette, QColor
-from PyQt5.QtWidgets import (QFormLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
-                             QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog,
-                             QCheckBox, QSplitter, QScrollArea, QListWidget, QListWidgetItem, QGridLayout,
-                             QColorDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
+from PyQt5.QtGui import QKeySequence, QPalette, QColor
+from PyQt5.QtWidgets import (QShortcut, QFormLayout, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+                             QGroupBox, QLabel, QPushButton, QComboBox, QSpinBox, QDoubleSpinBox, QLineEdit,
+                             QFileDialog, QCheckBox, QSplitter, QScrollArea, QListWidget, QListWidgetItem,
+                             QGridLayout, QColorDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
                              QAbstractItemView, QDialogButtonBox)
 from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
                                                 NavigationToolbar2QT as NavigationToolbar)
@@ -2446,6 +2446,14 @@ class MainWindow(StatusMixin, QMainWindow):
         bb = QPushButton("Browse…")
         bb.clicked.connect(self._browse_bgsub)
         fl.addRow("ROI sums", row(self._bgsub_path, bb))
+        b_refresh = QPushButton("Refresh files  (F5)")
+        b_refresh.setToolTip("Read the SPEC file, the ROI sums folder and the EC-Lab file again (e.g. while "
+                             "background subtraction or the beamtime writes new data); keeps the selection")
+        b_refresh.clicked.connect(lambda: self.refresh_sources())
+        sc = QShortcut(QKeySequence("F5"), self)
+        sc.setContext(Qt.WidgetWithChildrenShortcut)
+        sc.activated.connect(self.refresh_sources)
+        fl.addRow(b_refresh)
 
         sg, sl = group("Scans", form=False)
         self._scan_list = QListWidget()
@@ -2980,6 +2988,45 @@ class MainWindow(StatusMixin, QMainWindow):
             self._on_scan_changed()
             self.say(f"BGsub: {n_files} files, scans {sorted(self._bgsub_data.keys())}")
         except Exception as e: self.say(str(e), error=True)
+
+    def refresh_sources(self):
+        """Read every data source again, keeping the selected scans, columns and view."""
+        selected = set(self._get_selected_scans())
+        x, ys, norm = self._col_sel.get_selection()
+        done = []
+        spec = self._spec_path.text()
+        if spec and os.path.isfile(spec):
+            try:
+                self._spec_scans = parse_spec_file(spec)
+            except Exception as e:
+                self.say(f"SPEC file: {e}", error=True)
+                return
+            self._scan_list.blockSignals(True)
+            self._scan_list.clear()
+            for sn in sorted(self._spec_scans):
+                self._scan_list.addItem(f"{sn}: {self._spec_scans[sn].scan_cmd}")
+                if sn in selected:
+                    self._scan_list.item(self._scan_list.count() - 1).setSelected(True)
+            self._scan_list.blockSignals(False)
+            done.append(f"{len(self._spec_scans)} scans")
+        folder = self._bgsub_path.text()
+        if folder and os.path.isdir(folder):
+            try:
+                self._bgsub_data, self._bgsub_header, n_files = parse_bgsub_dir(folder)
+                done.append(f"{n_files} ROI-sum files")
+            except Exception as e:
+                self.say(f"ROI sums: {e}", error=True)
+        if self._ec_source.currentText() == "EC-Lab file" and os.path.isfile(self._ec_path.text()):
+            self._rebuild_ec()
+            done.append("potential file")
+        if not done:
+            self.say("No files to refresh: open a SPEC file or a ROI sums folder first")
+            return
+        if self._get_selected_scans():
+            self._on_scan_changed()                         # rebuilds the columns, keeps the choice
+            self._col_sel.set_selection(x, ys, norm)
+        self._update_plot()
+        self.say("Refreshed: " + ", ".join(done))
 
     def _get_selected_scans(self):
         """Return list of selected scan numbers."""

@@ -6,7 +6,7 @@ import json
 import os
 
 import numpy as np
-from PyQt5.QtCore import Qt, QTimer
+from PyQt5.QtCore import QItemSelectionModel, Qt, QTimer
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog, QHeaderView, QLineEdit,
                              QMainWindow, QPushButton, QShortcut, QSplitter, QTableWidget, QTableWidgetItem,
@@ -50,7 +50,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         self._spec = {}
         self._results = []
         self._merged = None
-        self._saved_scans = ({}, {}, {})          # scale, use, roi per scan from the settings
+        self._saved_scans = ({}, {}, {}, {})       # scale, use, roi, group per scan from the settings
         self._notes = []
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -143,7 +143,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         mg, mf = group("5. Merge and scale")
         self._equiv = QComboBox()
         self._equiv.addItems(list(pr.EQUIVALENTS))
-        self._equiv.setToolTip("Rods averaged together: none, or (±H, ±K) at the same L (p2mm surface)")
+        self._equiv.setToolTip("Symmetry equivalents averaged: none (each rod on its own), or (±H, ±K) at the same "
+                               "L (p2mm surface). Scans of different groups are never averaged.")
         self._ltol = _spin(0.0001, 0.5, 0.01, 4, 0.005)
         self._ltol.setToolTip("Points of the same (or equivalent) rod closer than this in L are averaged")
         self._chk_overlap = QCheckBox("Scale scans of a rod on their overlap")
@@ -169,12 +170,17 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         lv.addWidget(sidebar(fg, ng, cg, mg, width=400), 1)
         lv.addWidget(primary_button("Process and save…", self.save_dialog, "Ctrl+S", self))
 
-        self._table = QTableWidget(0, 8)
-        self._table.setHorizontalHeaderLabels(["Use", "Scan", "Rod", "L range", "Points", "Scale", "ROI", "Notes"])
-        self._table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
+        self._table = QTableWidget(0, 9)
+        self._table.setHorizontalHeaderLabels(["Use", "Scan", "Rod", "L range", "Points", "Scale", "ROI", "Group",
+                                               "Notes"])
+        self._table.horizontalHeaderItem(7).setToolTip(
+            "Condition of the scan (potential, film, ...). Scans are overlap-scaled and merged only within their "
+            "group; each group is saved as its own dataset. Typing a group with several rows selected sets it "
+            "for all of them.")
+        self._table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.setSelectionMode(QTableWidget.SingleSelection)
+        self._table.setSelectionMode(QTableWidget.ExtendedSelection)
         self._table.itemSelectionChanged.connect(self._draw_preview)
         self._table.itemChanged.connect(self._table_edited)
         self._fig = Figure(layout="constrained")
@@ -206,7 +212,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         path = path or QFileDialog.getOpenFileName(self, "SPEC file", "", "SPEC (*.spec *.dat *.txt);;All files (*)")[0]
         if path:
             if str(path) != self._spec_path.text():   # another experiment: forget per-scan scale, use, ROI
-                self._saved_scans = ({}, {}, {})
+                self._saved_scans = ({}, {}, {}, {})
                 self._table.setRowCount(0)
             self._spec_path.setText(str(path))
             self.refresh()
@@ -281,12 +287,12 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                        equivalents=self._equiv.currentText(), l_tol=self._ltol.value(),
                        match_overlaps=self._chk_overlap.isChecked(), exclude_bragg=self._bragg.value(),
                        floor_pct=self._floor.value())
-        o.scan_scale, o.scan_use, o.scan_roi = self._table_state()
+        o.scan_scale, o.scan_use, o.scan_roi, o.scan_group = self._table_state()
         return o
 
     def _table_state(self):
-        """(scale, use, roi) per scan: the table's rows over what the settings remembered."""
-        scale, use, roi = (dict(x) for x in self._saved_scans)
+        """(scale, use, roi, group) per scan: the table's rows over what the settings remembered."""
+        scale, use, roi, group = (dict(x) for x in self._saved_scans)
         for r in range(self._table.rowCount()):
             sn = int(self._table.item(r, 1).text())
             try:
@@ -300,7 +306,12 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                 roi.pop(sn, None)
             else:
                 roi[sn] = pick
-        return scale, use, roi
+            g = self._table.item(r, 7).text().strip()
+            if g:
+                group[sn] = g
+            else:
+                group.pop(sn, None)
+        return scale, use, roi, group
 
     def _changed(self, *_):
         if not self._loading:
@@ -318,9 +329,10 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         self.guarded(go)
 
     def _fill_table(self, opt):
-        sel = self._selected_scan()
+        sel = self._selected_scans()
         t = self._table
         t.blockSignals(True)
+        t.clearSelection()
         t.setRowCount(len(self._results))
         for i, r in enumerate(self._results):
             use = QTableWidgetItem()
@@ -331,11 +343,12 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                       f"{np.nanmin(r.L):.3f} to {np.nanmax(r.L):.3f}")
             items = [use, QTableWidgetItem(str(r.scan)), QTableWidgetItem(rod), QTableWidgetItem(lrange),
                      QTableWidgetItem(f"{int(r.keep.sum())} / {r.L.size}"),
-                     QTableWidgetItem(f"{r.scale:.4g}"), QTableWidgetItem(""), QTableWidgetItem("; ".join(r.notes))]
+                     QTableWidgetItem(f"{r.scale:.4g}"), QTableWidgetItem(""),
+                     QTableWidgetItem(pr.scan_group(opt, r.scan)), QTableWidgetItem("; ".join(r.notes))]
             items[5].setData(Qt.UserRole, opt.scan_scale.get(r.scan, 1.0))
             items[5].setToolTip("Applied scale (hand scale × overlap match); type a number to set the hand scale")
             for c, it in enumerate(items):
-                if c not in (0, 5):
+                if c not in (0, 5, 7):
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 t.setItem(i, c, it)
             combo = QComboBox()
@@ -345,12 +358,12 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                              "under 2. Normalise")
             combo.currentTextChanged.connect(self._changed)
             t.setCellWidget(i, 6, combo)
-            if r.scan == sel:
-                t.selectRow(i)
+            if r.scan in sel:
+                t.selectionModel().select(t.model().index(i, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
         if t.rowCount() and not t.selectedItems():
             t.selectRow(0)
         t.resizeColumnsToContents()
-        t.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
+        t.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)
         t.blockSignals(False)
 
     def _table_edited(self, item):
@@ -369,25 +382,46 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             self._table.blockSignals(True)
             item.setData(Qt.UserRole, val / match if match else val)
             self._table.blockSignals(False)
-        if item.column() in (0, 5):
+        if item.column() == 7:                       # one group typed: every selected row gets it
+            rows = {i.row() for i in self._table.selectionModel().selectedRows()}
+            if item.row() in rows and len(rows) > 1:
+                self._table.blockSignals(True)
+                for r in rows:
+                    self._table.item(r, 7).setText(item.text())
+                self._table.blockSignals(False)
+        if item.column() in (0, 5, 7):
             self._changed()
 
     def _result(self, sn):
         return next((r for r in self._results if r.scan == sn), None)
 
-    def _selected_scan(self):
+    def _selected_scans(self):
         rows = self._table.selectionModel().selectedRows() if self._table.selectionModel() else []
-        if rows:
-            it = self._table.item(rows[0].row(), 1)
-            return int(it.text()) if it else None
-        return None
+        out = []
+        for i in sorted(r.row() for r in rows):
+            it = self._table.item(i, 1)
+            if it:
+                out.append(int(it.text()))
+        return out
+
+    def _selected_scan(self):
+        """The scan the preview shows: the current row if selected, else the first selected one."""
+        sel = self._selected_scans()
+        cur = self._table.currentRow()
+        it = self._table.item(cur, 1) if cur >= 0 else None
+        if it and int(it.text()) in sel:
+            return int(it.text())
+        return sel[0] if sel else None
 
     def _write_summary(self):
         m = self._merged
         lines = []
         if m is not None:
-            rods = sorted(set(m.rod))
-            lines.append(f"{m.L.size} merged points on {len(rods)} rod(s): {', '.join(rods)}")
+            for g in m.groups():
+                mg = m.select(g)
+                rods = sorted(set(mg.rod))
+                lines.append(f"{'group ' + repr(g) + ': ' if g else ''}{mg.L.size} merged points on {len(rods)} "
+                             f"rod(s): {', '.join(rods)}")
             if m.n_multiple:
                 lines.append(f"R_sym = {100 * m.r_sym:.1f} % over {m.n_multiple} points measured more than once "
                              f"(a guide for the systematic floor)")
@@ -437,8 +471,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                      label=f"scan {r.scan}")
         m = self._merged
         if m is not None and not r.stationary:
-            key = pr._rod_key(r.rod, self.options())
-            sel = (m.H == key[0]) & (m.K == key[1])
+            key = pr._rod_key(r.rod, self.options(), r.scan)
+            sel = (np.array(m.group) == key[0]) & (m.H == key[1]) & (m.K == key[2])
             if sel.any():
                 ax2.errorbar(m.L[sel], m.F[sel], yerr=m.sF[sel], fmt="s", ms=2.5, lw=0.6, capsize=1, mfc="none",
                              color="#d62728", label="merged rod")
@@ -451,17 +485,19 @@ class ProcessingWindow(StatusMixin, QMainWindow):
 
     # ------------------------------------------------------------------ output
     def save_to(self, base):
-        """Write <base>_scans.txt (every point), <base>.csv (merged rods, for the fitting app),
-        <base>_genx.dat and <base>_stationary.dat (stationary scans, for the in-situ CV tool).
-        Returns the paths."""
+        """Write <base>_scans.txt (every point), <base>.csv and <base>_genx.dat (merged rods, for the
+        fitting app and GenX; one pair per group: <base>_<group>.csv) and <base>_stationary.dat
+        (stationary scans, for the in-situ CV tool). Returns the paths."""
         if not self._results:
             raise ValueError("nothing processed yet")
         base = os.path.splitext(base)[0]
         opt = self.options()
-        out = [pr.write_scans(base + "_scans.txt", self._results)]
+        out = [pr.write_scans(base + "_scans.txt", self._results, opt)]
         if self._merged is not None:
-            out += [pr.write_merged(base + ".csv", self._merged, opt, os.path.basename(base)),
-                    pr.write_genx(base + "_genx.dat", self._merged)]
+            for g in self._merged.groups():
+                m = self._merged.select(g)
+                b = base + (f"_{pr.safe_name(g)}" if g else "")
+                out += [pr.write_merged(b + ".csv", m, opt, os.path.basename(b)), pr.write_genx(b + "_genx.dat", m)]
         st = pr.stationary(self._results, opt)
         if st:
             out.append(pr.write_stationary(base + "_stationary.dat", st))
@@ -487,8 +523,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             w = getattr(self, name)
             d[name] = (w.currentText() if isinstance(w, QComboBox) else w.isChecked() if isinstance(w, QCheckBox)
                        else w.value())
-        d["scan_scale"], d["scan_use"], d["scan_roi"] = ({str(k): v for k, v in x.items()}
-                                                        for x in self._table_state())
+        d["scan_scale"], d["scan_use"], d["scan_roi"], d["scan_group"] = ({str(k): v for k, v in x.items()}
+                                                                          for x in self._table_state())
         try:
             with open(settings_file(SETTINGS), "w") as f:
                 json.dump(d, f, indent=1)
@@ -517,7 +553,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                 w.setValue(float(d[name]))
         self._loading = False
         self._saved_scans = tuple({int(k): v for k, v in (d.get(key) or {}).items()}
-                                  for key in ("scan_scale", "scan_use", "scan_roi"))
+                                  for key in ("scan_scale", "scan_use", "scan_roi", "scan_group"))
         self._spec_path.setText(d.get("spec") or "")
         self._sums_folder = d.get("sums_folder")
         self._sum_paths = d.get("sum_paths") or []

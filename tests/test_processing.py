@@ -150,6 +150,30 @@ def test_stationary_scans_are_processed_point_by_point(tmp_path):
     assert res2[0].stationary and merged2 is None
 
 
+def test_groups_keep_conditions_apart(tmp_path):
+    """Same rod at two potentials (different structure: scale 1 and 3 stands in for it): in one group the
+    second scan is scaled onto the first and averaged; in two groups both keep their own intensity."""
+    opt = opts()
+    spec, folder, truth = write_experiment(tmp_path, opt, [(70, 1, 0, 0.3, 2.0, 30, 1.0), (71, 1, 0, 0.3, 2.0, 30, 3.0),
+                                                           (72, 1, 0, 1.8, 3.0, 20, 3.0)])
+    paths = pr.sum_files(folder)
+    one, m1, _ = pr.run_files(paths, str(spec), opt)
+    assert one[1].scale == pytest.approx(1 / 3, rel=1e-3) and m1.groups() == [""] and m1.n_multiple > 0
+    groups = {70: "0.4 V", 71: "1.2 V", 72: "1.2 V"}
+    two, m2, notes = pr.run_files(paths, str(spec), opts(scan_group=groups))
+    assert two[1].scale == 1.0 and two[2].scale == pytest.approx(1.0, rel=0.05)     # 72 matched to 71 only (short overlap at a Bragg peak)
+    assert m2.groups() == ["0.4 V", "1.2 V"]
+    a, b = m2.select("0.4 V"), m2.select("1.2 V")
+    assert b.L.max() > 2.9 and a.L.max() < 2.01
+    common = np.intersect1d(np.round(a.L, 6), np.round(b.L, 6))
+    ia = np.isin(np.round(a.L, 6), common)
+    ib = np.isin(np.round(b.L, 6), common)
+    assert np.allclose(b.I[ib] / a.I[ia], 3.0, rtol=1e-6)                         # the difference survives
+    assert pr.safe_name("1.2 V / 5nm") == "1.2_V_5nm"
+    pr.write_scans(tmp_path / "s.txt", two, opts(scan_group=groups))
+    assert "1.2 V" in (tmp_path / "s.txt").read_text()
+
+
 def test_roi_per_scan(tmp_path):
     opt = opts(roi=None)
     spec, folder, truth = write_experiment(tmp_path, opt, [(60, 1, 0, 0.3, 2.0, 20, 1.0), (61, 0, 1, 0.3, 2.0, 20, 1.0)])
@@ -180,6 +204,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     for kind in ("information", "warning", "critical"):
         monkeypatch.setattr(QMessageBox, kind, staticmethod(lambda *a, k=kind, **kw: said.append((k, a[2]))))
     monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    from PyQt5.QtCore import QItemSelectionModel
     from ctrfit.app.datatools.processing import ProcessingWindow
     opt = opts()
     spec, folder, truth = write_experiment(tmp_path, opt, [(30, 1, 0, 0.3, 2.0, 40, 1.0), (31, 1, 0, 1.8, 3.0, 30, 2.0),
@@ -206,11 +231,24 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w.reprocess()
     assert w._results[0].roi == "ROI2" and np.allclose(w._results[0].I_raw, 4 * raw)
     assert w._results[1].roi == "ROI1" and w._table.cellWidget(0, 6).currentText() == "ROI2"
+    out = w.save_to(str(tmp_path / "one.csv"))
+    assert [p.split("/")[-1] for p in out] == ["one_scans.txt", "one.csv", "one_genx.dat", "one_stationary.dat"]
+    # groups: select scans 30 and 31, type a group once -> both get it; scan 31 alone in another
+    w._table.selectRow(0)
+    w._table.selectionModel().select(w._table.model().index(1, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    w._table.item(0, 7).setText("0.4 V")
+    assert w._table.item(1, 7).text() == "0.4 V"
+    w._table.clearSelection()
+    w._table.item(1, 7).setText("1.2 V")
+    w.reprocess()
+    assert w._merged.groups() == ["0.4 V", "1.2 V"] and w._results[1].scale == 1.0
+    out = w.save_to(str(tmp_path / "res.csv"))
+    assert [p.split("/")[-1] for p in out] == ["res_scans.txt", "res_0.4_V.csv", "res_0.4_V_genx.dat", "res_1.2_V.csv",
+                                               "res_1.2_V_genx.dat", "res_stationary.dat"]
+    assert "group '1.2 V'" in w._summary.toPlainText()
     w._table.item(1, 0).setCheckState(0)                                             # leave scan 31 out
     w.reprocess()
-    assert all(L <= 2.0 + 1e-6 for L in w._merged.L)
-    out = w.save_to(str(tmp_path / "res.csv"))
-    assert [p.split("/")[-1] for p in out] == ["res_scans.txt", "res.csv", "res_genx.dat", "res_stationary.dat"]
+    assert all(L <= 2.0 + 1e-6 for L in w._merged.L) and w._merged.groups() == ["0.4 V"]
     assert "stationary" in w._table.item(2, 2).text() and "1 stationary scan" in w._summary.toPlainText()
     w._table.selectRow(2)
     assert "stationary" in w._fig.axes[0].get_title() and w._fig.axes[1].get_xlabel() == "SPEC point"
@@ -221,6 +259,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w2.refresh()
     assert w2._monitor.currentText() == "Monitor" and w2._table.rowCount() == 3
     assert w2._table.cellWidget(0, 6).currentText() == "ROI2" and w2._table.item(1, 0).checkState() == 0
+    assert w2._table.item(1, 7).text() == "1.2 V"
     w2.close()
 
 

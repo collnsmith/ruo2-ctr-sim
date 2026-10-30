@@ -352,12 +352,19 @@ in a dialog):
   incidence angle (specular rod: alpha = beta) or from SPEC columns. 4: |F| and sigma_F from the
   propagated `_err` column (without it the counting error is a lower bound, flagged in Notes).
   5: overlapping scans of one rod scaled together (or a hand scale in the table), ±H ±K equivalents
-  averaged with R_sym, points within a distance of integer L left out, a systematic floor written
+  averaged with R_sym only if Equivalents is set to "±H ±K" (default none), points within a distance of integer L left out, a systematic floor written
   for the fit. The table lists the scans (Use, rod, L range, points, scale, ROI, notes; the ROI column picks
   the signal ROI of each scan when it changes between scans, "(default)" being the one under
   2. Normalise, or the scan's first ROI with errors if that one is not in the scan; per-scan scale,
   Use and ROI are remembered until another SPEC file is opened); clicking one
   shows before (ROI sum) and after (normalised and corrected, then |F| with the merged rod).
+  The Group column labels each scan's condition (potential, film thickness, ...): overlap scaling
+  and merging stay within a group, so scans of one rod at different potentials or on different films
+  are never scaled onto each other or averaged; each group is saved as its own `<name>_<group>.csv`
+  and `_genx.dat` (load them as separate datasets in the Fitting app, e.g. for a global fit). Typing
+  a group with several rows selected sets it for all of them. Groups compare on the same absolute
+  scale only through the normalisation, so keep the same monitor, transmission and count-time
+  columns for every scan.
   "Process and save…" writes `<name>_scans.txt` (every point and every factor), `<name>.csv` (for
   the Fitting app) and `<name>_genx.dat`. Stationary scans (H K L fixed, e.g. during a CV) are found
   automatically ("stationary" in the Rod column): steps 2 to 4 point by point, the preview against

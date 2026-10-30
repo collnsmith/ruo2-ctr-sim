@@ -7,6 +7,11 @@
       5. merge, scale  overlapping scans of a rod scaled together, symmetry equivalents averaged
                        (R_sym), points near Bragg peaks left out; a systematic floor for the fit
 
+Groups: every scan has a group label (a potential, a film, ...; blank: one group). Overlap scaling
+and merging stay inside a group, so scans at different potentials or thicknesses are never scaled
+onto each other or averaged: each group is its own dataset (merged_groups, one file per group).
+Symmetry equivalents are averaged only with equivalents = "±H ±K (p2mm)" (default: none).
+
 Stationary scans (H K L fixed, e.g. during a CV) get steps 2 to 4 point by point and only the hand
 scale: they are not merged or overlap-scaled, and the Bragg window does not apply. They are written
 as their own file (write_stationary, the ROI sums format the in-situ CV tool reads) with errors.
@@ -32,6 +37,7 @@ Only ratios matter (the rods are scaled in the fit), so constant factors are lef
 """
 import math
 import os
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -73,6 +79,7 @@ class Options:
     scan_scale: dict = field(default_factory=dict)   # scan -> extra scale factor (by hand)
     scan_use: dict = field(default_factory=dict)     # scan -> False to leave a scan out
     scan_roi: dict = field(default_factory=dict)     # scan -> its intensity column (else roi)
+    scan_group: dict = field(default_factory=dict)   # scan -> group label (merged and scaled only within it)
 
 
 @dataclass
@@ -119,6 +126,18 @@ class Merged:
     rod: list
     r_sym: float                         # sum |I - <I>| / sum I over multiply measured points (nan: none)
     n_multiple: int
+    group: list = None                   # group label of each point
+
+    def groups(self):
+        return sorted(set(self.group or [""]))
+
+    def select(self, group):
+        """The points of one group (a Merged of its own; R_sym is the whole set's)."""
+        g = np.array(self.group or [""] * self.L.size)
+        k = g == group
+        pick = lambda a: np.asarray(a)[k]
+        return Merged(pick(self.H), pick(self.K), pick(self.L), pick(self.I), pick(self.sI), pick(self.F),
+                      pick(self.sF), pick(self.n), list(pick(self.rod)), self.r_sym, self.n_multiple, list(g[k]))
 
 
 # ------------------------------------------------------------------ input
@@ -336,21 +355,34 @@ def scale_scans(results, opt):
     by_rod = {}
     for r in results:
         if not r.stationary:
-            by_rod.setdefault(_rod_key(r.rod, opt), []).append(r)
-    for rod, rs in by_rod.items():
+            by_rod.setdefault(_rod_key(r.rod, opt, r.scan), []).append(r)
+    for (group, *rod), rs in by_rod.items():
+        rod = tuple(rod)
         rs.sort(key=lambda r: r.scan)
         for r in rs[1:]:
             ratios = [x for x in (_overlap_ratio(q, r, opt.l_tol) for q in rs if q is not r and q.scan < r.scan)
                       if x]
             if ratios:
                 r.scale *= float(np.median(ratios))
-                notes.append(f"scan {r.scan} scaled by {r.scale:.4g} to match the overlap with rod {rod}")
+                notes.append(f"scan {r.scan} scaled by {r.scale:.4g} to match the overlap with rod {rod}"
+                             + (f" in group '{group}'" if group else ""))
     return notes
 
 
-def _rod_key(hk, opt):
+def safe_name(text):
+    """A group label as part of a file name."""
+    return re.sub(r"[^A-Za-z0-9.+-]+", "_", text).strip("_") or "group"
+
+
+def scan_group(opt, scan):
+    return str(opt.scan_group.get(scan, "") or "").strip()
+
+
+def _rod_key(hk, opt, scan=None):
+    """(group, h, k): equivalents fold the signs; scans of different groups never share a key."""
     h, k = hk
-    return (abs(h), abs(k)) if opt.equivalents == EQUIVALENTS[1] else (h, k)
+    hk = (abs(h), abs(k)) if opt.equivalents == EQUIVALENTS[1] else (h, k)
+    return (scan_group(opt, scan),) + hk
 
 
 def merge(results, opt):
@@ -360,13 +392,13 @@ def merge(results, opt):
     for r in results:
         if r.stationary or not opt.scan_use.get(r.scan, True):
             continue
-        key = _rod_key(r.rod, opt)
+        key = _rod_key(r.rod, opt, r.scan)
         for L, I, s, k in zip(r.L, r.I_corr * r.scale, r.s_corr * r.scale, r.keep):
             if k and np.isfinite(I) and np.isfinite(s) and s > 0:
                 rows.setdefault(key, []).append((L, I, s))
     if not rows:
         return None
-    H, K, L, I, sI, n, rod_lab = [], [], [], [], [], [], []
+    H, K, L, I, sI, n, rod_lab, grp = [], [], [], [], [], [], [], []
     num = den = 0.0
     n_mult = 0
     for key in sorted(rows):
@@ -383,9 +415,9 @@ def merge(results, opt):
             Ls, Is, ss = (np.array(x) for x in zip(*g))
             w = 1 / ss ** 2
             Im = float(np.sum(w * Is) / np.sum(w))
-            H.append(key[0]); K.append(key[1]); L.append(float(np.sum(w * Ls) / np.sum(w)))
+            H.append(key[1]); K.append(key[2]); L.append(float(np.sum(w * Ls) / np.sum(w)))
             I.append(Im); sI.append(float(1 / np.sqrt(np.sum(w)))); n.append(len(g))
-            rod_lab.append(f"{key[0]} {key[1]}")
+            rod_lab.append(f"{key[1]} {key[2]}"); grp.append(key[0])
             if len(g) > 1:
                 num += float(np.sum(np.abs(Is - Im)))
                 den += float(np.sum(np.abs(Is)))
@@ -393,7 +425,7 @@ def merge(results, opt):
     I, sI = np.array(I), np.array(sI)
     F, sF = intensities_to_F(I, sI)
     return Merged(np.array(H), np.array(K), np.array(L), I, sI, F, sF, np.array(n), rod_lab,
-                  num / den if den > 0 else float("nan"), n_mult)
+                  num / den if den > 0 else float("nan"), n_mult, grp)
 
 
 # ------------------------------------------------------------------ the whole chain
@@ -427,9 +459,9 @@ def run_files(sum_paths, spec_path, opt):
 
 
 # ------------------------------------------------------------------ output
-def write_scans(path, results):
+def write_scans(path, results, opt=None):
     """Every point of every scan: raw, normalised and corrected intensities, corrections, F."""
-    cols = ("scan", "image", "H", "K", "L", "I_raw", "sigma_raw", "I_norm", "sigma_norm", "P", "C_rod", "C_area",
+    cols = ("scan", "group", "image", "H", "K", "L", "I_raw", "sigma_raw", "I_norm", "sigma_norm", "P", "C_rod", "C_area",
             "alpha", "beta", "scale", "I_corr", "sigma_corr", "F", "sigma_F", "used")
     with open(path, "w") as f:
         f.write("# CTR processing: I_norm = I / monitor / transmission / count time, I_corr = I_norm / "
@@ -437,7 +469,7 @@ def write_scans(path, results):
         f.write("\t".join(cols) + "\n")
         for r in results:
             for i in range(r.L.size):
-                vals = (r.scan, r.image[i], r.H[i], r.K[i], r.L[i], r.I_raw[i], r.s_raw[i], r.I_norm[i], r.s_norm[i],
+                vals = (r.scan, (scan_group(opt, r.scan) if opt else "") or "-", r.image[i], r.H[i], r.K[i], r.L[i], r.I_raw[i], r.s_raw[i], r.I_norm[i], r.s_norm[i],
                         r.P[i], r.C_rod[i], r.C_area[i], r.alpha[i], r.beta[i], r.scale, r.I_corr[i] * r.scale,
                         r.s_corr[i] * r.scale, r.F[i] * math.sqrt(r.scale), r.sF[i] * math.sqrt(r.scale),
                         int(bool(r.keep[i])))

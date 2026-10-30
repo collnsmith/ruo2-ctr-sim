@@ -460,11 +460,40 @@ def test_batch_png_images_are_optional(qapp, bgsub_window, no_dialogs, tmp_path,
         w._chk_save_png.setChecked(save)
         w._run_batch()
         lines = (tmp_path / name).read_text().splitlines()
-        assert lines[0].split("\t") == ["scan", "image", "B", "S", "S_err"] and len(lines) == 4
+        assert lines[0].split("\t") == ["scan", "image", "B", "S", "S_err"]
+        assert len([l for l in lines[1:] if l and not l.startswith("#")]) == 3
         folder = tmp_path / (name[:-4] + "_images")
         assert folder.exists() == save
         if save:
             assert len(list(folder.glob("*_sub.png"))) == 3
+
+
+def test_batch_saves_roi_positions(qapp, bgsub_window, no_dialogs, tmp_path, monkeypatch):
+    """The batch sums file ends with its own ROI positions section: one row per scan for a ROI that
+    stays put, one per image for a ROI that moves; every reader of the table skips it."""
+    from PyQt5.QtWidgets import QFileDialog
+    from ctrfit.datatools import processing
+    from ctrfit.datatools.peaks import parse_bgsub_file
+    from ctrfit.echem.external import parse_roi_sums
+    w = bgsub_window
+    for im, x in ((0, 30), (1, 34), (2, 30)):
+        w._roi_config.set_override(28, im, [images.ROI(x, 22, 20, 20, "signal", "S"),
+                                            images.ROI(0, 0, 15, 15, "background", "B")])
+    path = tmp_path / "pos_sums.txt"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: (str(path), "")))
+    w._run_batch()
+    text = path.read_text()
+    assert images.ROI_SECTION in text
+    pos = images.read_roi_positions(path)
+    assert pos[(28, "all", "B")] == ("background", 0, 0, 15, 15) and (28, "all", "S") not in pos
+    assert images.roi_position(pos, 28, 1, "S") == ("signal", 34, 22, 20, 20)
+    assert {k[1] for k in pos if k[2] == "S"} == {0, 1, 2} and pos[(28, 2, "S")] == ("signal", 30, 22, 20, 20)
+    assert images.roi_position(pos, 28, 2, "B") == ("background", 0, 0, 15, 15)
+    # the sums table reads as before
+    data, header = parse_bgsub_file(str(path))
+    assert header == ["scan", "image", "B", "S", "S_err"] and data[28]["S"].size == 3
+    assert parse_roi_sums(text)[28]["image"].tolist() == [0, 1, 2]
+    assert processing.sum_files(str(tmp_path)) == [str(path)] and processing.load_sums([str(path)])[28]["S"].size == 3
 
 
 # ------------------------------------------------------------------ plotter: potential next to the scans

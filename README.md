@@ -311,7 +311,11 @@ in a dialog):
   follow a master ROI or track the peak, average / median / polynomial background, a pixel mask,
   batch ROI sums with a counting error per signal ROI (`<ROI>_err`: sigma^2 = S + (n_s/n_b)^2 B,
   times pi/2 for the median background; not sqrt(I)) and, optionally, the subtracted images as PNGs
-  ("Also save the subtracted images").
+  ("Also save the subtracted images"). The sums file ends with a "# [ROI positions]" section: scan,
+  image, ROI, type, x, y, w, h (top-left pixel and size) of every ROI as used, one row per scan
+  ("all") for a ROI that stays put and one per image for a ROI that moves; its lines start with '#',
+  so the plotter, the processing tool and the CV tool read the table as before
+  (`ctrfit.datatools.images.read_roi_positions` reads the section).
   "Find background ROIs" opens the ROI finder on the same folder and scan range and merges its
   background boxes. Ctrl+Z / Ctrl+Y undo and redo ROI and mask edits (drags, fields, add/remove,
   copies to other images, mask painting, loaded ROI files and masks). Images are kept in memory and

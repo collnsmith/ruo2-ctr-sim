@@ -28,7 +28,7 @@ from ctrfit.app.datatools.common import (HINT_STYLE, StatusMixin, group, hint, m
                                          row, run_tool, sidebar)
 from ctrfit.datatools.images import (apply_rois, EditHistory, EditState, ImageCache, colormap_lut, display_rgb,
                                      process_image, BG_METHODS, HAS_TIFF, ROI, ROIConfig, apply_offsets,
-                                     lock_offset, scan_directory, tifffile)
+                                     lock_offset, roi_positions_section, scan_directory, tifffile)
 from ctrfit.datatools.paths import settings_file
 
 
@@ -1985,7 +1985,7 @@ class MainWindow(StatusMixin, QMainWindow):
         err_names = sorted({f"{r.name}_err" for info in self._files
                             for r in self._roi_config.get_rois(info['scan'], info['image']) if r.roi_type == 'signal'})
 
-        sum_rows = []
+        sum_rows, used = [], []
         for i, info in enumerate(self._files):
             if progress.wasCanceled():
                 break
@@ -2008,6 +2008,7 @@ class MainWindow(StatusMixin, QMainWindow):
             if not self._roi_config.has_override(info['scan'], info['image']):
                 apply_offsets(rois)
             sub, sums = process_image(img, rois, method, mask, self._chk_clip_neg.isChecked())
+            used.append((info['scan'], info['image'], [ROI(r.x, r.y, r.w, r.h, r.roi_type, r.name) for r in rois]))
 
             if save_png:
                 self._save_png(sub, info, img_subdir)
@@ -2026,6 +2027,7 @@ class MainWindow(StatusMixin, QMainWindow):
                 parts = [f"{row[0]:03d}", f"{row[1]:03d}"]
                 parts += [f"{v:.6g}" for v in row[2:]]
                 f.write("\t".join(parts) + "\n")
+            f.write("\n" + "\n".join(roi_positions_section(used)) + "\n")   # the ROIs as used, own section
 
         self.say(f"Processed {len(sum_rows)} images. Sums: {sum_path}" + (f"; images in {img_subdir}" if save_png else ""))
 

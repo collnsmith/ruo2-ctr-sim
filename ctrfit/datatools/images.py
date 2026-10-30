@@ -624,6 +624,59 @@ def roi_sigma(img, roi, bg_rois, mask=None, method=None):
     return float(np.sqrt(max(S + (n_s / n_b) ** 2 * B * f, 1.0)))
 
 
+ROI_SECTION = "# [ROI positions]"
+
+
+def roi_positions_section(entries):
+    """Lines of the ROI positions section of a batch sums file, from [(scan, image, rois)] as used.
+    Every line starts with '#', so readers of the sums table skip it. A ROI that stays put over a
+    scan gets one row with image 'all'; one that moves (per-image overrides, tracking, following)
+    gets a row for every image."""
+    by = {}
+    for scan, image, rois in entries:
+        for r in rois:
+            by.setdefault((int(scan), r.name), []).append((int(image), (r.roi_type, r.x, r.y, r.w, r.h)))
+    lines = [ROI_SECTION + " x, y: top-left pixel; w, h: size in pixels; image 'all': the same in "
+             "every image of the scan",
+             "# scan\timage\troi\ttype\tx\ty\tw\th"]
+    for (scan, name), rows in sorted(by.items()):
+        rows.sort()
+        if len({p for _, p in rows}) == 1:
+            rows = [("all", rows[0][1])]
+        for image, (kind, x, y, w, h) in rows:
+            im = image if image == "all" else f"{image:03d}"
+            lines.append(f"# {scan:03d}\t{im}\t{name}\t{kind}\t{x}\t{y}\t{w}\t{h}")
+    return lines
+
+
+def read_roi_positions(path):
+    """{(scan, image or 'all', roi name): (type, x, y, w, h)} from the ROI positions section of a sums
+    file ({} if it has none)."""
+    out, inside = {}, False
+    with open(path, errors="replace") as f:
+        for line in f:
+            s = line.strip()
+            if s.startswith(ROI_SECTION):
+                inside = True
+                continue
+            if not inside or not s.startswith("#"):
+                continue
+            parts = s.lstrip("#").strip().split("\t")
+            if len(parts) != 8 or parts[0] == "scan":
+                continue
+            try:
+                key = (int(parts[0]), parts[1] if parts[1] == "all" else int(parts[1]), parts[2])
+                out[key] = (parts[3],) + tuple(int(v) for v in parts[4:])
+            except ValueError:
+                continue
+    return out
+
+
+def roi_position(positions, scan, image, name):
+    """(type, x, y, w, h) of a ROI at one image from read_roi_positions, or None."""
+    return positions.get((scan, image, name)) or positions.get((scan, "all", name))
+
+
 def process_image(img, rois, method, mask=None, clip_negative=False):
     """Background-subtracted image and ROI sums {name: sum} as the batch writes them: masked pixels
     are 0 and left out of the sums. Every signal ROI also gets '<name>_err', its counting error

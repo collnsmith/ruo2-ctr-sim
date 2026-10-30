@@ -37,3 +37,10 @@ def test_compat_modules_are_the_package_modules():
     assert ctr_engine is ctrfit.core.ctrmodel
     assert ctr_params is ctrfit.core.settings
     assert ctr_plots is ctrfit.project.plots
+
+
+def test_wayland_focus_warnings_are_quiet():
+    code = ("import os; os.environ.pop('QT_LOGGING_RULES', None); import ctrfit.app; "
+            "print(os.environ['QT_LOGGING_RULES'])")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, cwd=ROOT)
+    assert out.stdout.strip() == "qt.qpa.wayland.warning=false", out.stderr

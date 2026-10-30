@@ -117,7 +117,7 @@ What the tests protect:
 | `test_physics.py` near-surface O | off when ns_B_O = ns_du = 0 for any ns_tl; fast = reference with it on; odd-rod Bragg flanks both drop, no Ru contribution there, even rods barely change |
 | `test_apps.py` | the GUI starts offscreen and finishes one run; the notebook runs as a script; parameter study (row parser, ranking order, a setting with no effect gives 0, roughness lowers anti-Bragg intensity) and its tab (rows, run, plot, rod switch, bad input, settings round trip); stationary CV prediction (rate independence, near-surface change, click on OH vs H2O opens it, bad input) |
 | `test_viewer.py` | the 3D scene builds; CPU and CUDA (simulator) renders agree; the kernel PTX has no f64 |
-| `test_package.py` | no Qt in `ctrfit`; `ctr_engine/params/plots` are the `ctrfit` modules |
+| `test_package.py` | no Qt in `ctrfit`; `ctr_engine/params/plots` are the `ctrfit` modules; importing `ctrfit.app` quiets the Wayland focus warnings |
 | `test_parameters.py`, `test_template.py` | safe links, scopes, bounds, JSON; settings -> parameters -> model equals the reference; every parameter changes the model; continuous thickness weights; composition mapping |
 | `test_evaluator.py` | fast evaluator equals the reference (rtol 1e-9) incl. random parameters; caching; >= 10x benchmark |
 | `test_data.py` | FOMs and I -> F against hand values; CSV / .dat / JSON round trips; CLI |

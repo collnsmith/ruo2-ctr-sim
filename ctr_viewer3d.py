@@ -15,6 +15,8 @@ Keys:  R reset view, Space turntable, S screenshot, A ambient occlusion, H hydro
 """
 import math
 import sys
+import os
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.wayland.warning=false")  # quiet Wayland focus warnings
 import time
 from pathlib import Path
 

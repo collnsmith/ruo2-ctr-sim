@@ -9,6 +9,8 @@ import csv
 import math
 import re
 import sys
+import os
+os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.wayland.warning=false")  # quiet Wayland focus warnings
 import traceback
 import warnings
 from pathlib import Path

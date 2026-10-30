@@ -53,7 +53,8 @@ ctrfit/echem     in-situ CV: spec.py (SPEC scans, point times), ec.py (EC-Lab .m
                  synthetic.py (known-truth experiment)
 ctrfit/datatools SXRD data processing (no Qt): images.py (Eiger .h5/.tif, ROI, ROIConfig, background methods,
                  display transform, ImageCache read-ahead, process_image, EditHistory undo/redo),
-                 bgfind.py (background ROI finder statistics), specfile.py (SPEC reader with motors),
+                 bgfind.py (background ROI finder statistics), processing.py (steps 2-5: normalise, geometry
+                 corrections, |F| with propagated sigma, overlap scaling / equivalents / R_sym; roi_sigma is in images.py), specfile.py (SPEC reader with motors),
                  peaks.py (peak models and fits, bgsub sums), hkl.py (append HKL, smooth, combine, GenX),
                  h5meta.py, ctrmodels.py (quick CTR models), potential.py (plotter: EC-Lab / hand-defined
                  potential on the scans' time axis, t0), figure.py (plotter's Export figure: snapshot of the
@@ -66,6 +67,7 @@ ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
 ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py, ctr_echem.py, ctr_data_tools.py launch the ctrfit windows
+ctr_processing.py launches the Processing tool alone
 ctr_launcher.py  launcher: finds every file with an '# @app' tag (ctrfit/apps.py, ctrfit/app/launcher_window.py)
 ```
 
@@ -132,6 +134,7 @@ What the tests protect:
 | `test_assistant.py` | Claude assistant with a scripted fake client: strict tool schemas, loop and tool results, works on a copy, errors returned to Claude, fallback switch-off, refusal, stop, every tool, the panel (live curve, apply, undo) |
 | `test_launcher.py` | app tags and discovery (the repository's app list, skip rules, missing packages), the launcher window (filter, script output to the console, detached start, rescan) |
 | `test_datatools.py` | data tools on synthetic files: SPEC columns and motors, HKL append (snapped H K) / smooth (exclusion zones) / combine / GenX, h5 images, ROI file round trip, every background method, ROI finder avoids signal and hot spots, peak fit with a centre hint and its area, quick CTR models, no Qt in the logic; the tabbed window (tabs, CTR button switches tab, arrow keys only on the visible tab, combiner end to end, settings saved), the window standard (system theme, a blue main action per tool, status-bar messages, shortcuts scoped to their tab, dialogs report to their tool), the in-process ROI finder hand-off, the launcher entry point; background subtraction: display and polynomial surface equal the old code (batch PNGs unchanged), image cache (read-ahead, changed files re-read, LRU), process_image sums, undo/redo (drag via Ctrl+Z / Ctrl+Y, add ROI, copy to all images, mask paint), ROI drag throttled (not one subtraction per mouse move), optional batch PNGs, apply ROIs to all images / the scan copies positions exactly (images that had their own ROIs too) unless 'keep masters'; plotter refresh re-reads SPEC and ROI sums keeping scans and columns; plotter potential: helpers (t0, hand CV, E at times, trace cut), t = 0 at each scan's / the first scan's start, shift per scan in s or by a zero point #, several scans vs one potential, alignment by SPEC point number (sweep start or record start, bad point), EC file on a second axis (trace on / off), I vs E (old axis removed, intensity drops with E), hand-defined sweep, t-E-I export, settings round trip; smoothing takes every plotted trace (not the potential axis, along time), sends and exports them all, smoothed traces still follow the potential (second axis, I vs E); a logit / log scale that cannot be drawn falls back to linear, unexpected errors are logged and the window survives; export figure: snapshot (traces, axes, scales), style JSON round trip, refresh keeps edits, every format, exact pixel size, the window (preset, cm, labels, colours, refresh, remembered style, working view untouched) |
+| `test_processing.py` | ROI counting error matches Poisson scatter; processing recovers the true F (overlap scale, ±H equivalents, specular alpha = beta, polarisation), CSV read back with the floor; options (Bragg exclusion, no `_err` column flagged, bad monitor); the Processing tab (table, preview, Use, save names, settings); plotter multi-norm |
 | `test_example.py` | the example data are reproducible; the example fit recovers the truth (slow) |
 
 ## Checklist per PR (docs/FITTING_PLAN.md section 7)

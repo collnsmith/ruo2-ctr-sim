@@ -21,6 +21,8 @@ TOOLS = [
      "Per-scan pixel statistics, avoid bright spots, place background ROIs near the signal"),
     ("plotter", "Plotter", "plotter", "MainWindow",
      "SPEC scans with ROI sums, figure options, peak fits (rocking curves), smoothing, exports"),
+    ("processing", "Processing", "processing", "ProcessingWindow",
+     "ROI sums + SPEC: normalise, correct (polarisation, rod interception, area), |F| with errors, merge and scale"),
     ("ctr_fit", "CTR fit", "ctr_fit", "CTRFitWindow", "Quick kinematic CTR models on integrated intensities"),
     ("appender", "HKL appender", "appender", "MainWindow",
      "Add H, K, L from the SPEC scan to plotter exports and peak-fit tables; GenX export"),
@@ -71,11 +73,11 @@ class DataToolsWindow(QMainWindow):
 
 def main(argv=None):
     app = QApplication.instance() or QApplication(sys.argv if argv is None else argv)
+    from .datatools.common import exec_and_delete, install_crash_handler
     win = DataToolsWindow()
-    from .datatools.common import install_crash_handler
     install_crash_handler(win)
     win.show()
-    return app.exec_()
+    return exec_and_delete(app, win)
 
 
 if __name__ == "__main__":

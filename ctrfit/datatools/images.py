@@ -598,9 +598,36 @@ class ImageCache:
 # ONE IMAGE OF THE BATCH
 # ============================================================
 
+def roi_sigma(img, roi, bg_rois, mask=None, method=None):
+    """Counting error of a background-subtracted signal ROI sum, from the raw counts (the Eiger counts
+    photons: Poisson per pixel, no read-out noise): sigma^2 = S + (n_s / n_b)^2 * B * f, with S the
+    raw counts and n_s the pixels of the signal ROI, B the raw counts and n_b the pixels of the
+    background ROIs, and f = pi/2 for a median background (1 for the average; used as an estimate for
+    the polynomial surface). Masked pixels are left out."""
+    def pixels(r):
+        region = r.extract(img)
+        if region.size == 0:
+            return np.array([])
+        if mask is not None:
+            m = r.extract(mask)
+            if m.size == region.size:
+                return region[~m]
+        return region.ravel()
+    s = pixels(roi)
+    S, n_s = float(np.sum(np.clip(s, 0, None))), s.size
+    bg = [pixels(r) for r in bg_rois]
+    bg = np.concatenate(bg) if bg else np.array([])
+    if bg.size == 0 or n_s == 0:
+        return float(np.sqrt(max(S, 1.0)))
+    f = np.pi / 2 if method is subtract_bg_median else 1.0
+    B, n_b = float(np.sum(np.clip(bg, 0, None))), bg.size
+    return float(np.sqrt(max(S + (n_s / n_b) ** 2 * B * f, 1.0)))
+
+
 def process_image(img, rois, method, mask=None, clip_negative=False):
     """Background-subtracted image and ROI sums {name: sum} as the batch writes them: masked pixels
-    are 0 and left out of the sums."""
+    are 0 and left out of the sums. Every signal ROI also gets '<name>_err', its counting error
+    (roi_sigma)."""
     sig = [r for r in rois if r.roi_type == 'signal']
     bg = [r for r in rois if r.roi_type == 'background']
     sub = method(img, sig, bg, mask) if sig and bg else np.array(img, dtype=float, copy=True)
@@ -619,6 +646,8 @@ def process_image(img, rois, method, mask=None, clip_negative=False):
                 sums[r.name] = float(np.sum(region))
         else:
             sums[r.name] = 0.0
+    for r in sig:
+        sums[f"{r.name}_err"] = roi_sigma(img, r, bg, mask, method)
     return sub, sums
 
 

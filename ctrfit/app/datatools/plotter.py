@@ -121,7 +121,7 @@ class ColumnSelectorWidget(QWidget):
                 elif c_idx == 2:
                     chk.toggled.connect(self._emit_change)
                 else:
-                    chk.toggled.connect(lambda checked, r=i: self._on_norm_toggled(r, checked))
+                    chk.toggled.connect(self._emit_change)        # several: their product
                 self._table.setCellWidget(i, c_idx, chk)
         self._table.blockSignals(False)
 
@@ -133,34 +133,28 @@ class ColumnSelectorWidget(QWidget):
                     if w: w.blockSignals(True); w.setChecked(False); w.blockSignals(False)
         self._emit_change()
 
-    def _on_norm_toggled(self, row, checked):
-        if checked:
-            for i in range(self._table.rowCount()):
-                if i != row:
-                    w = self._table.cellWidget(i, 3)
-                    if w: w.blockSignals(True); w.setChecked(False); w.blockSignals(False)
-        self._emit_change()
-
     def _emit_change(self, *a):
         if self._on_change: self._on_change()
 
     def get_selection(self):
-        x_col = None; y_cols = []; norm_col = None
+        x_col = None; y_cols = []; norms = []
         for i in range(self._table.rowCount()):
             name = self._columns[i]
             if self._table.cellWidget(i, 1) and self._table.cellWidget(i, 1).isChecked(): x_col = name
             if self._table.cellWidget(i, 2) and self._table.cellWidget(i, 2).isChecked(): y_cols.append(name)
-            if self._table.cellWidget(i, 3) and self._table.cellWidget(i, 3).isChecked(): norm_col = name
+            if self._table.cellWidget(i, 3) and self._table.cellWidget(i, 3).isChecked(): norms.append(name)
+        norm_col = NORM_JOIN.join(norms) if norms else None     # several Norm boxes: divide by their product
         return x_col, y_cols, norm_col
 
     def set_selection(self, x_col, y_cols, norm_col):
         for i in range(self._table.rowCount()):
             name = self._columns[i]
-            for c_idx, target in [(1, x_col), (2, y_cols), (3, norm_col)]:
+            norms = norm_col.split(NORM_JOIN) if norm_col else []
+            for c_idx, target in [(1, x_col), (2, y_cols), (3, norms)]:
                 w = self._table.cellWidget(i, c_idx)
                 if w:
                     w.blockSignals(True)
-                    if c_idx == 2:
+                    if c_idx in (2, 3):
                         w.setChecked(name in target)
                     else:
                         w.setChecked(name == target)
@@ -2237,6 +2231,24 @@ class PlotCanvas(FigureCanvas):
         for sp in self.ax.spines.values(): sp.set_color('#999')
 
 
+NORM_JOIN = " × "
+
+
+def norm_values(gd, norm_col):
+    """The normalisation column, or the product of several (joined by ' × '); None if any is missing.
+    Columns of different lengths (SPEC points and ROI-sum images) are cut to the shortest."""
+    if not norm_col:
+        return None
+    vals = [gd(c) for c in norm_col.split(NORM_JOIN)]
+    if any(v is None for v in vals):
+        return None
+    n = min(len(v) for v in vals)
+    out = np.ones(n)
+    for v in vals:
+        out = out * np.asarray(v[:n], dtype=float)
+    return out
+
+
 def overlay_traces(ov):
     """The traces of a main-plot overlay: a list under 'traces', or one trace as 'x' / 'y'."""
     if 'traces' in ov:
@@ -3185,7 +3197,7 @@ class MainWindow(StatusMixin, QMainWindow):
 
                 x_data = gd(x_col)
                 if x_data is None: continue
-                norm_data = gd(norm_col) if norm_col else None
+                norm_data = norm_values(gd, norm_col)
 
                 # Use per-scan Y override if defined, otherwise global
                 scan_y_cols = self._per_scan_y.get(sn, y_cols)
@@ -3264,7 +3276,8 @@ class MainWindow(StatusMixin, QMainWindow):
             ax.set_xlabel(xlab, color=tc, fontsize=self._font_axis.value())
             if ec is not None and not vs_E:
                 self._draw_potential_axis(ax, t_lo, t_hi, tc, lw, tick_dir)
-            ylabel = f"Intensity / {display_label(norm_col.replace('[bg] ',''), self._label_map)}" if norm_col else "Intensity"
+            ylabel = (f"Intensity / {' × '.join(display_label(c.replace('[bg] ', ''), self._label_map) for c in norm_col.split(NORM_JOIN))}"
+                      if norm_col else "Intensity")
             if self._chk_transm.isChecked():
                 tcol = self._transm_col.text().strip() or "transm"
                 ylabel = f"{ylabel} / {tcol}"
@@ -3483,7 +3496,7 @@ class MainWindow(StatusMixin, QMainWindow):
 
             x_data = gd(x_col)
             if x_data is None: continue
-            norm_data = gd(norm_col) if norm_col else None
+            norm_data = norm_values(gd, norm_col)
             scan_y_cols = self._per_scan_y.get(sn, y_cols)
 
             for yc in scan_y_cols:
@@ -3606,7 +3619,7 @@ class MainWindow(StatusMixin, QMainWindow):
                     return _bg.get(c[5:]) if c.startswith('[bg] ') else _scan.data.get(c)
                 x_data = gd(x_col)
                 if x_data is None: continue
-                norm_data = gd(norm_col) if norm_col else None
+                norm_data = norm_values(gd, norm_col)
                 scan_y_cols = self._per_scan_y.get(sn, y_cols)
                 for yc in scan_y_cols:
                     yd = gd(yc)

@@ -124,13 +124,27 @@ class StatusMixin:
         return None
 
 
+def exec_and_delete(app, win):
+    """Run the event loop, then delete the window's C++ objects while Python is still whole.
+    Leaving them to interpreter shutdown destroys the widgets in an arbitrary order, which can
+    segfault after the window has closed."""
+    ret = app.exec_()
+    try:
+        from PyQt5 import sip
+        if not sip.isdeleted(win):
+            sip.delete(win)
+    except (ImportError, RuntimeError):   # pragma: no cover
+        pass
+    return ret
+
+
 def run_tool(cls, **kw):
     """Run one tool window on its own (python -m ctrfit.app.datatools.<tool>)."""
     app = QApplication.instance() or QApplication(sys.argv)
     win = cls(**kw)
     install_crash_handler(win)
     win.show()
-    return app.exec_()
+    return exec_and_delete(app, win)
 
 
 # ------------------------------------------------------------------ crash safety

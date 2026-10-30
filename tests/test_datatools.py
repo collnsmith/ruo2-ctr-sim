@@ -460,7 +460,7 @@ def test_batch_png_images_are_optional(qapp, bgsub_window, no_dialogs, tmp_path,
         w._chk_save_png.setChecked(save)
         w._run_batch()
         lines = (tmp_path / name).read_text().splitlines()
-        assert lines[0].split("\t") == ["scan", "image", "B", "S"] and len(lines) == 4
+        assert lines[0].split("\t") == ["scan", "image", "B", "S", "S_err"] and len(lines) == 4
         folder = tmp_path / (name[:-4] + "_images")
         assert folder.exists() == save
         if save:

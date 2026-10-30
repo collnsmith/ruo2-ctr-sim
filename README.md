@@ -307,7 +307,9 @@ in a dialog):
 - **Background subtraction.** Eiger 500K `.h5` (h5py) or `.tif` (tifffile) images named
   `<prefix>_<scan>_<image>_data_<n>`: signal and background ROIs, per-image overrides, ROIs that
   follow a master ROI or track the peak, average / median / polynomial background, a pixel mask,
-  batch ROI sums and, optionally, the subtracted images as PNGs ("Also save the subtracted images").
+  batch ROI sums with a counting error per signal ROI (`<ROI>_err`: sigma^2 = S + (n_s/n_b)^2 B,
+  times pi/2 for the median background; not sqrt(I)) and, optionally, the subtracted images as PNGs
+  ("Also save the subtracted images").
   "Find background ROIs" opens the ROI finder on the same folder and scan range and merges its
   background boxes. Ctrl+Z / Ctrl+Y undo and redo ROI and mask edits (drags, fields, add/remove,
   copies to other images, mask painting, loaded ROI files and masks). Images are kept in memory and
@@ -319,7 +321,8 @@ in a dialog):
 - **Plotter.** SPEC scans with the ROI sums, figure options, peak fits of rocking curves (Gaussian,
   Lorentzian, pseudo-Voigt with a linear background; fitted or numerical areas), smoothing (of every
   plotted trace at once: "Grab from main plot" takes them all, "Send" puts them all back), per-scan
-  Y columns, exports. "Refresh files" (F5) reads the SPEC file, the ROI sums folder and the EC-Lab
+  Y columns, exports. Several Norm boxes can be ticked: the trace is divided by their product
+  (e.g. monitor × transmission). "Refresh files" (F5) reads the SPEC file, the ROI sums folder and the EC-Lab
   file again and keeps the selection. "CTR fitting" switches to the CTR fit tab. "Potential and time": "t = 0 at" the
   start of each scan (every selected scan from 0, e.g. scans with their own CV) or of the first
   scan (one clock for all); the small table sets, per scan, the point that is t = 0 ("t = 0 at
@@ -338,6 +341,20 @@ in a dialog):
   marker, size, left or right axis). "Refresh from plot" takes the working plot again and keeps the
   edits; the last style is reused for the next figure; "Copy image" puts it on the clipboard.
   "View options…" (the old figure options) only changes the working view.
+- **Processing** (also "CTR processing" in the launcher, `python ctr_processing.py`). Steps 2 to 5
+  after background subtraction, for stationary rods (one image per L point; no rocking scans): pick
+  the SPEC file and the ROI sums folder or files; each row's image number is the SPEC point of its
+  scan. 2: normalise by monitor (relative to the mean monitor), transmission and count time.
+  3: polarisation (horizontal fraction, horizontal or vertical surface), rod interception 1/sin(beta)
+  and illuminated area (beam height and width, sample length); angles from H K L, energy and a fixed
+  incidence angle (specular rod: alpha = beta) or from SPEC columns. 4: |F| and sigma_F from the
+  propagated `_err` column (without it the counting error is a lower bound, flagged in Notes).
+  5: overlapping scans of one rod scaled together (or a hand scale in the table), ±H ±K equivalents
+  averaged with R_sym, points within a distance of integer L left out, a systematic floor written
+  for the fit. The table lists the scans (Use, rod, L range, points, scale, notes); clicking one
+  shows before (ROI sum) and after (normalised and corrected, then |F| with the merged rod).
+  "Process and save…" writes `<name>_scans.txt` (every point and every factor), `<name>.csv` (for
+  the Fitting app) and `<name>_genx.dat`. Logic in `ctrfit.datatools.processing`.
 - **CTR fit.** Quick kinematic rods (substrate, film, adlayer, liquid, three layers) on integrated
   intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.
 - **HKL appender.** H, K, L from the SPEC scan added to plotter exports and peak-fit tables
@@ -347,7 +364,7 @@ in a dialog):
 - **Combiner.** Several HKL files into one `H K L I` table (drop NaN or non-positive rows, sort, dedupe).
 
 The logic is in `ctrfit.datatools` (no Qt), the windows in `ctrfit.app.datatools`; one tool alone:
-`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `ctr_fit`, `appender`, `smoother`,
+`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `processing`, `ctr_fit`, `appender`, `smoother`,
 `combiner`, `meta_viewer`). Settings are saved in `~/.ctrfit/data_tools` (or `$CTRFIT_SETTINGS_DIR`);
 copy the old `.ini` files there to keep them.
 

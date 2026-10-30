@@ -1982,6 +1982,8 @@ class MainWindow(StatusMixin, QMainWindow):
             for r in self._roi_config.get_rois(info['scan'], info['image']):
                 all_names.add(r.name)
         roi_names = sorted(all_names)
+        err_names = sorted({f"{r.name}_err" for info in self._files
+                            for r in self._roi_config.get_rois(info['scan'], info['image']) if r.roi_type == 'signal'})
 
         sum_rows = []
         for i, info in enumerate(self._files):
@@ -2010,14 +2012,15 @@ class MainWindow(StatusMixin, QMainWindow):
             if save_png:
                 self._save_png(sub, info, img_subdir)
 
-            row = [info['scan'], info['image']] + [sums.get(n, 0.0) for n in roi_names]
+            row = ([info['scan'], info['image']] + [sums.get(n, 0.0) for n in roi_names]
+                   + [sums.get(n, float('nan')) for n in err_names])
             sum_rows.append(row)
 
         progress.setValue(n)
 
         # Save sums to the user-chosen path (tab-separated for Excel)
         with open(sum_path, 'w') as f:
-            header = ["scan", "image"] + roi_names
+            header = ["scan", "image"] + roi_names + err_names       # *_err: counting error of a signal ROI
             f.write("\t".join(header) + "\n")
             for row in sum_rows:
                 parts = [f"{row[0]:03d}", f"{row[1]:03d}"]

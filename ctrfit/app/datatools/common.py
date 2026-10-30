@@ -1,8 +1,13 @@
 """Shared Qt pieces for the data tools, in the style of the other ctrfit windows: the system theme,
 a sidebar of titled groups on the left, one blue primary button per tool, messages in the status
 bar (errors also in a dialog), and running one tool on its own."""
+import faulthandler
+import os
 import sys
+import time
 import traceback
+
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFontDatabase, QKeySequence
@@ -123,5 +128,95 @@ def run_tool(cls, **kw):
     """Run one tool window on its own (python -m ctrfit.app.datatools.<tool>)."""
     app = QApplication.instance() or QApplication(sys.argv)
     win = cls(**kw)
+    install_crash_handler(win)
     win.show()
     return app.exec_()
+
+
+# ------------------------------------------------------------------ crash safety
+NONLINEAR = ("log", "logit", "symlog")
+
+
+class SafeCanvas(FigureCanvasQTAgg):
+    """A matplotlib canvas whose redraw never takes the program down: if drawing fails (e.g. a logit
+    scale with values outside 0..1, or a log scale with no positive values, picked in the toolbar's
+    axes dialog), the offending axes go back to a linear scale and the message goes to the status bar."""
+
+    def draw(self):
+        try:
+            super().draw()
+            return
+        except Exception as exc:                  # matplotlib raises while laying out ticks
+            err = exc
+        fixed = []
+        for ax in self.figure.axes:
+            for name, get, put in (("x", ax.get_xscale, ax.set_xscale), ("y", ax.get_yscale, ax.set_yscale)):
+                if get() in NONLINEAR:
+                    fixed.append(f"{name}: {get()}")
+                    put("linear")
+        try:
+            super().draw()
+        except Exception as exc2:                 # still broken: show an empty figure, keep the window
+            err = exc2
+            self.figure.clear()
+            self.figure.text(0.5, 0.5, f"cannot draw: {err}", ha="center", va="center", color="#b00020")
+            try:
+                super().draw()
+            except Exception:
+                pass
+        msg = (f"Could not draw with {', '.join(fixed)} scale ({err}); back to linear. Logit needs values "
+               "strictly between 0 and 1, log needs positive values." if fixed else f"Could not draw the plot: {err}")
+        _report(self, msg)
+
+
+def _report(widget, msg):
+    """Status-bar message on the nearest tool window (no dialog: this can run inside a paint)."""
+    w = widget
+    while w is not None:
+        if isinstance(w, StatusMixin) and hasattr(w, "statusBar"):
+            if w._status_label is None:
+                w.say("")
+            w._status_label.setStyleSheet("color: #b00020;")
+            w._status_label.setText(msg[:220])
+            return
+        w = w.parentWidget() if hasattr(w, "parentWidget") else None
+    sys.__stderr__.write(msg + "\n")
+
+
+def crash_log_path():
+    from ctrfit.datatools.paths import settings_dir
+    return os.path.join(settings_dir(), "crash.log")
+
+
+_log_file = None
+
+
+def install_crash_handler(window=None):
+    """Keep the program alive on errors in buttons, timers and redraws (PyQt5 otherwise aborts on any
+    unhandled exception): write the traceback to stderr and to crash.log in the settings folder and
+    show it in a dialog. Hard crashes (segfaults) are written to the same log by faulthandler."""
+    global _log_file
+    path = crash_log_path()
+    if _log_file is None:
+        try:
+            _log_file = open(path, "a", buffering=1)
+            faulthandler.enable(_log_file)
+        except OSError:
+            _log_file = None
+
+    def hook(etype, value, tb):
+        text = "".join(traceback.format_exception(etype, value, tb))
+        sys.__stderr__.write(text)
+        if _log_file is not None:
+            _log_file.write(f"\n--- {time.strftime('%Y-%m-%d %H:%M:%S')} ---\n{text}")
+        target = window or QApplication.activeWindow()
+        try:
+            if isinstance(target, StatusMixin):
+                target.say(f"Unexpected error (the program keeps running; details in {path}):\n\n{text}",
+                           error=True)
+            elif target is not None:
+                QMessageBox.warning(target, "Unexpected error", f"{text}\n\nLogged to {path}")
+        except Exception:
+            pass
+    sys.excepthook = hook
+    return path

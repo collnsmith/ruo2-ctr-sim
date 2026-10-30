@@ -72,6 +72,8 @@ class DataToolsWindow(QMainWindow):
 def main(argv=None):
     app = QApplication.instance() or QApplication(sys.argv if argv is None else argv)
     win = DataToolsWindow()
+    from .datatools.common import install_crash_handler
+    install_crash_handler(win)
     win.show()
     return app.exec_()
 

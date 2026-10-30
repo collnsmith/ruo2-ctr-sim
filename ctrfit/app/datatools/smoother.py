@@ -23,11 +23,11 @@ import numpy as np
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, QFileDialog, QSpinBox,
                              QDoubleSpinBox, QComboBox, QCheckBox, QListWidget, QSplitter)
-from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
-                                                NavigationToolbar2QT as NavigationToolbar)
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 
-from ctrfit.app.datatools.common import StatusMixin, group, hint, primary_button, row, run_tool, sidebar
+from ctrfit.app.datatools.common import (SafeCanvas as FigureCanvas, StatusMixin, group, hint,
+                                         primary_button, row, run_tool, sidebar)
 from ctrfit.datatools.hkl import parse_hkl_file, smooth_trace
 
 

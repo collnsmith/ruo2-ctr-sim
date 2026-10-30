@@ -22,13 +22,12 @@ from PyQt5.QtCore import Qt, QEvent, QObject
 from PyQt5.QtWidgets import (QFormLayout, QMainWindow, QWidget, QVBoxLayout, QLabel, QPushButton, QComboBox,
                              QSpinBox, QDoubleSpinBox, QLineEdit, QFileDialog, QCheckBox, QSplitter,
                              QListWidget, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView)
-from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
-                                                NavigationToolbar2QT as NavigationToolbar)
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from scipy.optimize import least_squares
 
-from ctrfit.app.datatools.common import (StatusMixin, group, hint, mono_font, primary_button, row, run_tool,
-                                         sidebar)
+from ctrfit.app.datatools.common import (SafeCanvas as FigureCanvas, StatusMixin, group, hint, mono_font,
+                                         primary_button, row, run_tool, sidebar)
 from ctrfit.datatools.ctrmodels import CTR_MODELS, ScanGroupManager
 from ctrfit.datatools.paths import settings_file
 

@@ -823,3 +823,30 @@ def test_plotter_refresh_rereads_the_files(qapp, no_dialogs, tmp_path, monkeypat
     assert len(w._last_traces[0]["y"]) == 8 and np.all(w._last_traces[0]["y"] == 99)
     assert 466 in w._spec_scans and "Refreshed" in w._status_label.text()
     w.close()
+
+
+def test_logit_scale_and_errors_do_not_crash(qapp, no_dialogs, tmp_path, monkeypatch):
+    import sys
+    from ctrfit.app.datatools import common
+    from ctrfit.app.datatools.plotter import MainWindow
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    w = MainWindow()
+    w.show()
+    ax = w._canvas.ax
+    ax.plot(np.arange(10), np.arange(10) * 100.0)                                     # includes 0: logit breaks
+    ax.set_yscale("logit")                                                               # as the toolbar's axes dialog does
+    w._canvas.draw()                                                                     # used to raise inside the paint
+    assert ax.get_yscale() == "linear" and "back to linear" in w._status_label.text()
+    # an unexpected error in a button or a timer is logged and shown; the program keeps running
+    monkeypatch.setattr(common, "_log_file", None)
+    old = sys.excepthook
+    try:
+        path = common.install_crash_handler(w)
+        try:
+            raise RuntimeError("boom in a slot")
+        except RuntimeError:
+            sys.excepthook(*sys.exc_info())
+        assert "boom in a slot" in open(path).read() and "boom in a slot" in no_dialogs[-1][1]
+    finally:
+        sys.excepthook = old
+    w.close()

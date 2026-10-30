@@ -350,3 +350,8 @@ The logic is in `ctrfit.datatools` (no Qt), the windows in `ctrfit.app.datatools
 `python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `ctr_fit`, `appender`, `smoother`,
 `combiner`, `meta_viewer`). Settings are saved in `~/.ctrfit/data_tools` (or `$CTRFIT_SETTINGS_DIR`);
 copy the old `.ini` files there to keep them.
+
+Errors never close the data tools: an unexpected error is shown and written, with the time, to
+`crash.log` in the same folder (hard crashes too, via faulthandler); please send that file with a
+bug report. A plot scale that cannot be drawn (logit needs values strictly between 0 and 1, log
+needs positive values) goes back to linear with a note in the status bar.

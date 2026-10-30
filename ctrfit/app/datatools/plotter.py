@@ -19,14 +19,13 @@ from PyQt5.QtWidgets import (QShortcut, QFormLayout, QMainWindow, QWidget, QVBox
                              QFileDialog, QCheckBox, QSplitter, QScrollArea, QListWidget, QListWidgetItem,
                              QGridLayout, QColorDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
                              QAbstractItemView, QDialogButtonBox)
-from matplotlib.backends.backend_qt5agg import (FigureCanvasQTAgg as FigureCanvas,
-                                                NavigationToolbar2QT as NavigationToolbar)
+from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.ticker import AutoMinorLocator
 from scipy.optimize import curve_fit
 
-from ctrfit.app.datatools.common import (HINT_STYLE, PRIMARY_STYLE, StatusMixin, group, hint, row, run_tool,
-                                         sidebar)
+from ctrfit.app.datatools.common import (SafeCanvas as FigureCanvas, HINT_STYLE, PRIMARY_STYLE, StatusMixin,
+                                         group, hint, row, run_tool, sidebar)
 from ctrfit.datatools.paths import settings_dir, settings_file
 from ctrfit.datatools.peaks import (FIT_MODELS, display_label, fit_peak, integrate_peak, load_label_map,
                                     numerical_area, parse_bgsub_dir, save_label_map)

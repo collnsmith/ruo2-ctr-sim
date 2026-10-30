@@ -583,7 +583,7 @@ class ImageCache:
                     continue
                 self._pending[key] = self._pool.submit(self._read, f['path'], f['ext'])
             with self._lock:
-                while len(self._pending) > 2 * self.maxsize:          # drop the oldest unfinished reads
+                while len(self._pending) > 8:                         # drop the oldest unclaimed reads
                     self._pending.pop(next(iter(self._pending))).cancel()
 
     def clear(self):

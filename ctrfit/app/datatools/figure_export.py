@@ -10,10 +10,10 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtWidgets import (QApplication, QCheckBox, QColorDialog, QComboBox, QDoubleSpinBox, QFileDialog,
                              QHeaderView, QLineEdit, QMainWindow, QPushButton, QScrollArea, QSpinBox,
                              QSplitter, QTableWidget, QVBoxLayout, QWidget)
-from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
-from ctrfit.app.datatools.common import StatusMixin, group, hint, primary_button, row, sidebar
+from ctrfit.app.datatools.common import (SafeCanvas as FigureCanvas, StatusMixin, group, hint,
+                                         primary_button, row, sidebar)
 from ctrfit.datatools.figure import (CM, FONTS, FORMATS, LEGEND_LOCS, LINESTYLES, MARKERS, FigureSpec,
                                      FigureStyle, render, save)
 from ctrfit.datatools.paths import settings_file

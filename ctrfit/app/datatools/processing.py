@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover
     from sip import isdeleted
 
 NONE = "(none)"
+DEFAULT_ROI = "(default)"
 SETTINGS = "sxrd_processing_settings.json"
 
 
@@ -49,6 +50,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         self._spec = {}
         self._results = []
         self._merged = None
+        self._saved_scans = ({}, {}, {})          # scale, use, roi per scan from the settings
         self._notes = []
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -167,9 +169,9 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         lv.addWidget(sidebar(fg, ng, cg, mg, width=400), 1)
         lv.addWidget(primary_button("Process and save…", self.save_dialog, "Ctrl+S", self))
 
-        self._table = QTableWidget(0, 7)
-        self._table.setHorizontalHeaderLabels(["Use", "Scan", "Rod", "L range", "Points", "Scale", "Notes"])
-        self._table.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        self._table = QTableWidget(0, 8)
+        self._table.setHorizontalHeaderLabels(["Use", "Scan", "Rod", "L range", "Points", "Scale", "ROI", "Notes"])
+        self._table.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
         self._table.setSelectionMode(QTableWidget.SingleSelection)
@@ -203,6 +205,9 @@ class ProcessingWindow(StatusMixin, QMainWindow):
     def open_spec(self, path=None):
         path = path or QFileDialog.getOpenFileName(self, "SPEC file", "", "SPEC (*.spec *.dat *.txt);;All files (*)")[0]
         if path:
+            if str(path) != self._spec_path.text():   # another experiment: forget per-scan scale, use, ROI
+                self._saved_scans = ({}, {}, {})
+                self._table.setRowCount(0)
             self._spec_path.setText(str(path))
             self.refresh()
 
@@ -276,11 +281,12 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                        equivalents=self._equiv.currentText(), l_tol=self._ltol.value(),
                        match_overlaps=self._chk_overlap.isChecked(), exclude_bragg=self._bragg.value(),
                        floor_pct=self._floor.value())
-        o.scan_scale, o.scan_use = self._table_scales()
+        o.scan_scale, o.scan_use, o.scan_roi = self._table_state()
         return o
 
-    def _table_scales(self):
-        scale, use = {}, {}
+    def _table_state(self):
+        """(scale, use, roi) per scan: the table's rows over what the settings remembered."""
+        scale, use, roi = (dict(x) for x in self._saved_scans)
         for r in range(self._table.rowCount()):
             sn = int(self._table.item(r, 1).text())
             try:
@@ -288,7 +294,13 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             except (TypeError, ValueError):
                 scale[sn] = 1.0
             use[sn] = self._table.item(r, 0).checkState() == Qt.Checked
-        return scale, use
+            combo = self._table.cellWidget(r, 6)
+            pick = combo.currentText() if combo is not None else DEFAULT_ROI
+            if pick == DEFAULT_ROI:
+                roi.pop(sn, None)
+            else:
+                roi[sn] = pick
+        return scale, use, roi
 
     def _changed(self, *_):
         if not self._loading:
@@ -319,19 +331,26 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                       f"{np.nanmin(r.L):.3f} to {np.nanmax(r.L):.3f}")
             items = [use, QTableWidgetItem(str(r.scan)), QTableWidgetItem(rod), QTableWidgetItem(lrange),
                      QTableWidgetItem(f"{int(r.keep.sum())} / {r.L.size}"),
-                     QTableWidgetItem(f"{r.scale:.4g}"), QTableWidgetItem("; ".join(r.notes))]
+                     QTableWidgetItem(f"{r.scale:.4g}"), QTableWidgetItem(""), QTableWidgetItem("; ".join(r.notes))]
             items[5].setData(Qt.UserRole, opt.scan_scale.get(r.scan, 1.0))
             items[5].setToolTip("Applied scale (hand scale × overlap match); type a number to set the hand scale")
             for c, it in enumerate(items):
                 if c not in (0, 5):
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 t.setItem(i, c, it)
+            combo = QComboBox()
+            combo.addItems([DEFAULT_ROI] + pr.roi_columns({r.scan: self._sums.get(r.scan, {})})[0])
+            combo.setCurrentText(opt.scan_roi.get(r.scan, DEFAULT_ROI))
+            combo.setToolTip(f"Intensity column of this scan (now '{r.roi}'); {DEFAULT_ROI}: the one picked "
+                             "under 2. Normalise")
+            combo.currentTextChanged.connect(self._changed)
+            t.setCellWidget(i, 6, combo)
             if r.scan == sel:
                 t.selectRow(i)
         if t.rowCount() and not t.selectedItems():
             t.selectRow(0)
         t.resizeColumnsToContents()
-        t.horizontalHeader().setSectionResizeMode(6, QHeaderView.Stretch)
+        t.horizontalHeader().setSectionResizeMode(7, QHeaderView.Stretch)
         t.blockSignals(False)
 
     def _table_edited(self, item):
@@ -468,7 +487,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             w = getattr(self, name)
             d[name] = (w.currentText() if isinstance(w, QComboBox) else w.isChecked() if isinstance(w, QCheckBox)
                        else w.value())
-        d["scan_scale"], d["scan_use"] = ({str(k): v for k, v in x.items()} for x in self._table_scales())
+        d["scan_scale"], d["scan_use"], d["scan_roi"] = ({str(k): v for k, v in x.items()}
+                                                        for x in self._table_state())
         try:
             with open(settings_file(SETTINGS), "w") as f:
                 json.dump(d, f, indent=1)
@@ -496,6 +516,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             else:
                 w.setValue(float(d[name]))
         self._loading = False
+        self._saved_scans = tuple({int(k): v for k, v in (d.get(key) or {}).items()}
+                                  for key in ("scan_scale", "scan_use", "scan_roi"))
         self._spec_path.setText(d.get("spec") or "")
         self._sums_folder = d.get("sums_folder")
         self._sum_paths = d.get("sum_paths") or []

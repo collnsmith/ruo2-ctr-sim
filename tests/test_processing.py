@@ -150,6 +150,24 @@ def test_stationary_scans_are_processed_point_by_point(tmp_path):
     assert res2[0].stationary and merged2 is None
 
 
+def test_roi_per_scan(tmp_path):
+    opt = opts(roi=None)
+    spec, folder, truth = write_experiment(tmp_path, opt, [(60, 1, 0, 0.3, 2.0, 20, 1.0), (61, 0, 1, 0.3, 2.0, 20, 1.0)])
+    sums = pr.load_sums(pr.sum_files(folder))
+    sums[61]["B"], sums[61]["B_err"] = 2 * sums[61]["ROI1"], sums[61]["ROI1_err"]
+    del sums[60]["ROI1_err"]
+    from ctrfit.datatools.specfile import parse_spec_file
+    scans = parse_spec_file(str(spec))
+    base, _, _ = pr.process(sums, scans, opts())
+    picked, _, notes = pr.process(sums, scans, opts(scan_roi={61: "B"}))
+    assert [r.roi for r in picked] == ["ROI1", "B"] and np.allclose(picked[1].I_raw, 2 * base[1].I_raw)
+    # a global ROI missing in a scan: that scan's default, with a note; a missing per-scan ROI is an error
+    other, _, notes = pr.process(sums, scans, opts(roi="B"))
+    assert [r.roi for r in other] == ["ROI1", "B"] and any("no ROI 'B' in this scan" in n for n in notes)
+    with pytest.raises(ValueError):
+        pr.process(sums, scans, opts(scan_roi={60: "B"}))
+
+
 @pytest.fixture
 def qapp():
     QtWidgets = pytest.importorskip("PyQt5.QtWidgets")
@@ -166,6 +184,10 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     opt = opts()
     spec, folder, truth = write_experiment(tmp_path, opt, [(30, 1, 0, 0.3, 2.0, 40, 1.0), (31, 1, 0, 1.8, 3.0, 30, 2.0),
                                                        (32, 1, 0, 0.5, 0.5, 20, 1.0)])
+    lines = (folder / "scan_sums.txt").read_text().splitlines()                     # a second ROI, 4x ROI1
+    lines = [lines[0] + "\tROI2\tROI2_err"] + [l + f"\t{4 * float(l.split()[2]):.10g}\t{2 * float(l.split()[3]):.10g}"
+                                               for l in lines[1:]]
+    (folder / "scan_sums.txt").write_text("\n".join(lines) + "\n")
     w = ProcessingWindow()
     w.show()
     w.open_spec(str(spec))
@@ -177,6 +199,13 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w._table.selectRow(1)                                                          # preview of scan 31
     assert len(w._fig.axes) == 2 and "Scan 31" in w._fig.axes[0].get_title()
     assert float(w._table.item(1, 5).text()) == pytest.approx(0.5, rel=0.03)         # matched to scan 30
+    raw = w._results[0].I_raw.copy()
+    combo = w._table.cellWidget(0, 6)                                               # scan 30 uses ROI2
+    assert combo.currentText() == "(default)" and combo.findText("ROI2") > 0
+    combo.setCurrentText("ROI2")
+    w.reprocess()
+    assert w._results[0].roi == "ROI2" and np.allclose(w._results[0].I_raw, 4 * raw)
+    assert w._results[1].roi == "ROI1" and w._table.cellWidget(0, 6).currentText() == "ROI2"
     w._table.item(1, 0).setCheckState(0)                                             # leave scan 31 out
     w.reprocess()
     assert all(L <= 2.0 + 1e-6 for L in w._merged.L)
@@ -191,6 +220,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     qapp.processEvents()
     w2.refresh()
     assert w2._monitor.currentText() == "Monitor" and w2._table.rowCount() == 3
+    assert w2._table.cellWidget(0, 6).currentText() == "ROI2" and w2._table.item(1, 0).checkState() == 0
     w2.close()
 
 

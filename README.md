@@ -353,7 +353,10 @@ in a dialog):
   propagated `_err` column (without it the counting error is a lower bound, flagged in Notes).
   5: overlapping scans of one rod scaled together (or a hand scale in the table), ±H ±K equivalents
   averaged with R_sym, points within a distance of integer L left out, a systematic floor written
-  for the fit. The table lists the scans (Use, rod, L range, points, scale, notes); clicking one
+  for the fit. The table lists the scans (Use, rod, L range, points, scale, ROI, notes; the ROI column picks
+  the signal ROI of each scan when it changes between scans, "(default)" being the one under
+  2. Normalise, or the scan's first ROI with errors if that one is not in the scan; per-scan scale,
+  Use and ROI are remembered until another SPEC file is opened); clicking one
   shows before (ROI sum) and after (normalised and corrected, then |F| with the merged rod).
   "Process and save…" writes `<name>_scans.txt` (every point and every factor), `<name>.csv` (for
   the Fitting app) and `<name>_genx.dat`. Stationary scans (H K L fixed, e.g. during a CV) are found

@@ -72,6 +72,7 @@ class Options:
     floor_pct: float = 5.0               # systematic error floor for the fit (% of F)
     scan_scale: dict = field(default_factory=dict)   # scan -> extra scale factor (by hand)
     scan_use: dict = field(default_factory=dict)     # scan -> False to leave a scan out
+    scan_roi: dict = field(default_factory=dict)     # scan -> its intensity column (else roi)
 
 
 @dataclass
@@ -228,10 +229,20 @@ def corrections(alpha_deg, beta_deg, cos_psi, opt):
 def process_scan(number, cols, scan, opt, monitor_ref=None):
     """ScanResult of one scan: ROI sums columns `cols`, SPEC scan `scan`."""
     names, with_err = roi_columns({number: cols})
-    roi = opt.roi or (with_err[0] if with_err else (names[0] if names else None))
-    if roi not in cols:
-        raise ValueError(f"scan {number}: no ROI column '{roi}' in the ROI sums")
+    default = with_err[0] if with_err else (names[0] if names else None)
     notes = []
+    roi = opt.scan_roi.get(number)
+    if roi:
+        if roi not in cols:
+            raise ValueError(f"scan {number}: no ROI column '{roi}' in the ROI sums ({', '.join(names)})")
+    elif opt.roi and opt.roi in cols:
+        roi = opt.roi
+    else:
+        roi = default
+        if roi is None:
+            raise ValueError(f"scan {number}: no ROI column in the ROI sums")
+        if opt.roi:
+            notes.append(f"no ROI '{opt.roi}' in this scan: '{roi}' used (pick one in the ROI column)")
     img = cols["image"].astype(int)
     ok = (img >= 0) & (img < scan.npoints)
     if not ok.all():

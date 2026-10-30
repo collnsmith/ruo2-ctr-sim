@@ -9,6 +9,10 @@ Two kinds of file are recognised:
   data' (blocks that start with '# Trace: <label>', then a header line and numeric rows), or a plain
   two-column x, y table.
 
+A ROI sums column `<name>_err` (the background subtraction's counting error, or the processing
+tool's propagated error) is the sigma of `<name>`: `read_intensity_sigma` returns it with the
+intensity (None without one, then the caller falls back to sqrt(N)).
+
 `read_intensity(path, scan_number, n_points, elapsed, column)` returns the intensity at every point of
 the scan (NaN-free: images missing from a ROI file are interpolated from their neighbours) and a note.
 For a trace whose length is not the scan's, the trace is interpolated on its x as seconds from the
@@ -105,7 +109,8 @@ def choices(path):
     if sums is not None:
         names = []
         for cols in sums.values():
-            names += [c for c in cols if c.lower() not in ("scan", "image") and c not in names]
+            names += [c for c in cols if c.lower() not in ("scan", "image") and not c.endswith("_err")
+                      and c not in names]
         return "roi", names
     traces = parse_traces(text)
     if not traces:
@@ -117,13 +122,20 @@ def read_intensity(path, scan_number, n_points, elapsed=None, column=None):
     """(intensity at each of the scan's n_points points, note). column: the ROI name (ROI sums) or
     the trace label (trace file); None: the first ROI / the trace of this scan ('S<number>...') or
     the first trace."""
+    y, _, note = read_intensity_sigma(path, scan_number, n_points, elapsed, column)
+    return y, note
+
+
+def read_intensity_sigma(path, scan_number, n_points, elapsed=None, column=None):
+    """(intensity, sigma or None, note) at each of the scan's n_points points; sigma from the
+    '<column>_err' column of a ROI sums file."""
     text = open(path, errors="replace").read()
     sums = parse_roi_sums(text)
     if sums is not None:
         if scan_number not in sums:
             raise ValueError(f"scan {scan_number} is not in the ROI sums file (scans {sorted(sums)})")
         cols = sums[scan_number]
-        names = [c for c in cols if c.lower() not in ("scan", "image")]
+        names = [c for c in cols if c.lower() not in ("scan", "image") and not c.endswith("_err")]
         name = column or names[0]
         if name not in cols:
             raise ValueError(f"no ROI '{name}' in the ROI sums file ({', '.join(names)})")
@@ -134,11 +146,15 @@ def read_intensity(path, scan_number, n_points, elapsed=None, column=None):
         order = np.argsort(img[ok])
         idx, val = img[ok][order], cols[name][ok][order]
         y = np.interp(np.arange(n_points), idx, val)
+        sig = None
+        if f"{name}_err" in cols:
+            sig = np.interp(np.arange(n_points), idx, cols[f"{name}_err"][ok][order])
         missing = n_points - np.unique(idx).size
         note = f"intensity: ROI '{name}' of {path.rsplit('/', 1)[-1]}"
+        note += f", sigma from '{name}_err'" if sig is not None else ", sigma = sqrt(N)"
         if missing:
             note += f" ({missing} of {n_points} points missing, interpolated)"
-        return y, note
+        return y, sig, note
     traces = parse_traces(text)
     if not traces:
         raise ValueError(f"{path}: neither a ROI sums file nor a trace file")
@@ -153,10 +169,10 @@ def read_intensity(path, scan_number, n_points, elapsed=None, column=None):
     y = tr["data"][:, _y_index(tr["columns"], tr["label"])]
     note = f"intensity: trace '{tr['label']}' of {path.rsplit('/', 1)[-1]}"
     if y.size == n_points:
-        return y.astype(float), note
+        return y.astype(float), None, note
     if elapsed is None:
         raise ValueError(f"trace '{tr['label']}' has {y.size} points, the scan {n_points}")
     x = tr["data"][:, 0]
     t = np.asarray(elapsed, float) - float(elapsed[0])
     order = np.argsort(x)
-    return np.interp(t, x[order], y[order]), note + f" ({y.size} points interpolated on x as seconds from the first point)"
+    return np.interp(t, x[order], y[order]), None, note + f" ({y.size} points interpolated on x as seconds from the first point)"

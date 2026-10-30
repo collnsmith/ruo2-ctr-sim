@@ -123,6 +123,33 @@ def test_options_change_the_result(tmp_path):
         pr.run_files(pr.sum_files(folder), str(spec), opts(monitor="nope"))
 
 
+def test_stationary_scans_are_processed_point_by_point(tmp_path):
+    """A CV-style scan at fixed HKL: normalised and corrected per point, not merged into one point, not
+    overlap-scaled against a rod scan of the same rod, not cut by the Bragg window; its file is read by
+    the in-situ CV tool with the propagated sigma."""
+    opt = opts(exclude_bragg=0.1)
+    spec, folder, truth = write_experiment(tmp_path, opt, [(50, 1, 0, 0.3, 2.0, 40, 1.0),
+                                                           (51, 1, 0, 1.0, 1.0, 30, 2.0)])
+    results, merged, notes = pr.run_files(pr.sum_files(folder), str(spec), opt)
+    rod, st = results
+    assert not rod.stationary and st.stationary and st.keep.all() and st.scale == 1.0
+    # monitor, transmission and count time vary point by point; the corrected intensity does not
+    assert np.allclose(st.I_corr, st.I_corr[0], rtol=1e-6) and np.ptp(st.I_raw) > 0
+    assert np.allclose(st.F, 2 ** 0.5 * true_F(1, 0, 1.0) * rod.F[0] / true_F(1, 0, 0.3), rtol=1e-6)
+    assert merged.L.size == int(rod.keep.sum()) and pr.stationary(results) == [st]
+    out = pr.write_stationary(tmp_path / "cv.dat", pr.stationary(results))
+    from ctrfit.echem import external as ex
+    assert ex.choices(out)[1][:2] == ["ROI1_corr", "ROI1_norm"]
+    y, sig, note = ex.read_intensity_sigma(str(out), 51, 30, column="ROI1_corr")
+    assert np.allclose(y, st.I_corr, rtol=1e-5) and np.allclose(sig, st.s_corr, rtol=1e-5)
+    assert "sigma from" in note
+    # only stationary scans: nothing to merge
+    (tmp_path / "b").mkdir()
+    spec2, folder2, _ = write_experiment(tmp_path / "b", opt, [(52, 0, 1, 0.5, 0.5, 10, 1.0)])
+    res2, merged2, _ = pr.run_files(pr.sum_files(folder2), str(spec2), opt)
+    assert res2[0].stationary and merged2 is None
+
+
 @pytest.fixture
 def qapp():
     QtWidgets = pytest.importorskip("PyQt5.QtWidgets")
@@ -137,7 +164,8 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
     from ctrfit.app.datatools.processing import ProcessingWindow
     opt = opts()
-    spec, folder, truth = write_experiment(tmp_path, opt, [(30, 1, 0, 0.3, 2.0, 40, 1.0), (31, 1, 0, 1.8, 3.0, 30, 2.0)])
+    spec, folder, truth = write_experiment(tmp_path, opt, [(30, 1, 0, 0.3, 2.0, 40, 1.0), (31, 1, 0, 1.8, 3.0, 30, 2.0),
+                                                       (32, 1, 0, 0.5, 0.5, 20, 1.0)])
     w = ProcessingWindow()
     w.show()
     w.open_spec(str(spec))
@@ -145,7 +173,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     for combo, text in ((w._monitor, "Monitor"), (w._transm, "transm"), (w._ctime, "Seconds")):
         combo.setCurrentText(text)
     w.reprocess()
-    assert w._table.rowCount() == 2 and w._roi.currentText() == "ROI1" and not said
+    assert w._table.rowCount() == 3 and w._roi.currentText() == "ROI1" and not said
     w._table.selectRow(1)                                                          # preview of scan 31
     assert len(w._fig.axes) == 2 and "Scan 31" in w._fig.axes[0].get_title()
     assert float(w._table.item(1, 5).text()) == pytest.approx(0.5, rel=0.03)         # matched to scan 30
@@ -153,13 +181,16 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w.reprocess()
     assert all(L <= 2.0 + 1e-6 for L in w._merged.L)
     out = w.save_to(str(tmp_path / "res.csv"))
-    assert [p.split("/")[-1] for p in out] == ["res_scans.txt", "res.csv", "res_genx.dat"]
+    assert [p.split("/")[-1] for p in out] == ["res_scans.txt", "res.csv", "res_genx.dat", "res_stationary.dat"]
+    assert "stationary" in w._table.item(2, 2).text() and "1 stationary scan" in w._summary.toPlainText()
+    w._table.selectRow(2)
+    assert "stationary" in w._fig.axes[0].get_title() and w._fig.axes[1].get_xlabel() == "SPEC point"
     w.close()
     w2 = ProcessingWindow()                                                         # settings remembered
     assert w2._spec_path.text() == str(spec)
     qapp.processEvents()
     w2.refresh()
-    assert w2._monitor.currentText() == "Monitor" and w2._table.rowCount() == 2
+    assert w2._monitor.currentText() == "Monitor" and w2._table.rowCount() == 3
     w2.close()
 
 

@@ -563,7 +563,17 @@ def test_intensity_from_roi_sums_and_trace_files(files, tmp_path):
     s.opt.intensity_file, s.opt.intensity_column = str(old), "ROI1"
     r = s.run()
     assert np.allclose(r.I, ref.I, rtol=1e-5) and any("ROI 'ROI1'" in x for x in r.notes)
-    s.opt.intensity_column = "nope"
+    # an '<ROI>_err' column is the sigma (not sqrt(N)); not offered as an intensity column
+    err = tmp_path / "err_sums.txt"
+    err.write_text("scan\timage\tROI1_corr\tROI1_corr_err\n" +
+                   "".join(f"2\t{i}\t{v:.6g}\t{3 * np.sqrt(v + 1):.6g}\n" for i, v in enumerate(det)))
+    assert ex.choices(err) == ("roi", ["ROI1_corr"])
+    s.opt.intensity_file, s.opt.intensity_column = str(err), None
+    r = s.run()
+    assert np.allclose(r.sigma / r.I, 3 * np.sqrt(det + 1) / det, rtol=1e-4)
+    assert "sigma from 'ROI1_corr_err'" in s.intensity_note
+    assert ("already normalised" in s.intensity_note) == bool(s.opt.monitor or s.opt.transmission or s.opt.per_second)
+    s.opt.intensity_file, s.opt.intensity_column = str(old), "nope"
     with pytest.raises(ValueError):
         s.run()
     # plotter / smoothing traces: same length -> per point; resampled -> on time from the first point

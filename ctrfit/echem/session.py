@@ -166,18 +166,23 @@ class Session:
     def intensity(self):
         s, o = self.scan, self.opt
         if o.intensity_file:
-            from .external import read_intensity
+            from .external import read_intensity_sigma
             try:
                 elapsed = s.times(o.time_column, o.time_kind, o.time_mark)
             except (ValueError, KeyError):
                 elapsed = None
-            raw, self.intensity_note = read_intensity(o.intensity_file, s.number, s.npts, elapsed,
-                                                      o.intensity_column)
+            raw, sig, self.intensity_note = read_intensity_sigma(o.intensity_file, s.number, s.npts, elapsed,
+                                                                 o.intensity_column)
+            if ("_corr'" in self.intensity_note or "_norm'" in self.intensity_note) and (o.transmission or o.monitor or o.per_second):
+                self.intensity_note += ("; this column is already normalised by the processing tool: "
+                                        "switch off monitor, transmission and per second")
         else:
             counter = o.counter or s.default_counter()
             raw = s.column(counter).astype(float)
             self.intensity_note = f"intensity: SPEC column {counter}"
-        sig = poisson_sigma(raw)
+            sig = None
+        if sig is None:
+            sig = poisson_sigma(raw)
         f = np.ones_like(raw)
         if o.transmission:
             tr = s.column(o.transmission).astype(float)

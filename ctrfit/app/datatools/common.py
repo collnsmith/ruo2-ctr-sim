@@ -157,6 +157,8 @@ class SafeCanvas(FigureCanvasQTAgg):
     axes dialog), the offending axes go back to a linear scale and the message goes to the status bar."""
 
     def draw(self):
+        if _deleted(self):                        # a queued redraw after the window was closed
+            return
         try:
             super().draw()
             return
@@ -181,6 +183,14 @@ class SafeCanvas(FigureCanvasQTAgg):
         msg = (f"Could not draw with {', '.join(fixed)} scale ({err}); back to linear. Logit needs values "
                "strictly between 0 and 1, log needs positive values." if fixed else f"Could not draw the plot: {err}")
         _report(self, msg)
+
+
+def _deleted(obj):
+    try:
+        from PyQt5.sip import isdeleted
+    except ImportError:          # pragma: no cover
+        return False
+    return isdeleted(obj)
 
 
 def _report(widget, msg):

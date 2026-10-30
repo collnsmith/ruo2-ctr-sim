@@ -314,8 +314,10 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             use = QTableWidgetItem()
             use.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             use.setCheckState(Qt.Checked if opt.scan_use.get(r.scan, True) else Qt.Unchecked)
-            items = [use, QTableWidgetItem(str(r.scan)), QTableWidgetItem(f"{r.rod[0]} {r.rod[1]}"),
-                     QTableWidgetItem(f"{np.nanmin(r.L):.3f} to {np.nanmax(r.L):.3f}"),
+            rod = f"{r.rod[0]} {r.rod[1]}" + (" (stationary)" if r.stationary else "")
+            lrange = (f"L = {np.nanmean(r.L):.3f}" if r.stationary else
+                      f"{np.nanmin(r.L):.3f} to {np.nanmax(r.L):.3f}")
+            items = [use, QTableWidgetItem(str(r.scan)), QTableWidgetItem(rod), QTableWidgetItem(lrange),
                      QTableWidgetItem(f"{int(r.keep.sum())} / {r.L.size}"),
                      QTableWidgetItem(f"{r.scale:.4g}"), QTableWidgetItem("; ".join(r.notes))]
             items[5].setData(Qt.UserRole, opt.scan_scale.get(r.scan, 1.0))
@@ -372,6 +374,10 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                              f"(a guide for the systematic floor)")
             else:
                 lines.append("R_sym: no point measured more than once (no equivalents or overlaps)")
+        st = pr.stationary(self._results, self.options()) if self._results else []
+        if st:
+            lines.append(f"{len(st)} stationary scan(s) ({', '.join(str(r.scan) for r in st)}): normalised and "
+                         "corrected point by point, saved to <name>_stationary.dat for the in-situ CV tool")
         lines += self._notes
         self._summary.setPlainText("\n".join(lines))
 
@@ -396,26 +402,28 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         corr = r.I_corr * r.scale
         cmax = np.nanmax(np.abs(corr[k])) if k.any() else np.nan
         corr_n = corr / cmax if np.isfinite(cmax) and cmax > 0 else corr
-        ax1.plot(r.L, raw, "o", ms=3, color="#9a9a9a", label="before: ROI sum")
-        ax1.plot(r.L[k], corr_n[k], "o-", ms=3, lw=1, color="#1f77b4", label="after: normalised and corrected")
+        x = r.image if r.stationary else r.L
+        ax1.plot(x, raw, "o", ms=3, color="#9a9a9a", label="before: ROI sum")
+        ax1.plot(x[k], corr_n[k], "o-", ms=3, lw=1, color="#1f77b4", label="after: normalised and corrected")
         if (~k).any():
-            ax1.plot(r.L[~k], corr_n[~k], "x", ms=5, color="#d62728", label="left out")
+            ax1.plot(x[~k], corr_n[~k], "x", ms=5, color="#d62728", label="left out")
         ax1.set_ylabel("I (each scaled to its max)")
         if self._chk_logy.isChecked():
             ax1.set_yscale("log")
         ax1.legend(fontsize=8)
-        ax1.set_title(f"Scan {r.scan}, rod {r.rod[0]} {r.rod[1]}")
+        ax1.set_title(f"Scan {r.scan}, stationary at ({np.nanmean(r.H):.3g} {np.nanmean(r.K):.3g} "
+                      f"{np.nanmean(r.L):.3g})" if r.stationary else f"Scan {r.scan}, rod {r.rod[0]} {r.rod[1]}")
         F, sF = r.F * np.sqrt(r.scale), r.sF * np.sqrt(r.scale)
-        ax2.errorbar(r.L[k], F[k], yerr=sF[k], fmt="o", ms=3, lw=0.8, capsize=1.5, color="#1f77b4",
+        ax2.errorbar(x[k], F[k], yerr=sF[k], fmt="o", ms=3, lw=0.8, capsize=1.5, color="#1f77b4",
                      label=f"scan {r.scan}")
         m = self._merged
-        if m is not None:
+        if m is not None and not r.stationary:
             key = pr._rod_key(r.rod, self.options())
             sel = (m.H == key[0]) & (m.K == key[1])
             if sel.any():
                 ax2.errorbar(m.L[sel], m.F[sel], yerr=m.sF[sel], fmt="s", ms=2.5, lw=0.6, capsize=1, mfc="none",
                              color="#d62728", label="merged rod")
-        ax2.set_xlabel("L (r.l.u.)")
+        ax2.set_xlabel("SPEC point" if r.stationary else "L (r.l.u.)")
         ax2.set_ylabel("|F|")
         if self._chk_logy.isChecked():
             ax2.set_yscale("log")
@@ -424,15 +432,20 @@ class ProcessingWindow(StatusMixin, QMainWindow):
 
     # ------------------------------------------------------------------ output
     def save_to(self, base):
-        """Write <base>_scans.txt (every point), <base>.csv (merged, for the fitting app) and
-        <base>_genx.dat. Returns the paths."""
-        if not self._results or self._merged is None:
+        """Write <base>_scans.txt (every point), <base>.csv (merged rods, for the fitting app),
+        <base>_genx.dat and <base>_stationary.dat (stationary scans, for the in-situ CV tool).
+        Returns the paths."""
+        if not self._results:
             raise ValueError("nothing processed yet")
         base = os.path.splitext(base)[0]
         opt = self.options()
-        out = [pr.write_scans(base + "_scans.txt", self._results),
-               pr.write_merged(base + ".csv", self._merged, opt, os.path.basename(base)),
-               pr.write_genx(base + "_genx.dat", self._merged)]
+        out = [pr.write_scans(base + "_scans.txt", self._results)]
+        if self._merged is not None:
+            out += [pr.write_merged(base + ".csv", self._merged, opt, os.path.basename(base)),
+                    pr.write_genx(base + "_genx.dat", self._merged)]
+        st = pr.stationary(self._results, opt)
+        if st:
+            out.append(pr.write_stationary(base + "_stationary.dat", st))
         self._save_settings()
         self.say(f"Saved {', '.join(os.path.basename(p) for p in out)}")
         return out

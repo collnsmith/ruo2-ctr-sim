@@ -7,6 +7,10 @@
       5. merge, scale  overlapping scans of a rod scaled together, symmetry equivalents averaged
                        (R_sym), points near Bragg peaks left out; a systematic floor for the fit
 
+Stationary scans (H K L fixed, e.g. during a CV) get steps 2 to 4 point by point and only the hand
+scale: they are not merged or overlap-scaled, and the Bragg window does not apply. They are written
+as their own file (write_stationary, the ROI sums format the in-situ CV tool reads) with errors.
+
 The image number of a ROI sums row is the SPEC point of its scan; H, K, L, monitor, transmission
 and count time come from that point.
 
@@ -93,6 +97,8 @@ class ScanResult:
     keep: np.ndarray                     # False: left out (Bragg window, bad angles, I not finite)
     scale: float = 1.0                   # overlap and hand scale applied to I_corr / F
     notes: list = field(default_factory=list)
+    stationary: bool = False             # H K L fixed over the scan (e.g. during a CV)
+    roi: str = "I"                       # the ROI sums column used
 
     @property
     def rod(self):
@@ -278,12 +284,14 @@ def process_scan(number, cols, scan, opt, monitor_ref=None):
     with np.errstate(invalid="ignore", divide="ignore"):
         I_c, s_c = np.where(good, I_n / C, np.nan), np.where(good, s_n / C, np.nan)
     keep = good.copy()
-    if opt.exclude_bragg > 0:
+    span = max(float(np.ptp(x)) if x.size else 0.0 for x in (H, K, L))
+    stationary = I.size > 1 and span <= opt.l_tol
+    if opt.exclude_bragg > 0 and not stationary:
         near = np.abs(L - np.round(L)) < opt.exclude_bragg
         keep &= ~near
     F, sF = intensities_to_F(np.nan_to_num(I_c), np.nan_to_num(s_c, nan=1.0))
     return ScanResult(number, img, H, K, L, I, s, I_n, s_n, I_c, s_c, F, sF, a_deg, b_deg, P, C_rod, C_area,
-                      keep, 1.0, notes)
+                      keep, 1.0, notes, stationary, roi)
 
 
 # ------------------------------------------------------------------ step 5
@@ -316,7 +324,8 @@ def scale_scans(results, opt):
         return notes
     by_rod = {}
     for r in results:
-        by_rod.setdefault(_rod_key(r.rod, opt), []).append(r)
+        if not r.stationary:
+            by_rod.setdefault(_rod_key(r.rod, opt), []).append(r)
     for rod, rs in by_rod.items():
         rs.sort(key=lambda r: r.scan)
         for r in rs[1:]:
@@ -338,12 +347,14 @@ def merge(results, opt):
     L, weighted by 1/sigma^2. Returns Merged with R_sym over the points measured more than once."""
     rows = {}
     for r in results:
-        if not opt.scan_use.get(r.scan, True):
+        if r.stationary or not opt.scan_use.get(r.scan, True):
             continue
         key = _rod_key(r.rod, opt)
         for L, I, s, k in zip(r.L, r.I_corr * r.scale, r.s_corr * r.scale, r.keep):
             if k and np.isfinite(I) and np.isfinite(s) and s > 0:
                 rows.setdefault(key, []).append((L, I, s))
+    if not rows:
+        return None
     H, K, L, I, sI, n, rod_lab = [], [], [], [], [], [], []
     num = den = 0.0
     n_mult = 0
@@ -419,6 +430,33 @@ def write_scans(path, results):
                         r.P[i], r.C_rod[i], r.C_area[i], r.alpha[i], r.beta[i], r.scale, r.I_corr[i] * r.scale,
                         r.s_corr[i] * r.scale, r.F[i] * math.sqrt(r.scale), r.sF[i] * math.sqrt(r.scale),
                         int(bool(r.keep[i])))
+                f.write("\t".join(f"{v:.6g}" if isinstance(v, float) else str(v) for v in vals) + "\n")
+    return path
+
+
+def stationary(results, opt=None):
+    """The stationary scans that are used."""
+    use = opt.scan_use if opt is not None else {}
+    return [r for r in results if r.stationary and use.get(r.scan, True)]
+
+
+def write_stationary(path, results, roi=None):
+    """Stationary scans in the ROI sums format (scan, image, columns), which the in-situ CV tool reads
+    as an intensity file: image = SPEC point, then the corrected intensity and its error (pick it
+    there with monitor, transmission and count time switched off: they are already applied), the
+    normalised one, F and the corrections."""
+    roi = roi or (results[0].roi if results else "I")
+    c, n = f"{roi}_corr", f"{roi}_norm"
+    cols = ("scan", "image", c, f"{c}_err", n, f"{n}_err", "F", "F_err", "H", "K", "L", "P", "C_rod", "C_area")
+    with open(path, "w") as f:
+        f.write("\t".join(cols) + "\n")
+        for r in results:
+            for i in range(r.L.size):
+                if not np.isfinite(r.I_corr[i]):
+                    continue
+                vals = (r.scan, int(r.image[i]), r.I_corr[i] * r.scale, r.s_corr[i] * r.scale, r.I_norm[i],
+                        r.s_norm[i], r.F[i] * math.sqrt(r.scale), r.sF[i] * math.sqrt(r.scale), r.H[i], r.K[i],
+                        r.L[i], r.P[i], r.C_rod[i], r.C_area[i])
                 f.write("\t".join(f"{v:.6g}" if isinstance(v, float) else str(v) for v in vals) + "\n")
     return path
 

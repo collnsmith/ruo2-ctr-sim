@@ -244,7 +244,9 @@ tool (one row per image, the image number being the SPEC point) or a trace from 
 ("Export data", "Export t, E, I", the smoothing's "Export smoothed data"); pick the ROI or trace (blank:
 the first ROI / this scan's trace). Missing images are interpolated; a trace with another number of
 points (e.g. a spline) is interpolated on its x as seconds from the scan's first point. Monitor,
-transmission and count time still apply: switch them off for a trace that is already normalised.
+transmission and count time still apply: switch them off for a trace that is already normalised
+(e.g. the processing tool's `_stationary.dat`). A `<ROI>_err` column (background subtraction, processing
+tool) gives the error bars instead of sqrt(N).
 Command line: `--intensity-file sums.txt --intensity-column ROI1`.
 ## Beamline helper (SPEC psic)
 
@@ -354,7 +356,12 @@ in a dialog):
   for the fit. The table lists the scans (Use, rod, L range, points, scale, notes); clicking one
   shows before (ROI sum) and after (normalised and corrected, then |F| with the merged rod).
   "Process and save…" writes `<name>_scans.txt` (every point and every factor), `<name>.csv` (for
-  the Fitting app) and `<name>_genx.dat`. Logic in `ctrfit.datatools.processing`.
+  the Fitting app) and `<name>_genx.dat`. Stationary scans (H K L fixed, e.g. during a CV) are found
+  automatically ("stationary" in the Rod column): steps 2 to 4 point by point, the preview against
+  SPEC point, no merging, overlap scaling or Bragg window; they go to `<name>_stationary.dat`, a ROI
+  sums style file that the in-situ CV tool opens as its intensity file (pick `<ROI>_corr`, and
+  switch off its monitor, transmission and per second, which are already applied). Logic in
+  `ctrfit.datatools.processing`.
 - **CTR fit.** Quick kinematic rods (substrate, film, adlayer, liquid, three layers) on integrated
   intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.
 - **HKL appender.** H, K, L from the SPEC scan added to plotter exports and peak-fit tables

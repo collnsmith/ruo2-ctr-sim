@@ -41,10 +41,12 @@ Kinds, from the SPEC scan at the images that have ROI sums: rod (L moves, H and 
 apply_assignments() copies film, measurement, potential, CV start, ROI, use and notes from another
 library (e.g. an assignment file) onto the scans of one source, by scan number.
 
-A processed source (the Processing tab's <name>_master.txt) needs no SPEC file: its scans offer the
-quantities I_corr (normalised and corrected, the default), F and I_norm instead of ROIs, against L
-(rod scans) or the time from the scan start / the CV start / the SPEC point (stationary scans); the
-library's monitor / transmission / count time apply to raw ROI sums only (Processing applied them).
+A processed source (the Processing tab's <name>_master.txt) needs no SPEC file: each scan has the
+ROI it was processed with in Processing (the master file's 'roi', fixed here: change it in Processing
+and refresh); the plotted quantity is I_corr (normalised and corrected, the default), F or I_norm
+(traces(..., quantity=)), against L (rod scans) or the time from the scan start / the CV start / the
+SPEC point (stationary scans); the library's monitor / transmission / count time apply to raw ROI
+sums only (Processing applied them).
 
 Two ROI sums files of one SPEC file can both have a scan (the background subtraction run twice):
 each keeps its own ROIs; the newest file's ROIs keep their names and the older files' become
@@ -179,6 +181,7 @@ class Entry:
 QUANTITIES = (("I_corr", "sigma_corr", "normalised and corrected (polarisation, rod interception, area) x scale"),
               ("F", "sigma_F", "|F| = sqrt(I_corr)"),
               ("I_norm", "sigma_norm", "normalised only (monitor, transmission, count time)"))
+QUANTITY = "I_corr"                       # what is plotted of processed scans by default
 
 
 @dataclass
@@ -199,6 +202,7 @@ class Trace:
     xlabel: str
     group: str = ""
     notes: list = field(default_factory=list)
+    quantity: str = "I"                   # 'I' (raw ROI sums, normalised here) or I_corr / F / I_norm
 
 
 def format_potential(E, unit=""):
@@ -294,6 +298,34 @@ def describe(scan, images=None):
     return (kind, h, k, l, l, l)
 
 
+def master_for(path):
+    """(master file, note) for a file picked as processed data: a master file itself, or the master
+    file that Processing wrote with it (same base name: <name>.csv, <name>_<group>.csv,
+    <name>_genx.dat, <name>_stationary.dat -> <name>_master.txt). Raises ValueError with what to pick
+    if there is none."""
+    path = os.path.abspath(str(path))
+    try:
+        with open(path, "r", errors="replace") as f:
+            head = f.readline()
+    except OSError:
+        raise ValueError(f"cannot read {path}")
+    if head.startswith("# CTR processing master file"):
+        return path, ""
+    folder, stem = os.path.dirname(path), os.path.splitext(os.path.basename(path))[0]
+    stem = re.sub(r"_(genx|stationary)$", "", stem)
+    masters = sorted((n[:-len("_master.txt")] for n in os.listdir(folder or ".") if n.endswith("_master.txt")),
+                     key=len, reverse=True)
+    for m in masters:
+        if stem == m or stem.startswith(m + "_"):
+            found = os.path.join(folder, m + "_master.txt")
+            return found, (f"{os.path.basename(path)} has no scans (it is a fitting / GenX / CV file): read "
+                           f"{os.path.basename(found)}, the master file saved with it")
+    raise ValueError(f"{os.path.basename(path)} is not a processing master file. The scan library reads "
+                     f"<name>_master.txt, which Processing writes next to <name>.csv ('Process and save'); "
+                     f"the .csv for fitting has no scan numbers. No *_master.txt for '{stem}' in that folder: save "
+                     "again in the Processing tab.")
+
+
 class Library:
     def __init__(self):
         self.sources = []
@@ -364,9 +396,11 @@ class Library:
 
     def add_processed(self, path, label=""):
         """Add a processing master file (<name>_master.txt of the Processing tab): every processed scan,
-        normalised and corrected, without the SPEC file or the ROI sums. The same file again is read
-        again; a placeholder (an assignment file's source) is filled. Returns the Source."""
-        path = os.path.abspath(str(path))
+        normalised and corrected, without the SPEC file or the ROI sums. Another output of the same
+        save (<name>.csv, <name>_<group>.csv, <name>_genx.dat, <name>_stationary.dat) stands for its
+        master file. The same file again is read again; a placeholder (an assignment file's source)
+        is filled. Returns the Source."""
+        path, note = master_for(path)
         read_master(path)                 # a master file, before anything is changed
         src = next((s for s in self.sources if s.master and os.path.normcase(s.master) == os.path.normcase(path)),
                    None)
@@ -381,6 +415,8 @@ class Library:
         elif label:
             src.label = label
         self.load([src.id])
+        if note:
+            self.notes.insert(0, note)
         return src
 
     def changed_files(self):
@@ -488,8 +524,10 @@ class Library:
                              "assignments are kept)")
                 continue
             d = ms.data
-            rois = {name: (d["image"], d[name], d[err], s.master) for name, err, _ in QUANTITIES if name in d}
+            roi = ms.roi or "ROI"                        # the ROI Processing used for this scan
+            rois = {roi: (d["image"], d["I_corr"], d["sigma_corr"], s.master)}
             self._data[e.key] = ScanData(None, rois, d, ms)
+            e.roi = roi
             e.kind, e.H, e.K, e.L, e.L_min, e.L_max = ms.kind, ms.H, ms.K, ms.L, ms.L_min, ms.L_max
             e.points, e.command, e.rois = int(d["image"].size), ms.command, list(rois)
         return notes
@@ -549,9 +587,8 @@ class Library:
         if d is None:
             return ""
         if data.master is not None:
-            what = next((w for q, _, w in QUANTITIES if q == name), name)
-            return (f"{name}: {what}, from {os.path.basename(d[3])} (Processing ROI {data.master.roi}, "
-                    f"scale {data.master.scale:g})")
+            return (f"{name}: the ROI this scan was processed with (Processing, scale {data.master.scale:g}), "
+                    f"from {os.path.basename(d[3])}; change it in the Processing tab, save and Refresh")
         base = re.sub(r" \(.*\)$", "", name)
         pos = self._positions.get(d[3], {})
         p = roi_position(pos, entry.scan, "all", base)
@@ -590,8 +627,8 @@ class Library:
                 if cv_start is not None and mode is KEEP:
                     e.mode = "CV"
                     e.potential = None
-            if roi is not KEEP:
-                e.roi = _clean(roi)
+            if roi is not KEEP and self._data.get(e.key, ScanData()).master is None:
+                e.roi = _clean(roi)               # a processed scan keeps the ROI it was processed with
             if use is not KEEP:
                 e.use = bool(use)
             if notes is not KEEP:
@@ -885,16 +922,19 @@ def group_key(lib, e, colour_by):
     return (film, cond)
 
 
-def _processed_trace(lib, e, d, roi, x, mon_ref=None):
-    """Trace of a scan of a processing master file (already normalised and corrected). mon_ref puts
-    it on that monitor reference (Processing normalised each run to its own mean monitor)."""
+def _processed_trace(lib, e, d, roi, x, mon_ref=None, quantity=QUANTITY):
+    """Trace of a scan of a processing master file (already normalised and corrected): quantity is
+    I_corr, F or I_norm of the ROI it was processed with. mon_ref puts it on that monitor reference
+    (Processing normalised each run to its own mean monitor)."""
     P, notes = d.points, []
     img = P["image"]
-    y, s = d.rois[roi][1].copy(), d.rois[roi][2]
-    s = s.copy() if s is not None else None
+    err = dict((q, er) for q, er, _ in QUANTITIES).get(quantity)
+    if err is None or quantity not in P:
+        raise ValueError(f"no quantity '{quantity}' (one of {', '.join(q for q, _, _ in QUANTITIES)})")
+    y, s = P[quantity].copy(), P[err].copy() if err in P else None
     own = d.master.monitor_ref
     if mon_ref and np.isfinite(own) and own > 0:
-        f = mon_ref / own if roi != "F" else np.sqrt(mon_ref / own)
+        f = mon_ref / own if quantity != "F" else np.sqrt(mon_ref / own)
         y = y * f
         s = s * f if s is not None else None
     used = (P["used"] > 0) & np.isfinite(y)
@@ -927,10 +967,11 @@ def _processed_trace(lib, e, d, roi, x, mon_ref=None):
         xs, xlabel = t, "time from scan start (s)"
     order = np.argsort(xs, kind="stable") if e.kind == "rod" else np.arange(xs.size)
     order = order[used[order] & np.isfinite(xs[order])]
-    return Trace(e, xs[order], y[order], s[order] if s is not None else None, roi, xlabel, notes=notes)
+    return Trace(e, xs[order], y[order], s[order] if s is not None else None, roi, xlabel, notes=notes,
+                 quantity=quantity)
 
 
-def trace(lib, e, x=X_TIME, mon_ref=None):
+def trace(lib, e, x=X_TIME, mon_ref=None, quantity=QUANTITY):
     """Trace of one entry: its ROI against L (rod scans) or x (stationary: X_TIME, X_CV, X_POINT or a
     SPEC column), divided by the normalisation columns of the library's settings; sigma is the
     counting error with the systematic error (sys_error, % of I) added in quadrature."""
@@ -939,7 +980,7 @@ def trace(lib, e, x=X_TIME, mon_ref=None):
     if roi is None:
         raise ValueError(f"{e.source} scan {e.scan}: no ROI sums")
     if d.points is not None:
-        return _processed_trace(lib, e, d, roi, x, mon_ref)
+        return _processed_trace(lib, e, d, roi, x, mon_ref, quantity)
     img, I, sig, _ = d.rois[roi]
     notes = []
     scan = d.spec
@@ -1037,13 +1078,14 @@ def scaled(t, norm):
     return t.y / ref, (t.sigma / abs(ref) if t.sigma is not None else None)
 
 
-def traces(lib, entries, x=X_TIME, colour_by="film"):
-    """Traces of the entries in group order (one shared monitor reference), and notes."""
+def traces(lib, entries, x=X_TIME, colour_by="film", quantity=QUANTITY):
+    """Traces of the entries in group order (one shared monitor reference), and notes. quantity: what
+    is plotted of processed scans (I_corr, F, I_norm); raw ROI sums are normalised I."""
     ref = monitor_reference(lib, entries)
     out, notes = [], []
     for e in sorted(entries, key=lambda e: (group_key(lib, e, colour_by), e.source, e.scan)):
         try:
-            t = trace(lib, e, x, ref)
+            t = trace(lib, e, x, ref, quantity)
         except ValueError as ex:
             notes.append(str(ex))
             continue
@@ -1060,7 +1102,7 @@ def write_traces(path, trs, title=""):
     for t in trs:
         e = t.entry
         lines += ["", f"# Trace: {e.source}_{e.scan}  {t.group}; film {e.film or '-'}; {e.condition()}; ROI {t.roi}",
-                  "\t".join([t.xlabel.split(" (")[0].replace(" ", "_"), "I", "I_err"])]
+                  "\t".join([t.xlabel.split(" (")[0].replace(" ", "_"), t.quantity, f"{t.quantity}_err"])]
         sig = t.sigma if t.sigma is not None else np.full(t.y.size, np.nan)
         lines += [f"{a:.8g}\t{b:.8g}\t{c:.6g}" for a, b, c in zip(t.x, t.y, sig)]
     with open(path, "w") as f:

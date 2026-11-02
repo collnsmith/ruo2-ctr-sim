@@ -35,6 +35,7 @@ NONE = "(none)"
 ANY = "(any)"
 NO_FILM = "(no film)"
 KIND_ITEMS = ("Rod scans (I vs L)", "Stationary scans (I vs time)")
+QUANTITY_ITEMS = (("I_corr", "I_corr (normalised and corrected)"), ("F", "|F|"), ("I_norm", "I_norm (normalised only)"))
 MODE_ITEMS = ("CA / OCV", "CV", "all assigned", "any (also unassigned)")
 MODE_SETS = ({"CA", "OCV"}, {"CV"}, {"CV", "CA", "OCV"}, None)
 COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Measurement", "Potential", "CV start", "ROI",
@@ -381,6 +382,12 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._x = QComboBox()
         self._x.setToolTip("X axis of stationary scans: time from each scan's start, the SPEC point, or a SPEC "
                            "column (e.g. a potential counter)")
+        self._quantity = QComboBox()
+        for q, text in QUANTITY_ITEMS:
+            self._quantity.addItem(text, q)
+        self._quantity.setToolTip("What is plotted of processed scans (from a Processing master file), each with the "
+                                  "ROI it was processed with. Raw ROI sums are plotted normalised (monitor, "
+                                  "transmission, count time under Intensity).")
         self._norm = QComboBox()
         self._norm.addItems(lb.NORMS)
         self._norm.setToolTip("Divide each scan by its maximum or its first point (I / I0) to compare shapes")
@@ -395,7 +402,8 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._stack.setDecimals(1)
         self._stack.setValue(1.0)
         self._stack.setToolTip("Log intensity: each group drawn this factor above the one before (1: overlaid)")
-        for w in (self._kind, self._mode_f, self._equiv, self._where, self._pot_f, self._colour, self._x, self._norm):
+        for w in (self._kind, self._mode_f, self._equiv, self._where, self._pot_f, self._colour, self._x, self._norm,
+                  self._quantity):
             w.currentIndexChanged.connect(self._compare_changed)
         for w in (self._chk_log, self._chk_err, self._chk_sel):
             w.toggled.connect(self._compare_changed)
@@ -408,6 +416,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
         cf.addRow("Films", self._films)
         cf.addRow("Colour by", self._colour)
         cf.addRow("X (stationary)", self._x)
+        cf.addRow("Quantity", self._quantity)
         cf.addRow("Scale", self._norm)
         cf.addRow(row(self._chk_log, self._chk_err, stretch_first=False))
         cf.addRow("Stack ×", self._stack)
@@ -594,8 +603,10 @@ class LibraryWindow(StatusMixin, QMainWindow):
         return self.guarded(go)
 
     def add_processed_dialog(self):
-        path = QFileDialog.getOpenFileName(self, "Processed file (Processing tab: <name>_master.txt)", self._folder(),
-                                           "Master files (*_master.txt);;Text (*.txt);;All files (*)")[0]
+        path = QFileDialog.getOpenFileName(
+            self, "Processed file (Processing tab: <name>_master.txt, or another file of the same save)",
+            self._folder(), "Processing outputs (*_master.txt *.csv *_genx.dat *_stationary.dat);;"
+            "Master files (*_master.txt);;All files (*)")[0]
         return self.add_processed(path) if path else None
 
     def add_processed(self, path, label=""):
@@ -859,12 +870,17 @@ class LibraryWindow(StatusMixin, QMainWindow):
         roi.blockSignals(True)
         roi.setProperty("key", list(e.key))
         roi.clear()
-        roi.addItems([DEFAULT_ROI] + list(e.rois))
-        if e.roi and e.roi not in e.rois:
-            roi.addItem(e.roi)                       # picked before, no longer in the data
+        processed = self.lib.data(e).master is not None
+        if processed:                                # the ROI it was processed with, fixed here
+            roi.addItems(list(e.rois))
+        else:
+            roi.addItems([DEFAULT_ROI] + list(e.rois))
+            if e.roi and e.roi not in e.rois:
+                roi.addItem(e.roi)                   # picked before, no longer in the data
         roi.setCurrentText(e.roi or DEFAULT_ROI)
-        for i, name in enumerate(e.rois, start=1):
+        for i, name in enumerate(e.rois, start=0 if processed else 1):
             roi.setItemData(i, self.lib.roi_description(e, name), Qt.ToolTipRole)
+        roi.setEnabled(not processed)
         shown = self.lib.effective_roi(e)
         roi.setToolTip(f"Shown with: {shown or 'no ROI'}" + (f"\n{self.lib.roi_description(e, shown)}" if shown else ""))
         roi.blockSignals(False)
@@ -1172,7 +1188,8 @@ class LibraryWindow(StatusMixin, QMainWindow):
         fig = self._fig
         fig.clear()
         es, title = self.comparison()
-        trs, notes = lb.traces(self.lib, es, self._x.currentText() or lb.X_TIME, self._colour.currentText())
+        trs, notes = lb.traces(self.lib, es, self._x.currentText() or lb.X_TIME, self._colour.currentText(),
+                               self._quantity.currentData() or lb.QUANTITY)
         self._last_traces = trs
         self._plot_info.setText("")
         self._plot_info.setToolTip("")
@@ -1223,7 +1240,12 @@ class LibraryWindow(StatusMixin, QMainWindow):
                 lo = y - s
                 ax.fill_between(t.x, np.where(lo > 0, lo, np.nan) if log else lo, y + s, color=c, alpha=0.2, lw=0)
         ax.set_xlabel(trs[0].xlabel)
-        ylab = {lb.NORMS[0]: "I (normalised)", lb.NORMS[1]: "I / I_max", lb.NORMS[2]: "I / I(first point)"}[norm]
+        names = {"I": "I (normalised)", "I_corr": "I_corr", "F": "|F|", "I_norm": "I_norm"}
+        kinds = {t.quantity for t in trs}
+        q = names.get(kinds.pop(), "I") if len(kinds) == 1 else "I (raw: normalised; processed: " + \
+            self._quantity.currentText().split(" (")[0] + ")"
+        short = q.split(" (")[0]
+        ylab = {lb.NORMS[0]: q, lb.NORMS[1]: f"{short} / max", lb.NORMS[2]: f"{short} / first point"}[norm]
         if stack > 1:
             ylab += f" (groups × {stack:g}^n)"
         ax.set_ylabel(ylab)
@@ -1271,7 +1293,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
         return self._export_window
 
     # ------------------------------------------------------------------ settings
-    WIDGETS = ("_kind", "_mode_f", "_equiv", "_colour", "_x", "_norm", "_chk_log", "_chk_err", "_stack")
+    WIDGETS = ("_kind", "_mode_f", "_equiv", "_colour", "_x", "_norm", "_quantity", "_chk_log", "_chk_err", "_stack")
 
     def _save_settings(self, draft=True):
         """Remember the library and the comparison; a library with changes is saved (to its file, or

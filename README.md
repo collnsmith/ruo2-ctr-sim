@@ -350,8 +350,11 @@ in a dialog):
   "View options…" (the old figure options) only changes the working view.
 - **Scan library.** Sorts the scans for comparisons. "Add processed file…" takes a Processing master
   file (`<name>_master.txt`): every processed scan, normalised and corrected, with no SPEC file or
-  ROI sums needed; its scans show I_corr (the default), F or I_norm in the ROI column, against L or
-  the time from the scan / CV start, and scans of several master files are put on one monitor
+  ROI sums needed (picking another file of the same save, e.g. `<name>.csv`, which has no scan
+  numbers, reads its master file); each scan shows the ROI it was processed with (picked in
+  Processing, saved in the master file; read-only here, change it in Processing, save and Refresh),
+  and "Quantity" in Compare plots I_corr (normalised and corrected, the default), |F| or I_norm,
+  against L or the time from the scan / CV start, and scans of several master files are put on one monitor
   reference (Processing normalises each run to its own mean monitor). "Add SPEC + ROI sums…" takes
   a SPEC file and its ROI sums: a folder (every ROI sums `.txt` file in it, one scan or several per
   file; other `.txt` files are skipped; the folder is listed again on Refresh, so sums written later

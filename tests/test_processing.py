@@ -170,6 +170,7 @@ def test_master_file_has_every_scan_and_point(tmp_path):
     assert [(m.scan, m.kind, m.points, m.use) for m in ms.values()] == [(60, "rod", 40, True), (61, "rod", 20, False),
                                                                          (62, "stationary", 25, True)]
     assert all(m.monitor_ref == pytest.approx(results[0].monitor_ref) for m in ms.values())   # one per run
+    assert [m.roi for m in ms.values()] == [r.roi for r in results] == ["ROI1"] * 3            # the ROI used
     assert ms[61].monitor_mean == pytest.approx(results[1].monitor_mean) and 9e4 < ms[61].monitor_mean < 1.1e5
     for r in results:
         d = ms[r.scan].data

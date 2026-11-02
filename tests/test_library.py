@@ -439,9 +439,12 @@ def test_processed_master_files(tmp_path):
     by = {e.scan: e for e in lib.entries if e.source == "S1"}
     assert [(e.scan, e.kind) for e in by.values()] == [(1, "rod"), (2, "rod"), (3, "stationary"), (4, "rod"),
                                                        (5, "stationary"), (6, "other")]
-    assert by[3].rod == (0, 1) and by[3].L == 0.5 and by[1].rois == ["I_corr", "F", "I_norm"]
-    assert lib.effective_roi(by[1]) == "I_corr"
-    assert "from a_master.txt (Processing ROI ROI1" in lib.roi_description(by[1], "I_corr")
+    assert by[3].rod == (0, 1) and by[3].L == 0.5 and by[1].rois == ["ROI1"] and by[1].roi == "ROI1"
+    assert lib.effective_roi(by[1]) == "ROI1"                                       # the ROI Processing used
+    assert "processed with" in lib.roi_description(by[1], "ROI1")
+    assert "a_master.txt" in lib.roi_description(by[1], "ROI1")
+    lib.assign([by[1]], roi="ROI2")                                                 # not changed here
+    assert by[1].roi == "ROI1"
     lib.assign([e for e in lib.entries if e.source == "S1"], film="7 nm")
     lib.assign([e for e in lib.entries if e.source == "S2"], film="4.1 nm")
     lib.assign([lib.entry("S1", 1), lib.entry("S2", 1)], mode="CA", potential=0.7)
@@ -455,8 +458,14 @@ def test_processed_master_files(tmp_path):
     assert notes == [] and np.allclose(t47.y / t7c.y, 2.0, rtol=1e-6)                # one reference: film B = 2 x A
     lib.settings.update(monitor="Monitor", transmission="transm")                   # not applied again
     assert np.allclose(lb.trace(lib, lib.entry("S1", 1)).y, t7.y)
-    lib.entry("S1", 1).roi = "F"
-    assert np.allclose(lb.trace(lib, lib.entry("S1", 1)).y, np.sqrt(t7.y))
+    f = lb.trace(lib, lib.entry("S1", 1), quantity="F")
+    assert np.allclose(f.y, np.sqrt(t7.y)) and f.quantity == "F" and f.roi == "ROI1"
+    assert np.allclose(lb.trace(lib, lib.entry("S1", 1), quantity="I_norm").y,
+                       ra[1].I_norm[k])
+    with pytest.raises(ValueError, match="no quantity"):
+        lb.trace(lib, lib.entry("S1", 1), quantity="ROI1")
+    out = lb.write_traces(tmp_path / "f.txt", [f])
+    assert parse_traces(open(out).read())[0]["columns"] == ["L", "F", "F_err"]
     cv = lb.trace(lib, lib.entry("S1", 3), lb.X_CV)
     assert cv.x[5] == 0 and cv.x[0] == -10                                           # loopscan: 2 s per point
     assert lb.trace(lib, lib.entry("S1", 3), lb.X_POINT).x[7] == 7
@@ -471,15 +480,17 @@ def test_processed_master_files(tmp_path):
     # processed again (another ROI): the library reads the new numbers on refresh
     from ctrfit.datatools import processing as pr
     from ctrfit.datatools.specfile import parse_spec_file
-    opt = pr.Options(roi="ROI2", monitor="Monitor", transmission="transm", count_time="Seconds")
+    opt = pr.Options(roi="ROI2", monitor="Monitor", transmission="transm", count_time="Seconds",
+                     scan_roi={3: "ROI1"})                                         # ROI2, but ROI1 for scan 3
     scans = parse_spec_file(str(sa))
     results, _, _ = pr.process(pr.load_sums([str(ua)]), scans, opt)
     pr.write_master(ma, results, opt, scans)
     os.utime(ma, ns=(1, 1))
     notes = back.load()
     assert any("a_master.txt changed" in n for n in notes)
-    back.entry("S1", 1).roi = ""
+    assert [back.entry("S1", n).roi for n in (1, 2, 3)] == ["ROI2", "ROI2", "ROI1"]   # as picked in Processing
     assert np.allclose(lb.trace(back, back.entry("S1", 1)).y, 2 * t7.y, rtol=1e-6)  # ROI2 = 2 x ROI1
+    assert lb.read_library(lb.write_library(back, tmp_path / "lib2.txt")).entry("S1", 3).roi == "ROI1"
     # an assignment file's empty source is filled by a processed file
     notes_lib = lb.Library()
     notes_lib.sources.append(lb.Source("S1", "", [], "beamtime"))
@@ -490,6 +501,28 @@ def test_processed_master_files(tmp_path):
     assert (fresh.entry("S1", 3).cv_start, fresh.entry("S1", 3).points) == (5, 40)
     with pytest.raises(ValueError, match="not a processing master"):
         lib.add_processed(sa)
+
+
+def test_processing_outputs_stand_for_their_master_file(tmp_path):
+    """The fitting CSV (no scan numbers), a group's CSV, the GenX and the CV file of one save all lead to
+    the master file saved with them; without one the error says what to pick."""
+    from ctrfit.datatools import processing as pr
+    (sa, ua, _), _ = two_films(tmp_path)
+    out = tmp_path / "out"
+    out.mkdir()
+    master, results = master_of(sa, ua, out / "processed_master.txt")
+    for name in ("processed.csv", "processed_0.4_V.csv", "processed_genx.dat", "processed_stationary.dat"):
+        (out / name).write_text("H,K,L,F,sigma,rod\n")
+    (out / "processed2.csv").write_text("H,K,L,F,sigma,rod\n")                    # another save, no master
+    for name in ("processed.csv", "processed_0.4_V.csv", "processed_genx.dat", "processed_stationary.dat"):
+        lib = lb.Library()
+        src = lib.add_processed(out / name)
+        assert src.master == str(master) and len(lib.entries) == 6, name
+        assert "read processed_master.txt" in lib.notes[0], name
+    assert lb.master_for(master) == (str(master), "")
+    with pytest.raises(ValueError, match="writes next to <name>.csv"):
+        lb.Library().add_processed(out / "processed2.csv")
+    assert pr.read_master(master)[1]                                                 # untouched
 
 
 # ------------------------------------------------------------------ the tab
@@ -712,7 +745,15 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     assert src.processed and w._table.rowCount() == n0 + 6
     assert "6 new processed scan(s)" in w._status_label.text()
     roi = w._table.cellWidget(w._row_of[(src.id, 1)], ui.C_ROI)
-    assert [roi.itemText(i) for i in range(roi.count())] == ["(default)", "I_corr", "F", "I_norm"]
+    assert [roi.itemText(i) for i in range(roi.count())] == ["ROI1"] and not roi.isEnabled()   # from Processing
+    w._chk_sel.setChecked(True)
+    w._kind.setCurrentIndex(0)
+    w.select_scans([(src.id, 1)])
+    w._quantity.setCurrentIndex(1)                                                  # |F| of the processed scan
+    settle()
+    assert w._fig.axes[0].get_ylabel().startswith("|F|")
+    w._quantity.setCurrentIndex(0)
+    w._chk_sel.setChecked(False)
     w._sources.setCurrentRow(w._sources.count() - 1)
     assert w.more_sums_dialog() is None and said[-1][0] == "warning"
     said.clear()

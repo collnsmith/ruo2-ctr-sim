@@ -38,11 +38,11 @@ KIND_ITEMS = ("Rod scans (I vs L)", "Stationary scans (I vs time)")
 QUANTITY_ITEMS = (("I_corr", "I_corr (normalised and corrected)"), ("F", "|F|"), ("I_norm", "I_norm (normalised only)"))
 MODE_ITEMS = ("CA / OCV", "CV", "all assigned", "any (also unassigned)")
 MODE_SETS = ({"CA", "OCV"}, {"CV"}, {"CV", "CA", "OCV"}, None)
-COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Measurement", "Potential", "CV start", "ROI",
-           "Notes", "SPEC command")
-(C_USE, C_SRC, C_SCAN, C_KIND, C_HK, C_L, C_PTS, C_FILM, C_MODE, C_E, C_START, C_ROI, C_NOTES,
+COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Thickness (nm)", "Measurement", "Potential",
+           "CV start", "ROI", "Notes", "SPEC command")
+(C_USE, C_SRC, C_SCAN, C_KIND, C_HK, C_L, C_PTS, C_FILM, C_THICK, C_MODE, C_E, C_START, C_ROI, C_NOTES,
  C_CMD) = range(len(COLUMNS))
-TYPED = (C_FILM, C_E, C_START, C_NOTES)      # typed with several rows selected: set for all of them
+TYPED = (C_FILM, C_THICK, C_E, C_START, C_NOTES)      # typed with several rows selected: set for all of them
 TODO = QColor("#fff1db")                     # a field still to fill
 BAD = QColor("#fde2e4")
 ROD_STYLES = (("-", "o"), ("--", "s"), (":", "^"), ("-.", "D"))   # one per rod of a set of equivalents
@@ -232,6 +232,18 @@ class LibraryWindow(StatusMixin, QMainWindow):
         b_film = QPushButton("Set")
         b_film.clicked.connect(lambda: self.assign_selected(film=self._film.currentText()))
         af.addRow("Film", row(self._film, b_film))
+        self._thick = QDoubleSpinBox()
+        self._thick.setRange(0, 10000)
+        self._thick.setDecimals(2)
+        self._thick.setSingleStep(0.1)
+        self._thick.setSuffix(" nm")
+        self._thick.setSpecialValueText("from the film name")
+        self._thick.setToolTip("Film thickness of the selected scans (nm), for the fit: each film's thickness starts "
+                               "there. 'from the film name': the number in it, e.g. '7 nm'.")
+        b_thick = QPushButton("Set")
+        b_thick.clicked.connect(lambda: self.assign_selected(
+            thickness_nm=self._thick.value() if self._thick.value() > 0 else None))
+        af.addRow("Thickness", row(self._thick, b_thick))
         self._rb_cv, self._rb_ca, self._rb_ocv = QRadioButton("CV"), QRadioButton("CA at"), QRadioButton("OCV")
         self._rb_cv.setToolTip("Measured during a cyclic voltammogram; the start point is optional")
         self._rb_ca.setToolTip("Chronoamperometry: the potential held at this value")
@@ -309,7 +321,16 @@ class LibraryWindow(StatusMixin, QMainWindow):
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
-        lv.addWidget(sidebar(fg, dg, ag, ig, width=400), 1)
+        xg, xl = group("Fitting", form=False)
+        b_fit = QPushButton("Export for fitting…")
+        b_fit.setToolTip("One dataset per film, thickness and condition (CA potential or OCV) from the processed rod "
+                         "scans: |F| with errors and the potential, film and thickness for the fit")
+        b_fit.clicked.connect(lambda: self.export_fitting_dialog())
+        xl.addWidget(b_fit)
+        xl.addWidget(hint("Load them all in the Fitting app (Add data…, several at once): per dataset is what the "
+                          "potential changes (CUS species), per film the film itself (thickness, roughness, "
+                          "strain), each film's thickness starting at its scans' thickness."))
+        lv.addWidget(sidebar(fg, dg, ag, ig, xg, width=400), 1)
         lv.addWidget(primary_button("Save library", self.save, "Ctrl+S", self))
         for key, slot in (("F5", self.refresh), ("Ctrl+Z", self.undo), ("Ctrl+Y", self.redo),
                           ("Ctrl+Shift+Z", self.redo)):
@@ -829,12 +850,17 @@ class LibraryWindow(StatusMixin, QMainWindow):
                                                 tip=f"{e.source}: {src.spec}" if src else None),
                  C_SCAN: scan, C_KIND: self._item(e.kind), C_HK: self._item(hk), C_L: self._item(lr),
                  C_PTS: self._item(str(e.points)), C_FILM: self._item(e.film, True),
+                 C_THICK: self._item(_fmt(e.thickness, 4) if e.thickness is not None else "", True,
+                                     "Film thickness of this scan (nm), for the fit" +
+                                     (" (from the film name; type one to set it)" if e.thickness_nm is None else "")),
                  C_MODE: self._item(""), C_E: self._item(lb.format_potential(e.potential) if e.potential is not None
                                                           else "", True),
                  C_START: self._item("" if e.cv_start is None else str(e.cv_start), True,
                                      "SPEC point where the CV starts (t = 0 on 'time from CV start'); typing one "
                                      "makes the scan a CV"),
                  C_ROI: self._item(""), C_NOTES: self._item(e.notes, True), C_CMD: self._item(e.command)}
+        if e.thickness_nm is None:
+            cells[C_THICK].setForeground(QBrush(QColor("#888")))     # taken from the film name
         if not e.film:
             cells[C_FILM].setBackground(QBrush(TODO))
             cells[C_FILM].setToolTip("No film yet")
@@ -891,7 +917,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
             r = self._row_of.get(e.key)
             if r is not None:
                 self._set_row(r, e)
-        for c in (C_FILM, C_E, C_NOTES):                # typed text wider than the empty column
+        for c in (C_FILM, C_THICK, C_E, C_NOTES):       # typed text wider than the empty column
             self._table.resizeColumnToContents(c)
         self._table.blockSignals(False)
         self._apply_filter()
@@ -987,7 +1013,19 @@ class LibraryWindow(StatusMixin, QMainWindow):
         rows = self._selected_rows()
         targets = [x for x in (self._entry_at(i) for i in rows) if x is not None] if r in rows and len(rows) > 1 \
             else [e]
-        if c == C_START:
+        if c == C_THICK:
+            try:
+                fields = {"thickness_nm": float(text.split()[0].replace(",", ".")) if text else None}
+                if fields["thickness_nm"] is not None and not fields["thickness_nm"] > 0:
+                    raise ValueError
+            except ValueError:
+                self.say(f"Thickness '{text}' is not a film thickness in nm", error=True)
+                QTimer.singleShot(0, lambda: self._refresh_rows([e]))
+                return
+            if fields["thickness_nm"] is not None and abs(fields["thickness_nm"] - (e.thickness or -1)) < 1e-12 \
+                    and e.thickness_nm is None:
+                return                                   # the shown value from the film name, typed again
+        elif c == C_START:
             try:
                 fields = {"cv_start": int(text) if text else None}
                 if fields["cv_start"] is not None and fields["cv_start"] < 0:
@@ -1268,6 +1306,19 @@ class LibraryWindow(StatusMixin, QMainWindow):
         out = lb.write_traces(path, self._last_traces, title)
         self.say(f"Wrote {len(self._last_traces)} trace(s) to {os.path.basename(out)}")
         return out
+
+    def export_fitting(self, base):
+        paths, notes = lb.write_fitting_datasets(self.lib, base)
+        self.say(f"Wrote {len(paths)} fitting dataset(s): {', '.join(os.path.basename(p) for p in paths)}"
+                 + (f"; {len(notes)} note(s): {notes[0]}" if notes else ""))
+        return paths
+
+    def export_fitting_dialog(self):
+        path = QFileDialog.getSaveFileName(self, "Export for fitting (base name: <base>_<film>_<condition>.csv)",
+                                           os.path.join(self._folder(), "fit.csv"), "CSV (*.csv);;All files (*)")[0]
+        if path:
+            return self.guarded(lambda: self.export_fitting(path))
+        return None
 
     def export_data_dialog(self):
         path = QFileDialog.getSaveFileName(self, "Export plotted data", os.path.join(self._folder(),

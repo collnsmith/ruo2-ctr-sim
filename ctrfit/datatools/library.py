@@ -69,7 +69,9 @@ import numpy as np
 
 from ..echem.external import parse_roi_sums
 from .images import read_roi_positions, roi_position
-from .processing import read_master, sum_files     # sum_files: .txt files that start with 'scan image'
+from ..data.dataset import Dataset
+from ..data.io import write_csv
+from .processing import read_master, safe_name, sum_files     # sum_files: .txt files that start with 'scan image'
 from .processing import time_axis                  # noqa: F401  (seconds from a scan's first point)
 from .specfile import parse_spec_file
 
@@ -90,8 +92,8 @@ P2MM = EQUIVALENTS[1]                     # (H K L) ~ (-H K L) ~ (H -K L) ~ (-H 
 SETTINGS = ("roi", "monitor", "transmission", "count_time", "unit", "sys_error")
 DEFAULT_SETTINGS = {"roi": "", "monitor": "", "transmission": "", "count_time": "", "unit": "V vs RHE",
                     "sys_error": "0"}
-SCAN_COLUMNS = ("source", "scan", "film", "mode", "potential", "cv_start", "roi", "use", "kind", "H", "K", "L",
-                "L_min", "L_max", "points", "command", "notes")
+SCAN_COLUMNS = ("source", "scan", "film", "thickness_nm", "mode", "potential", "cv_start", "roi", "use", "kind", "H",
+                "K", "L", "L_min", "L_max", "points", "command", "notes")
 SCAN_COLUMNS_1 = ("source", "scan", "film", "mode", "potential", "roi", "use", "kind", "H", "K", "L", "L_min",
                   "L_max", "points", "command", "notes")      # the first layout (no header needed to read it)
 KEEP = object()                           # assign(): leave this field as it is
@@ -153,6 +155,12 @@ class Entry:
     command: str = ""
     rois: list = field(default_factory=list)     # the ROI names this scan has
     cv_start: int = None                  # CV: SPEC point (0-based) where the CV starts
+    thickness_nm: float = None            # film thickness of this scan (None: from the film name)
+
+    @property
+    def thickness(self):
+        """The scan's film thickness (nm): its own, else the number in the film name ('7 nm'), or None."""
+        return self.thickness_nm if self.thickness_nm is not None else film_thickness_nm(self.film)
 
     @property
     def key(self):
@@ -600,7 +608,7 @@ class Library:
         return f"{name}: {kind} ROI {w} x {h} px at ({x}, {y}) in {os.path.basename(d[3])}"
 
     def assign(self, entries, film=KEEP, mode=KEEP, potential=KEEP, roi=KEEP, use=KEEP, notes=KEEP,
-               cv_start=KEEP):
+               cv_start=KEEP, thickness_nm=KEEP):
         """Set fields of several entries. mode CA keeps a potential that is given (or the entry's);
         another mode clears it; a potential alone makes the scan a CA. cv_start (SPEC point) is kept
         by CV only; a start point alone makes the scan a CV."""
@@ -608,9 +616,13 @@ class Library:
             raise ValueError(f"measurement must be one of CV, CA, OCV or blank, not '{mode}'")
         if cv_start is not KEEP and cv_start is not None and int(cv_start) < 0:
             raise ValueError("the CV start point is a SPEC point number, 0 or more")
+        if thickness_nm is not KEEP and thickness_nm is not None and not float(thickness_nm) > 0:
+            raise ValueError("the film thickness is in nm and more than 0")
         for e in entries:
             if film is not KEEP:
                 e.film = _clean(film)
+            if thickness_nm is not KEEP:
+                e.thickness_nm = None if thickness_nm is None else float(thickness_nm)
             if mode is not KEEP:
                 e.mode = mode
                 if mode != "CA":
@@ -686,7 +698,8 @@ def write_library(lib, path=None, remember=True):
     lines += ["", "# [scans]", "# " + "\t".join(SCAN_COLUMNS)]
     fmt = lambda v, d=4: "" if v is None or not np.isfinite(v) else f"{v:.{d}g}"
     for e in lib.entries:
-        vals = (e.source, str(e.scan), _clean(e.film), e.mode, "" if e.potential is None else f"{e.potential:.6g}",
+        vals = (e.source, str(e.scan), _clean(e.film), "" if e.thickness_nm is None else f"{e.thickness_nm:.6g}",
+                e.mode, "" if e.potential is None else f"{e.potential:.6g}",
                 "" if e.cv_start is None else str(e.cv_start), _clean(e.roi), "1" if e.use else "0", e.kind, fmt(e.H), fmt(e.K), fmt(e.L), fmt(e.L_min),
                 fmt(e.L_max), str(e.points), _clean(e.command), _clean(e.notes))
         lines.append("\t".join(vals))
@@ -774,6 +787,11 @@ def read_library(path, load=True):
                       row["notes"].strip())
             if E is not None and e.mode == "":
                 e.mode = "CA"
+            th = row["thickness_nm"].strip()
+            try:
+                e.thickness_nm = float(th) if th else None
+            except ValueError:
+                raise ValueError(f"scan {row['source']} {scan}: thickness '{th}' is not a number (nm)")
             start = row["cv_start"].strip()
             try:
                 e.cv_start = int(float(start)) if start and e.mode in ("", "CV") else None
@@ -796,7 +814,7 @@ def read_library(path, load=True):
     return lib
 
 
-FIELDS = ("film", "mode", "potential", "cv_start", "roi", "use", "notes")
+FIELDS = ("film", "thickness_nm", "mode", "potential", "cv_start", "roi", "use", "notes")
 
 
 def apply_assignments(lib, other, sid, from_source=None):
@@ -1108,3 +1126,99 @@ def write_traces(path, trs, title=""):
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
     return path
+
+
+# ------------------------------------------------------------------ datasets for the Fitting app
+def _header_number(header, key, pattern):
+    m = re.search(pattern, header.get(key, ""))
+    return float(m.group(1)) if m else None
+
+
+def film_thickness_nm(film):
+    """7.0 from '7 nm', '7nm RuO2' (None if the film name has no thickness in nm)."""
+    m = re.search(r"(\d+(?:\.\d+)?)\s*nm", str(film or ""))
+    return float(m.group(1)) if m else None
+
+
+def fitting_datasets(lib, entries=None):
+    """([Dataset], notes): one dataset per film and condition (a CA potential, or OCV) for the
+    Fitting app, from the processed rod scans that are used and have a film: |F| and sigma_F of their
+    used points (on one monitor reference), each point on its scan's rod, with the metadata the fit
+    needs: potential_V (CA), film and thickness_nm (for parameters per film), condition, energy and
+    the systematic floor of Processing. Rod scans from raw ROI sums have no |F| (process them first);
+    CV scans are not rods."""
+    es = lib.entries if entries is None else entries
+    notes, pick = [], []
+    for e in es:
+        if not e.use or e.kind != "rod":
+            continue
+        if e.mode not in HOLDS or not e.film:
+            notes.append(f"{e.source} scan {e.scan}: no film or no CA / OCV condition: not exported")
+            continue
+        if e.mode == "CA" and e.potential is None:
+            notes.append(f"{e.source} scan {e.scan}: CA without a potential: not exported")
+            continue
+        if lib.data(e).master is None:
+            notes.append(f"{e.source} scan {e.scan}: raw ROI sums have no |F|: process it in the Processing tab and "
+                         "add the master file")
+            continue
+        pick.append(e)
+    ref = monitor_reference(lib, pick)
+    unit = lib.settings.get("unit", "")
+    groups = {}
+    for e in sorted(pick, key=lambda e: (natural_key(e.film), group_key(lib, e, "potential"), e.source, e.scan)):
+        cond = "OCV" if e.mode == OCV else f"CA {e.potential:.4g} V"
+        groups.setdefault((e.film, e.thickness, cond), []).append(e)
+    out = []
+    for (film, thick, cond), group in groups.items():
+        H, K, L, F, S, rod, scans = [], [], [], [], [], [], []
+        header = {}
+        for e in group:
+            d = lib.data(e)
+            P, ms = d.points, d.master
+            header = header or lib._headers.get(e.source, {})
+            f = np.sqrt(ref / ms.monitor_ref) if ref and np.isfinite(ms.monitor_ref) and ms.monitor_ref > 0 else 1.0
+            k = (P["used"] > 0) & np.isfinite(P["F"]) & np.isfinite(P["sigma_F"]) & (P["sigma_F"] > 0)
+            h, kk = e.rod
+            H += [h] * int(k.sum())
+            K += [kk] * int(k.sum())
+            L += list(P["L"][k])
+            F += list(P["F"][k] * f)
+            S += list(P["sigma_F"][k] * f)
+            rod += [f"{h} {kk}"] * int(k.sum())
+            scans.append(f"{e.source}:{e.scan}")
+        if not L:
+            notes.append(f"{film} {cond}: no used points")
+            continue
+        if thick is None:
+            notes.append(f"{film} {cond}: no film thickness (type it per scan, or put it in the film name, e.g. "
+                         "'7 nm'): each film's thickness starts from the model's value")
+        named = film_thickness_nm(film)
+        label = film + (f" ({thick:g} nm)" if thick is not None and (named is None or abs(named - thick) > 1e-9) else "")
+        floor = _header_number(header, "output", r"systematic floor ([\d.eE+-]+) %")
+        ds = Dataset(H, K, L, F, S, rod, name=f"{label} {cond}", sys_floor=(floor or 0.0) / 100,
+                     energy_kev=_header_number(header, "correct", r"energy=([\d.eE+-]+)"),
+                     potential_V=group[0].potential if group[0].mode == "CA" else None,
+                     thickness_nm=thick, film=film, condition=cond,
+                     notes=f"scans {', '.join(scans)}" + (f"; potentials in {unit}" if unit else ""))
+        out.append(ds)
+    return out, notes
+
+
+def write_fitting_datasets(lib, base, entries=None):
+    """Write fitting_datasets as <base>_<film>_<condition>.csv (the Fitting app's CSV with the metadata
+    in '#' lines). Returns (paths, notes)."""
+    base = os.path.splitext(os.path.abspath(str(base)))[0]
+    datasets, notes = fitting_datasets(lib, entries)
+    if not datasets:
+        raise ValueError("nothing to export: processed rod scans with a film and a CA / OCV condition are "
+                         "needed" + (f" ({notes[0]})" if notes else ""))
+    data_files = {os.path.normcase(os.path.abspath(p)) for s in lib.sources for p in s.files()}
+    paths = []
+    for ds in datasets:
+        path = f"{base}_{safe_name(ds.name)}.csv"
+        if os.path.normcase(path) in data_files:
+            raise ValueError(f"{os.path.basename(path)} is one of the library's data files (read only)")
+        write_csv(ds, path)
+        paths.append(path)
+    return paths, notes

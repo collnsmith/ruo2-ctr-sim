@@ -162,10 +162,18 @@ python -m ctrfit fit model.json data.csv --out fit_results
 - Beyond the covariance errors: `ctrfit.fit.bootstrap(fit, n=100)`, `ctrfit.fit.mcmc(fit)` (needs
   `emcee`), and `ctrfit.fit.compare_models([res_a, res_b], labels)` for AIC / BIC between surface
   models (e.g. OH only vs OH + H2O vs an extra water layer).
-- Global fits across potentials or thicknesses: `global_fit(model, datasets, per_dataset=["x_OH",
-  "z_OH"])` (from `ctrfit.fit.global_fit`) shares all other free parameters (the film) and gives each
-  dataset its own copy of the listed ones and its own scale; `series(result, "x_OH")` returns the
-  values against `potential_V`. Command line: `--per-dataset x_OH,z_OH`.
+- Global fits across potentials and films: one dataset per condition (a film at one potential, or
+  at OCV), with `potential_V`, `film` and `thickness_nm` in its metadata (the scan library's "Export
+  for fitting…" writes them). `global_fit(model, datasets, per_dataset=["theta", "x_OH", "z_OH"],
+  per_film=["thickness_mean_tl", "roughness_tl", "eps_perp"])` (from `ctrfit.fit.global_fit`) gives
+  each dataset its own copy of what the potential changes (the CUS coverage and species, their
+  heights, the near-surface O) and its own scale, each film one value of the per-film parameters
+  (shared by all potentials of that film; datasets of the same film name and thickness are one
+  film), and shares everything else (substrate, B factors). Each film's thickness starts at its
+  datasets' `thickness_nm`, converted to trilayers with the film's spacing. `series(result, "x_OH")`
+  returns the values against `potential_V`. Command line: `--per-dataset x_OH,z_OH --per-film
+  thickness_mean_tl`. In the window: "Add data…" takes several files at once, the list shows each
+  dataset's film and potential, and "Per dataset" / "Per film" set the two lists.
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).
 
@@ -348,7 +356,7 @@ in a dialog):
   marker, size, left or right axis). "Refresh from plot" takes the working plot again and keeps the
   edits; the last style is reused for the next figure; "Copy image" puts it on the clipboard.
   "View options…" (the old figure options) only changes the working view.
-- **Scan library.** Sorts the scans for comparisons. "Add processed file…" takes a Processing master
+- **Scan library.** Sorts the scans for comparisons, and writes the datasets for the Fitting app. "Add processed file…" takes a Processing master
   file (`<name>_master.txt`): every processed scan, normalised and corrected, with no SPEC file or
   ROI sums needed (picking another file of the same save, e.g. `<name>.csv`, which has no scan
   numbers, reads its master file); each scan shows the ROI it was processed with (picked in
@@ -389,7 +397,13 @@ in a dialog):
   under Intensity (not the geometric corrections: those are the same for one rod and L at a given
   energy and incidence angle, so comparisons on one rod are fair; use Processing for |F|); "÷ max"
   or "÷ first point" (I / I0) compare shapes, "Stack ×" spreads groups on a log scale, the error
-  band is the ROI's `_err` with the systematic error (% of I, usually 5 to 10) added in quadrature. "Selected rows only" plots the table's selection. "Export data…" writes
+  band is the ROI's `_err` with the systematic error (% of I, usually 5 to 10) added in quadrature. "Selected rows only" plots the table's selection. Each scan has a film thickness (nm: typed in the
+  Thickness column or panel, else the number in the film name, e.g. "7 nm"). "Export for fitting…"
+  writes one Fitting-app CSV per film, thickness and condition (CA potential or OCV) from the
+  processed rod scans: |F| and sigma_F of the used points (on one monitor reference), each on its
+  scan's rod, with `potential_V`, `film`, `thickness_nm`, `condition`, the energy and Processing's
+  systematic floor; CV scans are not rods and stay out, raw ROI sums need processing first.
+  "Export data…" writes
   the plotted traces (one `# Trace:` block per scan, readable by the in-situ CV tool), "Export
   figure…" opens the styled figure window. Logic in `ctrfit.datatools.library`.
 - **Processing** (also "CTR processing" in the launcher, `python ctr_processing.py`). Steps 2 to 5

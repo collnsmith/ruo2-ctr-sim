@@ -7,7 +7,7 @@ import json
 
 import numpy as np
 
-META_KEYS = ("name", "energy_kev", "potential_V", "thickness_nm", "notes")
+META_KEYS = ("name", "energy_kev", "potential_V", "thickness_nm", "film", "condition", "notes")
 
 
 class Dataset:

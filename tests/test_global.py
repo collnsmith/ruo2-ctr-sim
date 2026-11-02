@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from ctrfit import Fit, Model, make_dataset
-from ctrfit.fit.global_fit import global_fit, make_per_dataset, series
+from ctrfit.fit.global_fit import film_of, global_fit, make_per_dataset, series
 from ctrfit.project.report import per_dataset_names, write_report
 from test_fit import EVEN, FILM_TRUTH, ODD, assert_jointly_recovered, start_model, truth_model
 
@@ -60,6 +60,50 @@ def test_per_dataset_parameter_changes_only_its_dataset():
     F1 = fit.model_F()
     np.testing.assert_array_equal(F0[0], F1[0])
     assert np.max(np.abs(F1[1] / F0[1] - 1)) > 1e-3
+
+
+def test_per_film_parameters_start_at_each_films_thickness():
+    """Two potentials of film A, one of film B: thickness and roughness per film (A's datasets share one
+    value, B has its own), x_OH per dataset; each film's thickness starts at its nominal nm."""
+    from ctrfit.core.lattice import film_trilayers
+    from ctrfit.fit import workflow
+    ds = potential_series()[:3]
+    for d, (film, nm) in zip(ds, (("A", 7.0), ("A", 7.0), ("B", 3.3))):
+        d.meta.update(film=film, thickness_nm=nm)
+    assert film_of(ds[0]) == film_of(ds[1]) != film_of(ds[2])
+    m = start()
+    fit = global_fit(m, ds, per_dataset=["x_OH"], per_film=["thickness_mean_tl", "roughness_tl"])
+    p = m.params
+    assert p["ds2.thickness_mean_tl"].expr == "ds1.thickness_mean_tl" and not p["ds3.thickness_mean_tl"].linked
+    assert p["ds2.roughness_tl"].linked and not p["thickness_mean_tl"].fit
+    eps = p["eps_perp"].value
+    assert p["ds1.thickness_mean_tl"].value == pytest.approx(film_trilayers(7.0, m.settings["ruo2_a"], eps))
+    assert p["ds3.thickness_mean_tl"].value == pytest.approx(film_trilayers(3.3, m.settings["ruo2_a"], eps))
+    lo, hi = p["thickness_mean_tl"].min, p["thickness_mean_tl"].max                  # set around film A
+    assert p["ds3.thickness_mean_tl"].min < p["ds3.thickness_mean_tl"].value < p["ds3.thickness_mean_tl"].max
+    assert p["ds3.thickness_mean_tl"].max - p["ds3.thickness_mean_tl"].min == pytest.approx(hi - lo)
+    names = set(fit.names)
+    assert {"ds1.thickness_mean_tl", "ds3.thickness_mean_tl", "ds1.x_OH", "ds2.x_OH"} <= names
+    assert "ds2.thickness_mean_tl" not in names and "thickness_mean_tl" not in names
+    F0 = fit.model_F()
+    p["ds1.thickness_mean_tl"].value += 1.0                                          # film A thicker
+    F1 = fit.model_F()
+    assert all(np.max(np.abs(F1[i] / F0[i] - 1)) > 1e-3 for i in (0, 1)) and np.array_equal(F0[2], F1[2])
+    # fitted per dataset after all: the copies are free again (and keep their values)
+    make_per_dataset(m, ds, ["thickness_mean_tl"])
+    assert not p["ds2.thickness_mean_tl"].linked and p["ds1.thickness_mean_tl"].value == pytest.approx(
+        film_trilayers(7.0, m.settings["ruo2_a"], eps) + 1.0)
+    with pytest.raises(ValueError, match="not both"):
+        global_fit(start(), potential_series()[:2], per_dataset=["x_OH"], per_film=["x_OH"])
+    # one film only: per film is the same as shared (no copies)
+    one = potential_series()[:2]
+    m1 = start()
+    workflow.prepare(m1, one, ["x_OH"], ["thickness_mean_tl"])
+    assert "ds1.thickness_mean_tl" not in m1.params and "ds2.x_OH" in m1.params
+    # the workflow does the same as global_fit for several films
+    m2 = start()
+    workflow.prepare(m2, ds, ["x_OH"], ["thickness_mean_tl"])
+    assert m2.params["ds2.thickness_mean_tl"].linked and not m2.params["ds3.thickness_mean_tl"].linked
 
 
 @pytest.mark.slow

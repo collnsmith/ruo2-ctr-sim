@@ -21,3 +21,9 @@ def film_spacing(p):
 
 def trilayers(nm, d_A, minimum=0):
     return max(minimum, int(round(10.0 * nm / d_A)))
+
+
+def film_trilayers(nm, ruo2_a, eps_perp_pct=0.0):
+    """Continuous film thickness in (110) trilayers for a thickness in nm: the commensurate film's
+    trilayer spacing is ruo2_a / sqrt(2) * (1 + eps_perp) (as film_spacing)."""
+    return 10.0 * float(nm) / (ruo2_a / np.sqrt(2) * (1 + eps_perp_pct / 100.0))

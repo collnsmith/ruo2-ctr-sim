@@ -146,7 +146,7 @@ def test_library_file_round_trip_and_the_data_stay_untouched(tmp_path):
     path = lb.write_library(lib, tmp_path / "lib" / "scans.txt")
     text = open(path).read()
     assert text.startswith(lb.FORMAT) and "S1\tspec\t../data/a.spec\t" in text      # relative to the library
-    assert "S1\t1\t10 nm\tCA\t1\t\t\t1\trod\t0\t1\t" in text and "after the step" in text
+    assert "S1\t1\t10 nm\t\tCA\t1\t\t\t1\trod\t0\t1\t" in text and "after the step" in text
     # move library and data together: the relative paths still find the data
     shutil.move(str(tmp_path / "lib"), str(tmp_path / "moved" / "lib"))
     shutil.move(str(tmp_path / "data"), str(tmp_path / "moved" / "data"))
@@ -173,12 +173,12 @@ def test_library_file_round_trip_and_the_data_stay_untouched(tmp_path):
     lines = open(p).read().splitlines()
     i = next(i for i, l in enumerate(lines) if l.startswith("S2\t6\t"))
     parts = lines[i].split("\t")
-    parts[3], parts[4] = "", "0.8"
+    parts[4], parts[5] = "", "0.8"                                                 # mode blank, a potential
     lines[i] = "\t".join(parts)
     open(p, "w").write("\n".join(lines) + "\n")
     e = lb.read_library(p).entry("S2", 6)
     assert (e.mode, e.potential, e.use) == ("CA", 0.8, False)
-    parts[4] = "high"
+    parts[5] = "high"
     lines[i] = "\t".join(parts)
     open(p, "w").write("\n".join(lines) + "\n")
     with pytest.raises(ValueError, match="not a number"):
@@ -342,8 +342,9 @@ def test_assignment_file_before_the_data(tmp_path):
     with pytest.raises(ValueError, match="no source"):
         lb.apply_assignments(other, path, "S7")
     # a file of the first layout (no cv_start column) still reads
-    old = open(path).read().replace("\tcv_start", "")
-    old = "\n".join("\t".join(l.split("\t")[:5] + l.split("\t")[6:]) if l.startswith("S1\t") and
+    old = open(path).read()                       # the first layout: no thickness_nm and no cv_start column
+    drop = lambda p: p[:3] + p[4:6] + p[7:]
+    old = "\n".join("\t".join(drop(l.split("\t"))) if l.startswith("S1\t") and
                     l.split("\t")[1].isdigit() else l for l in old.splitlines())
     (tmp_path / "old.txt").write_text(old.replace("# source\tscan", "# old header"))
     e = lb.read_library(tmp_path / "old.txt", load=False).entry("S1", 1)
@@ -523,6 +524,74 @@ def test_processing_outputs_stand_for_their_master_file(tmp_path):
     with pytest.raises(ValueError, match="writes next to <name>.csv"):
         lb.Library().add_processed(out / "processed2.csv")
     assert pr.read_master(master)[1]                                                 # untouched
+
+
+def test_export_for_fitting_one_dataset_per_film_and_condition(tmp_path):
+    """Processed rod scans to the Fitting app: one dataset per film, thickness and condition with its
+    potential, film and thickness; the fit then gives each film its own thickness, starting there."""
+    from ctrfit import Model
+    from ctrfit.data.dataset import Dataset
+    from ctrfit.fit.global_fit import global_fit
+    (sa, ua, _), (sb, ub, _) = two_films(tmp_path)
+    ma, ra = master_of(sa, ua, tmp_path / "a_master.txt")
+    mb, rb = master_of(sb, ub, tmp_path / "b_master.txt")
+    lib = lb.Library()
+    lib.add_processed(ma)
+    lib.add_processed(mb)
+    E = lib.entry
+    lib.assign([e for e in lib.entries if e.source == "S1"], film="7 nm")
+    lib.assign([e for e in lib.entries if e.source == "S2"], film="4.1 nm")
+    assert E("S1", 1).thickness == 7.0 and E("S1", 1).thickness_nm is None            # from the film name
+    lib.assign([E("S1", 1), E("S1", 2), E("S2", 1)], mode="CA", potential=0.7)        # one rod in two scans
+    lib.assign([E("S1", 4)], mode="OCV")
+    lib.assign([E("S2", 2)], mode="CA", potential=0.35, thickness_nm=4.3)              # measured elsewhere
+    lib.assign([E("S1", 3)], mode="CV")                                               # stationary: no rod
+    lib.assign([E("S2", 4)], mode="CA")                                               # no potential
+    datasets, notes = lb.fitting_datasets(lib)
+    assert [d.name for d in datasets] == ["4.1 nm (4.3 nm) CA 0.35 V", "4.1 nm CA 0.7 V", "7 nm OCV",
+                                          "7 nm CA 0.7 V"]                            # by film, then potential
+    by = {d.name: d for d in datasets}
+    d7 = by["7 nm CA 0.7 V"]
+    assert d7.meta == dict(energy_kev=16.0, potential_V=0.7, thickness_nm=7.0, film="7 nm", condition="CA 0.7 V",
+                           notes="scans S1:1, S1:2; potentials in V vs RHE")
+    assert d7.rod_labels == ["0 1"] and len(d7) == int(ra[1].keep.sum() + ra[2].keep.sum())
+    assert d7.sys_floor == pytest.approx(0.05)                                        # Processing's floor
+    assert "potential_V" not in by["7 nm OCV"].meta and by["7 nm OCV"].rod_labels == ["1 1"]
+    assert by["4.1 nm (4.3 nm) CA 0.35 V"].meta["thickness_nm"] == 4.3
+    assert any("S2 scan 4: CA without a potential" in n for n in notes)
+    assert not any("S1 scan 3" in n or "scan 6" in n for n in notes)                  # CV and rocking: not rods
+    E("S2", 4).mode = ""
+    assert any("S2 scan 4: no film or no CA / OCV" in n for n in lb.fitting_datasets(lib)[1])
+    E("S2", 4).mode = "CA"
+    # F on one monitor reference: film B is 2 x film A at the same rod and potential (|F| ratio sqrt 2)
+    a, b = d7, by["4.1 nm CA 0.7 V"]
+    k = a.L <= 2.0
+    assert np.allclose(b.F[:k.sum()] / a.F[:k.sum()][:b.F[:k.sum()].size], np.sqrt(2), rtol=1e-6)
+    # written for the Fitting app and read back with every piece of metadata
+    paths, _ = lb.write_fitting_datasets(lib, tmp_path / "fit.csv")
+    assert [os.path.basename(p) for p in paths] == ["fit_4.1_nm_4.3_nm_CA_0.35_V.csv", "fit_4.1_nm_CA_0.7_V.csv",
+                                                    "fit_7_nm_OCV.csv", "fit_7_nm_CA_0.7_V.csv"]
+    back = [Dataset.load(p) for p in paths]
+    assert [(d.name, d.meta.get("potential_V"), d.meta["film"], d.meta["thickness_nm"]) for d in back] == \
+        [("4.1 nm (4.3 nm) CA 0.35 V", 0.35, "4.1 nm", 4.3), ("4.1 nm CA 0.7 V", 0.7, "4.1 nm", 4.1),
+         ("7 nm OCV", None, "7 nm", 7.0), ("7 nm CA 0.7 V", 0.7, "7 nm", 7.0)]
+    # the fit: three films (4.1, 4.3 and 7 nm), each thickness from its datasets
+    m = Model.from_settings()
+    fit = global_fit(m, back, per_dataset=["x_OH"], per_film=["thickness_mean_tl"])
+    p = m.params
+    assert p["ds4.thickness_mean_tl"].expr == "ds3.thickness_mean_tl"                # 7 nm: OCV and CA 0.7 V
+    assert not p["ds2.thickness_mean_tl"].linked and p["ds1.thickness_mean_tl"].value < p["ds3.thickness_mean_tl"].value
+    assert fit.n_data == sum(len(d) for d in back)
+    # the thickness is kept in the library file and copied with the assignments
+    path = lb.write_library(lib, tmp_path / "lib.txt")
+    assert lb.read_library(path).entry("S2", 2).thickness_nm == 4.3
+    with pytest.raises(ValueError, match="more than 0"):
+        lib.assign([E("S2", 2)], thickness_nm=0)
+    raw, _, _ = assigned_library(tmp_path / "raw") if (tmp_path / "raw").mkdir() is None else (None, None, None)
+    _, raw_notes = lb.fitting_datasets(raw)
+    assert any("raw ROI sums have no |F|" in n for n in raw_notes)
+    with pytest.raises(ValueError, match="nothing to export"):
+        lb.write_fitting_datasets(raw, tmp_path / "none.csv")
 
 
 # ------------------------------------------------------------------ the tab
@@ -757,6 +826,15 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     w._sources.setCurrentRow(w._sources.count() - 1)
     assert w.more_sums_dialog() is None and said[-1][0] == "warning"
     said.clear()
+    # per-scan thickness typed in the table, then the datasets for fitting
+    w.select_scans([(src.id, 1)])
+    w._table.item(w._row_of[(src.id, 1)], ui.C_THICK).setText("4.3")
+    settle()
+    assert w.lib.entry(src.id, 1).thickness_nm == 4.3
+    w.lib.assign([w.lib.entry(src.id, 1)], film="4.1 nm", mode="CA", potential=0.7)
+    paths = w.export_fitting(str(tmp_path / "fitexp.csv"))
+    assert [os.path.basename(p) for p in paths] == ["fitexp_4.1_nm_4.3_nm_CA_0.7_V.csv"]
+    assert "Wrote 1 fitting dataset" in w._status_label.text()
     w.remove_source(src.id)
     # the add dialog: a folder of ROI sums
     folder = tmp_path / "sums_folder"

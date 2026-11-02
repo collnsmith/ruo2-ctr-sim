@@ -320,9 +320,15 @@ class FitWindow(QtWidgets.QMainWindow):
         self.maxiter = QtWidgets.QSpinBox(minimum=1, maximum=10000, value=40)
         self.popsize = QtWidgets.QSpinBox(minimum=4, maximum=200, value=12)
         self.seed = QtWidgets.QSpinBox(minimum=0, maximum=10 ** 6, value=1)
-        self.per_dataset = QtWidgets.QLineEdit("x_OH, z_OH")
-        self.per_dataset.setToolTip("With several datasets: parameters fitted separately per dataset "
-                                    "(everything else free is shared)")
+        self.per_dataset = QtWidgets.QLineEdit("theta, x_OH, z_OH")
+        self.per_dataset.setToolTip("With several datasets (e.g. one per potential): what the potential changes, "
+                                    "fitted separately per dataset: the CUS coverage and species (theta, x_OH, "
+                                    "x_O), their heights (z_OH, ...), near-surface O (ns_B_O, ns_du). Everything "
+                                    "else free is shared.")
+        self.per_film = QtWidgets.QLineEdit("thickness_mean_tl, roughness_tl, eps_perp")
+        self.per_film.setToolTip("With several films: one value per film, shared by all potentials of that film "
+                                 "(datasets with the same 'film' metadata, e.g. from the scan library's 'Export "
+                                 "for fitting'). One film: the same as shared.")
         self.run_button = QtWidgets.QPushButton("Run fit")
         self.run_button.setMinimumHeight(32)
         self.step_buttons = [QtWidgets.QPushButton(t) for t in
@@ -334,6 +340,7 @@ class FitWindow(QtWidgets.QMainWindow):
         form.addRow("DE population", self.popsize)
         form.addRow("Seed", self.seed)
         form.addRow("Per dataset", self.per_dataset)
+        form.addRow("Per film", self.per_film)
         right = QtWidgets.QWidget()
         rl = QtWidgets.QVBoxLayout(right)
         rl.addWidget(QtWidgets.QLabel("<b>Fit</b>"))
@@ -473,8 +480,12 @@ class FitWindow(QtWidgets.QMainWindow):
         self.data_list.clear()
         for ds in self.datasets:
             pot = ds.meta.get("potential_V")
+            film = ds.meta.get("film")
+            cond = ds.meta.get("condition")
+            extra = ([f"film {film}"] if film and film not in ds.name else []) + \
+                ([f"{pot:g} V"] if pot is not None else [cond] if cond and cond not in ds.name else [])
             self.data_list.addItem(f"{ds.name}: {len(ds)} points, rods {', '.join(ds.rod_labels)}"
-                                   + (f", {pot:g} V" if pot is not None else ""))
+                                   + "".join(f", {x}" for x in extra))
         if self.datasets:
             self.data_list.setCurrentRow(0)
         self.rod_pick.blockSignals(True)
@@ -508,18 +519,35 @@ class FitWindow(QtWidgets.QMainWindow):
         return path or None
 
     def add_data(self, path=None, **kw):
-        path = path or self._open_name("Add data", "Data (*.csv *.dat *.json);;All files (*)")
-        if not path:
-            return None
-        try:
-            ds = Dataset.load(path, **kw)
-        except (OSError, ValueError, KeyError) as ex:
-            self.warn("Could not read the data", f"{path}: {ex}")
-            return None
-        self.datasets.append(ds)
-        self._refresh_all()
-        self.say(f"Added {ds.name}: {len(ds)} points on {len(ds.rod_labels)} rods")
-        return ds
+        """Add one dataset (path) or, from the dialog, several at once (e.g. every condition the scan
+        library exported for fitting); returns the (last) dataset added."""
+        if path is None:
+            paths, _ = QtWidgets.QFileDialog.getOpenFileNames(self, "Add data (one or several datasets)",
+                                                              str(self.settings_dir),
+                                                              "Data (*.csv *.dat *.json);;All files (*)")
+            if not paths:
+                return None
+            added = self.add_datasets(paths, **kw)
+            return added[-1] if added else None
+        return (self.add_datasets([path], **kw) or [None])[-1]
+
+    def add_datasets(self, paths, **kw):
+        """Add several datasets; returns those that could be read."""
+        added = []
+        for path in paths:
+            try:
+                ds = Dataset.load(path, **kw)
+            except (OSError, ValueError, KeyError) as ex:
+                self.warn("Could not read the data", f"{path}: {ex}")
+                continue
+            self.datasets.append(ds)
+            added.append(ds)
+        if added:
+            self._refresh_all()
+            ds = added[-1]
+            self.say(f"Added {ds.name}: {len(ds)} points on {len(ds.rod_labels)} rods" if len(added) == 1 else
+                     f"Added {len(added)} datasets ({', '.join(d.name for d in added)})")
+        return added
 
     def remove_data(self):
         i = self.data_list.currentRow()
@@ -682,6 +710,10 @@ class FitWindow(QtWidgets.QMainWindow):
     def _per_dataset(self):
         return [n.strip() for n in self.per_dataset.text().replace(";", ",").split(",") if n.strip()]
 
+    def _per_film(self):
+        per = set(self._per_dataset())
+        return [n.strip() for n in self.per_film.text().replace(";", ",").split(",") if n.strip() and n.strip() not in per]
+
     def _check_ready(self):
         if not self.datasets:
             self.warn("No data", "Add a dataset first.")
@@ -708,7 +740,8 @@ class FitWindow(QtWidgets.QMainWindow):
         method, fom, de = self.method.currentText(), self.fom.currentText(), self._de_settings()
         per = self._per_dataset() if len(self.datasets) > 1 else []
 
-        workflow.prepare(self.model, self.datasets, per)     # on this thread: the table shows the new rows
+        workflow.prepare(self.model, self.datasets, per,      # on this thread: the table shows the new rows
+                         self._per_film() if len(self.datasets) > 1 else [])
         self._refresh_all()
 
         def job(worker):
@@ -726,7 +759,8 @@ class FitWindow(QtWidgets.QMainWindow):
             return
         de = self._de_settings()
         if len(self.datasets) > 1:
-            workflow.prepare(self.model, self.datasets, self._per_dataset() if step != "film" else ())
+            workflow.prepare(self.model, self.datasets, self._per_dataset() if step != "film" else (),
+                             self._per_film())
             self._refresh_all()
 
         def job(worker):

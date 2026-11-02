@@ -4,7 +4,7 @@ CSV:   a header row with at least H, K, L, F, sigma (any order, case-insensitive
        'err' also accepted for sigma). With intensities=True the columns are I and sigma (or sigI).
        An optional 'rod' column labels the points. Lines starting with # are comments;
        '# key: value' comment lines set metadata (name, energy_kev, potential_V, thickness_nm,
-       sys_floor).
+       film, condition, notes, sys_floor). A global fit groups the datasets of one film by 'film'.
 .dat:  whitespace columns H K L F sigma (GenX / ANA-ROD style), # comments, no header.
 
 intensities_to_F converts integrated intensities to amplitudes with propagated errors.
@@ -45,7 +45,7 @@ def _meta_from_comments(lines):
                     meta[k] = float(v)
                 except ValueError:
                     pass
-            elif k in ("name", "notes"):
+            elif k in ("name", "notes", "film", "condition"):
                 meta[k] = v
     return meta
 

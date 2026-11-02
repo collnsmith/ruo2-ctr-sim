@@ -29,6 +29,8 @@ def build_parser():
     f.add_argument("--rods", default=None, help="only these rods, e.g. '0 1; 1 0'")
     f.add_argument("--per-dataset", default="", help="global fit of several data files: parameters fitted "
                    "separately per dataset, e.g. 'x_OH,z_OH' (all other free parameters are shared)")
+    f.add_argument("--per-film", default="", help="global fit: parameters with one value per film (datasets "
+                   "with the same 'film' metadata, e.g. all potentials of one film), e.g. 'thickness_mean_tl'")
     f.add_argument("--profile", default=None, help="after DE, scan a parameter on a grid and keep the best "
                    "minimum, e.g. 'thickness_mean_tl:15:25:0.5'")
     f.add_argument("--no-plots", action="store_true", help="skip the PNG plots")
@@ -327,9 +329,10 @@ def cmd_fit(a):
             ds = ds.select_rods(parse_rods(a.rods))
         datasets.append(ds)
     per = [n.strip() for n in a.per_dataset.split(",") if n.strip()]
-    if per:
+    per_film = [n.strip() for n in a.per_film.split(",") if n.strip()]
+    if per or per_film:
         from .fit.global_fit import global_fit
-        fit = global_fit(model, datasets, per_dataset=per, fom=a.fom)
+        fit = global_fit(model, datasets, per_dataset=per, per_film=per_film, fom=a.fom)
     else:
         fit = Fit(model, datasets, fom=a.fom)
     print(f"{len(fit.names)} free parameters: {', '.join(fit.names)}")

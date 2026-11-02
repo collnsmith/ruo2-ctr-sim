@@ -129,6 +129,30 @@ def test_global_fit_from_window(win, tmp_path):
     np.testing.assert_allclose(v, [0.3, 0.7], atol=0.05)
 
 
+def test_several_datasets_at_once_with_film_and_potential(win, tmp_path):
+    """Datasets exported per film and potential: added in one go, listed with film and potential; a run
+    gives each film its own thickness (Per film) and each dataset its own x_OH (Per dataset)."""
+    from ctrfit import make_dataset
+    from ctrfit.fit import workflow
+    from test_fit import ODD, truth_model
+    win.datasets.clear()
+    paths = []
+    for i, (film, nm, u) in enumerate((("7 nm", 7.0, 0.7), ("7 nm", 7.0, 0.0), ("4.1 nm", 4.1, 0.7))):
+        d = make_dataset(truth_model(), rods=ODD[:1], noise_rel=0.03, seed=400 + i, step=0.2, name=f"{film} {u:g} V",
+                         potential_V=u, film=film, thickness_nm=nm)
+        d.save(tmp_path / f"f{i}.csv")
+        paths.append(str(tmp_path / f"f{i}.csv"))
+    added = win.add_datasets(paths)
+    assert len(added) == 3 and win.data_list.count() == 3
+    assert win.data_list.item(2).text().endswith("rods 1 0, 4.1 nm") or "0.7 V" in win.data_list.item(2).text()
+    assert win.per_film.text().startswith("thickness_mean_tl") and win._per_film()
+    win.per_dataset.setText("x_OH")
+    workflow.prepare(win.model, win.datasets, win._per_dataset(), win._per_film())
+    p = win.model.params
+    assert p["ds2.thickness_mean_tl"].linked and not p["ds3.thickness_mean_tl"].linked and "ds3.x_OH" in p
+    assert p["ds3.thickness_mean_tl"].value < p["ds1.thickness_mean_tl"].value          # 4.1 nm vs 7 nm
+
+
 def test_live_update_every_generation(win, monkeypatch):
     """The model curve and the table follow the best values after every DE generation."""
     seen = []

@@ -96,14 +96,19 @@ def step_all(model, datasets, names=None, progress=None, fit_hook=None):
     return fit, fit.report()
 
 
-def prepare(model, datasets, per_dataset=()):
-    """Before a run with several datasets: scopes and scales, and per-dataset copies of
-    `per_dataset` (call this on the thread that owns the parameter table)."""
+def prepare(model, datasets, per_dataset=(), per_film=()):
+    """Before a run with several datasets: scopes and scales, per-dataset copies of `per_dataset`
+    and one value per film of `per_film` (call this on the thread that owns the parameter table)."""
     datasets = datasets if isinstance(datasets, (list, tuple)) else [datasets]
     _prepare_scales(model, datasets)
     if len(datasets) > 1 and per_dataset:
         from .global_fit import make_per_dataset
         make_per_dataset(model, datasets, [n for n in per_dataset if n in model.params])
+    if len(datasets) > 1 and per_film:
+        from .global_fit import films, make_per_film
+        names = [n for n in per_film if n in model.params and n not in set(per_dataset)]
+        if names and len(films(datasets)) > 1:      # one film: per film is the same as shared
+            make_per_film(model, datasets, names)
 
 
 def _prepare_scales(model, datasets):

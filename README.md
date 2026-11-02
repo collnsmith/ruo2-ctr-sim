@@ -419,12 +419,10 @@ in a dialog):
   intensities, for a first look; the full RuO2/TiO2 model is the Fitting app.
 - **HKL appender.** H, K, L from the SPEC scan added to plotter exports and peak-fit tables
   (constant H and K snapped), and GenX export.
-- **Smoother.** HKL files smoothed (Savitzky-Golay, moving average, Gaussian, Lowess, spline) with
-  Bragg exclusion zones.
 - **Combiner.** Several HKL files into one `H K L I` table (drop NaN or non-positive rows, sort, dedupe).
 
 The logic is in `ctrfit.datatools` (no Qt), the windows in `ctrfit.app.datatools`; one tool alone:
-`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `library`, `processing`, `ctr_fit`, `appender`, `smoother`,
+`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `library`, `processing`, `ctr_fit`, `appender`,
 `combiner`, `meta_viewer`). Settings are saved in `~/.ctrfit/data_tools` (or `$CTRFIT_SETTINGS_DIR`);
 copy the old `.ini` files there to keep them.
 

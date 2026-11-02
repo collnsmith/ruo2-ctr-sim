@@ -2,7 +2,9 @@
 
     Metadata -> Background subtraction (with the background ROI finder) -> Plotter (peak fits)
     -> Scan library (film and CV / CA per scan, comparisons) -> Processing -> CTR fit (quick models)
-    -> HKL appender -> Smoother -> Combiner
+    -> HKL appender -> Combiner
+
+(Smoothing is in the plotter: "Smoothing" and "CTR smoothing" act on the plotted traces.)
 
 Each tab is the tool's own window embedded as a widget; the logic is in ctrfit.datatools. Settings
 of every tool are saved when this window closes (folder: ctrfit.datatools.paths.settings_dir()).
@@ -30,7 +32,6 @@ TOOLS = [
     ("ctr_fit", "CTR fit", "ctr_fit", "CTRFitWindow", "Quick kinematic CTR models on integrated intensities"),
     ("appender", "HKL appender", "appender", "MainWindow",
      "Add H, K, L from the SPEC scan to plotter exports and peak-fit tables; GenX export"),
-    ("smoother", "Smoother", "smoother", "HKLSmoother", "Smooth HKL files with Bragg exclusion zones"),
     ("combiner", "Combiner", "combiner", "CombinerWindow", "Combine HKL files into one H K L I table"),
 ]
 

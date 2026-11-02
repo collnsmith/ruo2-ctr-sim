@@ -38,7 +38,7 @@ def test_spec_file_columns_rows_and_motors(tmp_path):
     assert np.allclose(s.data["L"], L) and scans[465].npoints == 2 and scans[465].motor_positions == {}
 
 
-def test_hkl_appender_smoother_combiner_chain(tmp_path):
+def test_hkl_appender_combiner_chain(tmp_path):
     scans = specfile.parse_spec_file(write_spec(tmp_path / "s.spec"))
     header, traces = hkl.parse_exported_file(write_export(tmp_path / "exp.txt"))
     snap = {c: {"enabled": True, "tol": 0.05, "step": 1.0} for c in "HK"}
@@ -47,10 +47,6 @@ def test_hkl_appender_smoother_combiner_chain(tmp_path):
     (t,) = hkl.parse_hkl_file(tmp_path / "hkl.txt")
     assert np.all(t["H"] == 0) and np.all(t["K"] == 2)                             # snapped
     assert np.allclose(t["L"], L[::2]) and np.allclose(t["I"], 100 + np.arange(11))
-    # smoothing: a straight line is unchanged, excluded zone is NaN
-    sm = hkl.smooth_trace(t["L"], t["I"], "Savitzky-Golay", 5, 2, [(0.95, 1.05)])
-    inside = np.abs(t["L"] - 1.0) < 0.06
-    assert np.all(np.isnan(sm[inside])) and np.allclose(sm[~inside], t["I"][~inside])
     # combine two files: dedupe drops the copy, sort by L
     write_export(tmp_path / "exp2.txt")
     hkl.write_output(tmp_path / "hkl2.txt", header, traces, scans, snap)

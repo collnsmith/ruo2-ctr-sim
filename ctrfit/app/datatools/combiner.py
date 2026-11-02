@@ -26,7 +26,7 @@ class CombinerWindow(StatusMixin, QMainWindow):
         self._files = []
 
         files, fl = group("Input files", form=False)
-        fl.addWidget(hint("HKL files (plotter, appender or smoother output, or any H K L I file). "
+        fl.addWidget(hint("HKL files (plotter or appender output, or any H K L I file). "
                           "Every trace of every file goes into one table."))
         self._list = QListWidget()
         self._list.setSelectionMode(QListWidget.ExtendedSelection)

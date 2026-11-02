@@ -1,4 +1,4 @@
-"""HKL files (from sxrd_hkl_appender, sxrd_hkl_smoother and sxrd_hkl_combiner, no Qt).
+"""HKL files (from sxrd_hkl_appender and sxrd_hkl_combiner, no Qt).
 
 Plotter exports (x, y per trace) get H, K, L interpolated from the SPEC scan; peak-fit tables get
 HKL per scan; HKL files (H K L I, several traces marked by "# Trace:") are read, smoothed with
@@ -564,94 +564,6 @@ def write_genx_file(out_path, traces, hk_overrides=None,
         if n_dropped:
             log_fn(f"  Dropped {n_dropped} non-positive intensity rows")
     return n_total
-
-
-def smooth_segment(y, x, method, window, poly_order):
-    """Apply smoothing to a single contiguous segment.
-    Returns smoothed y (same length as input)."""
-    n = len(y)
-    win = min(window, n)
-    if win % 2 == 0:
-        win = max(win - 1, 3)
-    if win < 3:
-        return y.copy()
-
-    if method == "Savitzky-Golay":
-        from scipy.signal import savgol_filter
-        order = min(poly_order, win - 1)
-        return savgol_filter(y, win, order)
-    elif method == "Moving average":
-        kernel = np.ones(win) / win
-        padded = np.pad(y, win // 2, mode='edge')
-        return np.convolve(padded, kernel, mode='valid')[:n]
-    elif method == "Gaussian kernel":
-        from scipy.ndimage import gaussian_filter1d
-        sigma = win / 4
-        return gaussian_filter1d(y, sigma)
-    elif method == "Lowess":
-        try:
-            from statsmodels.nonparametric.smoothers_lowess import lowess
-            frac = min(win / n, 0.9)
-            return lowess(y, x, frac=frac, return_sorted=False)
-        except ImportError:
-            from scipy.signal import savgol_filter
-            return savgol_filter(y, min(win, n if n % 2 == 1 else n - 1),
-                                 min(poly_order, win - 1))
-    elif method == "Spline":
-        from scipy.interpolate import UnivariateSpline
-        try:
-            s_factor = len(y) * np.var(y) * (1.0 / max(poly_order, 1))
-            spl = UnivariateSpline(x, y, s=s_factor, k=min(poly_order, 5))
-            return spl(x)
-        except Exception:
-            return y.copy()
-    return y.copy()
-
-
-def smooth_trace(x, y, method, window, poly_order, exclusions):
-    """Smooth y(x) honoring exclusion zones.
-
-    exclusions: list of (x_min, x_max). Points inside any zone are skipped
-    by smoothing and returned as NaN. Smoothing is applied independently to
-    each contiguous included segment.
-
-    Returns array of same length as y, with NaN where excluded.
-    """
-    if len(x) == 0:
-        return np.array([])
-
-    mask = np.ones(len(x), dtype=bool)
-    for xmin, xmax in exclusions:
-        mask &= ~((x >= xmin) & (x <= xmax))
-
-    smoothed = np.full(len(y), np.nan)
-
-    inc_indices = np.where(mask)[0]
-    if len(inc_indices) < 4:
-        # Too few included points - just copy original at those positions
-        smoothed[mask] = y[mask]
-        return smoothed
-
-    # Find contiguous segments
-    segments = []
-    seg_start = 0
-    for i in range(1, len(inc_indices)):
-        if inc_indices[i] - inc_indices[i - 1] > 1:
-            segments.append(inc_indices[seg_start:i])
-            seg_start = i
-    segments.append(inc_indices[seg_start:])
-
-    win = window if window % 2 == 1 else window + 1
-
-    for seg_idx in segments:
-        if len(seg_idx) < 3:
-            continue
-        x_seg = x[seg_idx]
-        y_seg = y[seg_idx]
-        y_smooth = smooth_segment(y_seg, x_seg, method, win, poly_order)
-        smoothed[seg_idx] = y_smooth
-
-    return smoothed
 
 
 # ============================================================

@@ -17,6 +17,7 @@ except ImportError:  # pragma: no cover
     Signal = QtCore.Signal
 
 from ..assistant.agent import AgentStopped, FitAgent, transcript_text
+from .widgets import ElidedLabel
 from ..data.dataset import Dataset
 from ..fit.fit import Fit
 
@@ -90,11 +91,12 @@ class AssistantPanel(QtWidgets.QWidget):
         self.effort.setToolTip("How hard Claude thinks (more effort: slower and more tokens)")
         self.send = QtWidgets.QPushButton("Send to Claude")
         self.send.setMinimumHeight(30)
+        self.send.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Fixed)   # text changes
         self.undo = QtWidgets.QPushButton("Undo Claude's changes")
         self.undo.setEnabled(False)
         self.save = QtWidgets.QPushButton("Save transcript…")
         self.new = QtWidgets.QPushButton("New conversation")
-        self.cost = QtWidgets.QLabel("")
+        self.cost = ElidedLabel("")             # token counts change while Claude works: fixed width
         quick = QtWidgets.QHBoxLayout()
         for label, text in QUICK:
             b = QtWidgets.QPushButton(label)

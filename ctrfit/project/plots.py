@@ -302,8 +302,13 @@ def draw_study(fig, out, points, thick, relax, coherent_nm):
 # ----------------------------------------------------------------------------------------------
 # fitting
 # ----------------------------------------------------------------------------------------------
-def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None):
-    """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma."""
+LIVE_RESIDUAL_RANGE = 10.0                    # residual axis while a fit runs: +-this (sigma)
+
+
+def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hold=False):
+    """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma.
+    hold: the axes keep the data's range (|F|) and +-LIVE_RESIDUAL_RANGE (residuals) instead of
+    following the model, so a live view of a running fit does not jump from one trial to the next."""
     fig.clear()
     a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
     a.errorbar(L, F, yerr=sigma, fmt="o", ms=3, color="0.25", ecolor="0.6", elinewidth=0.8, label="data")
@@ -322,6 +327,14 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None):
     b.plot(L, r, "o", ms=3, color="tab:blue")
     b.set_ylabel("(F - Fc) / σ")
     b.set_xlabel("L (r.l.u.)")
+    if hold:
+        F, s = np.asarray(F, float), np.asarray(sigma, float)
+        top = F + s
+        low = np.where(F - s > 0, F - s, F)
+        pos = low[np.isfinite(low) & (low > 0)]
+        if pos.size and np.isfinite(top).any():
+            a.set_ylim(pos.min() / 2, np.nanmax(top) * 2)
+        b.set_ylim(-LIVE_RESIDUAL_RANGE, LIVE_RESIDUAL_RANGE)
     for ax in (a, b):
         ax.grid(alpha=0.25)
 

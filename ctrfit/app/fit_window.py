@@ -26,6 +26,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from ..core.settings import DEFAULTS, read_ini
+from .widgets import ElidedLabel
 from ..data.dataset import Dataset
 from ..fit import workflow
 from ..fit.fit import Fit, FitResult
@@ -291,7 +292,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.view.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.group = QtWidgets.QComboBox()
         self.group.addItems(GROUPS)
-        self.n_free = QtWidgets.QLabel()
+        self.n_free = ElidedLabel()            # one line: a long list of free parameters never widens the window
 
         left = QtWidgets.QWidget()
         ll = QtWidgets.QVBoxLayout(left)
@@ -359,10 +360,14 @@ class FitWindow(QtWidgets.QMainWindow):
 
         # ---------------- centre: plots and report
         self.rod_pick = QtWidgets.QComboBox()
+        self.rod_pick.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.rod_pick.setMinimumContentsLength(24)
         self.p_rod = PlotPanel("Add data to see the rods.")
         self.p_fom = PlotPanel("The figure of merit appears here during a fit.")
         self.p_corr = PlotPanel("Run a fit to see the correlation matrix.")
         self.series_pick = QtWidgets.QComboBox()
+        self.series_pick.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.series_pick.setMinimumContentsLength(16)
         self.p_series = PlotPanel("A global fit (several datasets) shows per-dataset parameters here.")
         self.report = QtWidgets.QPlainTextEdit(readOnly=True)
         self.report.setFont(QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont))
@@ -382,7 +387,7 @@ class FitWindow(QtWidgets.QMainWindow):
         split.setStretchFactor(1, 1)
         split.setSizes([480, 800, 280])
         self.setCentralWidget(split)
-        self.status = QtWidgets.QLabel("Ready")
+        self.status = ElidedLabel("Ready")     # progress text changes every generation: fixed width
         self.statusBar().addWidget(self.status, 1)
         self._menus()
         from .assistant_panel import AssistantPanel
@@ -653,7 +658,8 @@ class FitWindow(QtWidgets.QMainWindow):
             self.say(f"Model not evaluated: {ex}", error=True)
             return
         self.p_rod.draw(plots.draw_fit_rod, ds.L[idx], ds.F[idx], ds.sigma_eff[idx], Fc,
-                        f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd)
+                        f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd,
+                        hold=values is not None)       # a running fit: the axes stay with the data
 
     def show_series(self):
         name = self.series_pick.currentText()

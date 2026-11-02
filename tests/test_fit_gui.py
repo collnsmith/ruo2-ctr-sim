@@ -153,6 +153,39 @@ def test_several_datasets_at_once_with_film_and_potential(win, tmp_path):
     assert p["ds3.thickness_mean_tl"].value < p["ds1.thickness_mean_tl"].value          # 4.1 nm vs 7 nm
 
 
+def test_window_keeps_its_size_while_a_fit_runs(win, qapp=None):
+    """Messages that change during a fit (progress, the free-parameter list, the assistant's counts) and
+    the live rod plot must not resize the window or rescale the axes from one trial to the next."""
+    from PyQt5.QtWidgets import QApplication
+    from ctrfit.project import plots
+    app = QApplication.instance()
+    win.resize(1500, 900)
+    win.show()
+    app.processEvents()
+    size = (win.width(), win.height())
+    names = [f"ds{i}.{n}" for i in range(1, 9) for n in ("theta", "x_OH", "z_OH", "thickness_mean_tl", "scale")]
+    win.n_free.setText(f"{len(names)} free: {', '.join(names)}")
+    win.status.setText("differential evolution, generation 12: figure of merit 1.23456 " + "long " * 80)
+    win.assistant.cost.setText("Tokens: " + "9" * 400)
+    win.assistant.send.setText("Claude is working… (Stop: Run fit button)")
+    app.processEvents()
+    assert (win.width(), win.height()) == size
+    assert win.n_free.text().startswith("40 free: ds1.theta") and win.n_free.toolTip() == win.n_free.text()
+    # the live rod plot keeps the data's axes whatever the trial model does
+    from matplotlib.figure import Figure
+    L = np.linspace(0.3, 2, 30)
+    F = 10 + 5 * np.sin(L)
+    lims = []
+    for scale in (1e-3, 1e3):
+        fig = Figure()
+        plots.draw_fit_rod(fig, L, F, 0.1 * F, F * scale, "live", L, F * scale, hold=True)
+        lims.append((fig.axes[0].get_ylim(), fig.axes[1].get_ylim()))
+    assert lims[0] == lims[1] and lims[0][1] == (-10.0, 10.0)
+    fig = Figure()
+    plots.draw_fit_rod(fig, L, F, 0.1 * F, F * 1e3, "final", L, F * 1e3)          # after the fit: autoscale
+    assert fig.axes[0].get_ylim()[1] > 1e3
+
+
 def test_live_update_every_generation(win, monkeypatch):
     """The model curve and the table follow the best values after every DE generation."""
     seen = []

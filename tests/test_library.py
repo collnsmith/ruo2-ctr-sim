@@ -141,7 +141,7 @@ def test_library_file_round_trip_and_the_data_stay_untouched(tmp_path):
     path = lb.write_library(lib, tmp_path / "lib" / "scans.txt")
     text = open(path).read()
     assert text.startswith(lb.FORMAT) and "S1\tspec\t../data/a.spec\t" in text      # relative to the library
-    assert "S1\t1\t10 nm\tCA\t1\t\t1\trod\t0\t1\t" in text and "after the step" in text
+    assert "S1\t1\t10 nm\tCA\t1\t\t\t1\trod\t0\t1\t" in text and "after the step" in text
     # move library and data together: the relative paths still find the data
     shutil.move(str(tmp_path / "lib"), str(tmp_path / "moved" / "lib"))
     shutil.move(str(tmp_path / "data"), str(tmp_path / "moved" / "data"))
@@ -267,6 +267,84 @@ def test_refresh_keeps_assignments(tmp_path):
     assert lib.add_source(sa, [ua]).id == "S1" and lib._next_id() == "S3"
 
 
+def test_ocv_cv_start_and_systematic_error(tmp_path):
+    lib, (_, _, ta), _ = assigned_library(tmp_path)
+    E = lib.entry
+    lib.assign([E("S2", 4)], mode="OCV")
+    assert E("S2", 4).potential is None and E("S2", 4).condition() == "OCV" and E("S2", 4).assigned
+    assert lib.holds() == ["OCV", 1.0, 1.4]
+    assert [e.key for e in lb.select(lib, "rod", {"CA", "OCV"}, potential=lb.OCV)] == [("S2", 4)]
+    assert ("S2", 4) not in {e.key for e in lb.select(lib, "rod", {"CA", "OCV"}, potential=1.0)}
+    trs, _ = lb.traces(lib, lb.select(lib, "rod", {"CA", "OCV"}, rod=(1, 1)), colour_by="potential")
+    assert [t.group for t in trs] == ["OCV", "CA 1 V vs RHE"]                        # OCV first, then by value
+    # the CV start point: a start alone makes a CV; t = 0 there on the CV axis
+    lib.assign([E("S1", 5)], cv_start=10)
+    assert (E("S1", 5).mode, E("S1", 5).cv_start) == ("CV", 10)
+    t = lb.trace(lib, E("S1", 5), lb.X_CV)
+    assert t.xlabel == lb.X_CV and t.x[10] == 0 and t.x[0] == -10 and not t.notes
+    t3 = lb.trace(lib, E("S1", 3), lb.X_CV)
+    assert t3.x[0] == 0 and "no CV start point" in t3.notes[0]                       # falls back to the scan start
+    lib.assign([E("S1", 5)], potential=0.5)                                         # another mode drops the start
+    assert (E("S1", 5).mode, E("S1", 5).cv_start) == ("CA", None)
+    with pytest.raises(ValueError, match="0 or more"):
+        lib.assign([E("S1", 5)], cv_start=-2)
+    # the systematic error, in quadrature with the counting error
+    base = lb.trace(lib, E("S1", 1))
+    lib.settings["sys_error"] = "5"
+    t = lb.trace(lib, E("S1", 1))
+    assert np.allclose(t.sigma, np.hypot(base.sigma, 0.05 * base.y))
+    lib.entry("S1", 1).roi = "ROI2"                                                 # no counting error: 5 % alone
+    assert np.allclose(lb.trace(lib, E("S1", 1)).sigma, 0.05 * lb.trace(lib, E("S1", 1)).y)
+    # all of it survives the file
+    path = lb.write_library(lib, tmp_path / "lib.txt")
+    back = lb.read_library(path)
+    assert (back.entry("S2", 4).mode, back.entry("S1", 5).potential, back.settings["sys_error"]) == ("OCV", 0.5, "5")
+    lib.assign([E("S1", 5)], cv_start=7)
+    lb.write_library(lib, path)
+    assert lb.read_library(path).entry("S1", 5).cv_start == 7
+
+
+def test_assignment_file_before_the_data(tmp_path):
+    """An assignment file written from scan notes (a source with no files yet): opening it and adding the
+    SPEC file and ROI sums fills that source; the assignments land on the scans by number."""
+    (sa, ua, _), (sb, ub, _) = two_films(tmp_path)
+    notes = lb.Library()
+    notes.settings.update(unit="V", sys_error="5")
+    notes.sources.append(lb.Source("S1", "", [], "beamtime"))
+    notes.entries = [lb.Entry("S1", 1, "7 nm", "CA", 0.7, roi="ROI2", kind="rod", H=0, K=1),
+                     lb.Entry("S1", 3, "7 nm", "CV", cv_start=5, kind="stationary", H=0, K=1, L=0.5),
+                     lb.Entry("S1", 4, "7 nm", "OCV", notes="rod in scans 4/9", kind="rod", H=1, K=1),
+                     lb.Entry("S1", 9, "7 nm", "OCV", notes="not processed yet", kind="rod", H=1, K=1)]
+    path = lb.write_library(notes, tmp_path / "assignments.txt")
+    assert "S1\tspec" not in open(path).read()
+    lib = lb.read_library(path)
+    assert any("no SPEC file yet" in n for n in lib.notes) and len(lib.entries) == 4
+    assert (lib.entry("S1", 9).kind, lib.entry("S1", 9).rod) == ("rod", (1, 1))          # H K L from the file
+    src = lib.add_source(sa, [ua])
+    assert src.id == "S1" and src.label == "a" and len(lib.sources) == 1                 # the placeholder is filled
+    e1, e3, e9 = lib.entry("S1", 1), lib.entry("S1", 3), lib.entry("S1", 9)
+    assert (e1.mode, e1.potential, e1.roi, e1.points, e1.L_min) == ("CA", 0.7, "ROI2", 30, 0.3)
+    assert (e3.mode, e3.cv_start, e3.kind) == ("CV", 5, "stationary")
+    assert e9.kind == "missing" and e9.notes == "not processed yet" and e9.rod == (1, 1)
+    assert not lib.entry("S1", 2).assigned and lib.settings["unit"] == "V"
+    assert lb.trace(lib, e3, lb.X_CV).x[5] == 0
+    # the same assignments onto another library's SPEC file, by scan number
+    other = lb.Library()
+    other.add_source(sb, [ub])
+    matched, added = lb.apply_assignments(other, path, "S1")
+    assert (matched, added) == (3, 1) and other.entry("S1", 4).mode == "OCV" and other.entry("S1", 9).kind == "missing"
+    assert [e.scan for e in other.entries] == [1, 2, 3, 4, 5, 6, 9]
+    with pytest.raises(ValueError, match="no source"):
+        lb.apply_assignments(other, path, "S7")
+    # a file of the first layout (no cv_start column) still reads
+    old = open(path).read().replace("\tcv_start", "")
+    old = "\n".join("\t".join(l.split("\t")[:5] + l.split("\t")[6:]) if l.startswith("S1\t") and
+                    l.split("\t")[1].isdigit() else l for l in old.splitlines())
+    (tmp_path / "old.txt").write_text(old.replace("# source\tscan", "# old header"))
+    e = lb.read_library(tmp_path / "old.txt", load=False).entry("S1", 1)
+    assert (e.mode, e.potential, e.roi, e.kind) == ("CA", 0.7, "ROI2", "rod")
+
+
 # ------------------------------------------------------------------ the tab
 @pytest.fixture
 def qapp():
@@ -379,7 +457,8 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     w.preset("cv")
     settle()
     ax = w._fig.axes[0]
-    assert ax.get_title() == "CV at (0 1 0.5)" and ax.get_xlabel() == "time from scan start (s)"
+    assert ax.get_title() == "CV at (0 1 0.5)" and ax.get_xlabel() == lb.X_CV           # lined up at CV starts
+    assert "no CV start point" in w._plot_info.text()
     assert [l.get_label() for l in ax.get_lines()] == ["2 nm", "10 nm"] and ax.get_yscale() == "linear"
     assert np.allclose(ax.get_lines()[1].get_ydata(), ax.get_lines()[0].get_ydata(), rtol=1e-6)   # ROI2 = 2 x ROI1
     w._x.setCurrentText("Epoch")
@@ -401,6 +480,22 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     assert not w._fig.axes and "No scans match" in w._fig.texts[0].get_text()
     w.preset("cv")
     settle()
+    # OCV, CV start and the systematic error in the tab
+    w.select_scans([("S2", 4)])
+    w._rb_ocv.setChecked(True)
+    w.assign_selected(**w._mode_fields())
+    assert w.lib.entry("S2", 4).mode == "OCV"
+    w.select_scans([("S1", 3), ("S2", 3)])
+    w._table.item(w._row_of[("S1", 3)], ui.C_START).setText("4")
+    settle()
+    assert [w.lib.entry(s, 3).cv_start for s in ("S1", "S2")] == [4, 4]
+    assert all(l.get_xdata()[4] == 0 for l in w._fig.axes[0].get_lines())               # lined up at point 4
+    w._table.item(w._row_of[("S1", 3)], ui.C_START).setText("-3")
+    settle()
+    assert said[-1][0] == "warning" and w.lib.entry("S1", 3).cv_start == 4
+    said.clear()
+    w._sys.setValue(5)
+    assert w.lib.settings["sys_error"] == "5"
     # exports
     out = w.export_data(str(tmp_path / "tr.txt"))
     assert [b["label"] for b in parse_traces(open(out).read())] == ["S2_3", "S1_3"]
@@ -421,7 +516,7 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     w = ui.LibraryWindow()
     settle()
     assert w.lib.path == path and w._table.rowCount() == 12 and w._kind.currentIndex() == 1
-    assert w._x.currentText() == "Epoch" and w._state.text() == "Saved"
+    assert w._x.currentText() == lb.X_CV and w._state.text() == "Saved"
     assert w._table.cellWidget(w._row_of[("S1", 3)], ui.C_ROI).currentText() == "ROI2"
     # removing a source: undo brings it back
     w._sources.setCurrentRow(1)
@@ -429,6 +524,15 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     assert w._table.rowCount() == 6
     w.undo()
     assert w._table.rowCount() == 12 and w.lib.entry("S2", 1).film == "2 nm"
+    # assignments from another file, by scan number
+    imp = lb.Library()
+    imp.sources.append(lb.Source("S1", "", []))
+    imp.entries = [lb.Entry("S1", 2, "4.1 nm", "OCV"), lb.Entry("S1", 99, "4.1 nm", "CV", cv_start=3)]
+    lb.write_library(imp, tmp_path / "imp.txt")
+    w._sources.setCurrentRow(0)
+    assert w.import_assignments(str(tmp_path / "imp.txt")) == (1, 1)
+    assert w.lib.entry("S1", 2).mode == "OCV" and w.lib.entry("S1", 99).kind == "missing"
+    assert "1 scan(s) in the data, 1 not (yet)" in w._status_label.text()
     # a new library that is never saved comes back as a draft
     w.new_library(ask=False)
     assert w._table.rowCount() == 0 and w._state.text() == ""

@@ -4,8 +4,10 @@ comparisons (no Qt).
 A library is a text file that points at the data (SPEC files and the ROI sums files of the background
 subtraction) and says, per scan, which film it was measured on and under what condition:
 
-    CV   the scan ran during a cyclic voltammogram (nothing else to set)
+    CV   the scan ran during a cyclic voltammogram; optional: the SPEC point where the CV starts
+         (cv_start), which puts t = 0 there on the 'time from CV start' axis
     CA   chronoamperometry: the potential was held at one value (per scan, in the library's unit)
+    OCV  at open circuit (no potential applied)
 
 The data files are only ever opened for reading; the library file is the only file written, and
 write_library refuses to write over one of its own data files.
@@ -13,18 +15,26 @@ write_library refuses to write over one of its own data files.
 Library file (tab separated; '#' lines are comments; a section starts with a '# [name]' line):
 
     # [settings]   key <tab> value: roi (default ROI), monitor, transmission, count_time (SPEC
-                   columns for the normalisation, blank: not used), unit (of the CA potentials)
+                   columns for the normalisation, blank: not used), unit (of the CA potentials),
+                   sys_error (% of I added in quadrature to the counting error, e.g. 5)
     # [sources]    id <tab> what <tab> value [<tab> size <tab> mtime]; what is label, spec or sums
                    (one row per ROI sums file); paths relative to the library file's folder; size
-                   and mtime of each file when it was read (a changed file is reported on opening)
-    # [scans]      source scan film mode potential roi use | kind H K L L_min L_max points command | notes
-                   roi blank: the default ROI; the columns from 'kind' to 'command' describe the data
-                   for a reader of the file and are worked out again from the data on opening
+                   and mtime of each file when it was read (a changed file is reported on opening).
+                   A source with no spec row is a placeholder (an assignment file written before the
+                   data were processed): the first SPEC file added to the library fills it.
+    # [scans]      source scan film mode potential cv_start roi use | kind H K L L_min L_max points
+                   command | notes; the '# source ...' header line names the columns (files of an
+                   older layout still read). roi blank: the default ROI; the columns from 'kind' to
+                   'command' describe the data and are worked out again from the data on opening
+                   (kept from the file for a scan the data do not have yet)
 
 Kinds, from the SPEC scan at the images that have ROI sums: rod (L moves, H and K fixed), stationary
 (H K L fixed: a time scan during a CV or a CA hold; H K L from the columns or from '#Q'), other
 (H or K moves: rocking or in-plane scans), no SPEC (the SPEC file does not have the scan), missing
-(the ROI sums no longer have the scan; its entry and assignments are kept).
+(the ROI sums do not have the scan, yet or any more; its entry and assignments are kept).
+
+apply_assignments() copies film, measurement, potential, CV start, ROI, use and notes from another
+library (e.g. an assignment file) onto the scans of one source, by scan number.
 
 Two ROI sums files of one SPEC file can both have a scan (the background subtraction run twice):
 each keeps its own ROIs, and a ROI name that an earlier file already has for that scan becomes
@@ -48,19 +58,25 @@ from .images import read_roi_positions, roi_position
 from .specfile import parse_spec_file
 
 FORMAT = "# CTR scan library (ctrfit data tools, format 1)"
-MODES = ("", "CV", "CA")                  # "" = not assigned yet
+MODES = ("", "CV", "CA", "OCV")           # "" = not assigned yet
+HOLDS = ("CA", "OCV")                     # held for the whole scan: compared by potential
+OCV = "OCV"                               # the 'potential' of an OCV scan in select() and the lists
 KINDS = ("rod", "stationary", "other", "no SPEC", "missing")
 TOL = 0.01                                # H, K, L spans at or below this: the index is fixed
 E_TOL = 5e-4                              # potentials closer than this are the same (V)
 STATIONARY_COMMANDS = ("loopscan", "timescan", "tscan", "loop", "ctscan")
 TIME_COLUMNS = ("epoch", "time", "elapsed", "elapsed_time", "time_s", "t")
 X_TIME, X_POINT, X_L = "time from scan start (s)", "SPEC point", "L"
+X_CV = "time from CV start (s)"           # t = 0 at the entry's cv_start point
 NORMS = ("as measured", "÷ max", "÷ first point")
 COLOUR_BY = ("film", "potential", "film and potential", "scan")
-SETTINGS = ("roi", "monitor", "transmission", "count_time", "unit")
-DEFAULT_SETTINGS = {"roi": "", "monitor": "", "transmission": "", "count_time": "", "unit": "V vs RHE"}
-SCAN_COLUMNS = ("source", "scan", "film", "mode", "potential", "roi", "use", "kind", "H", "K", "L", "L_min",
-                "L_max", "points", "command", "notes")
+SETTINGS = ("roi", "monitor", "transmission", "count_time", "unit", "sys_error")
+DEFAULT_SETTINGS = {"roi": "", "monitor": "", "transmission": "", "count_time": "", "unit": "V vs RHE",
+                    "sys_error": "0"}
+SCAN_COLUMNS = ("source", "scan", "film", "mode", "potential", "cv_start", "roi", "use", "kind", "H", "K", "L",
+                "L_min", "L_max", "points", "command", "notes")
+SCAN_COLUMNS_1 = ("source", "scan", "film", "mode", "potential", "roi", "use", "kind", "H", "K", "L", "L_min",
+                  "L_max", "points", "command", "notes")      # the first layout (no header needed to read it)
 KEEP = object()                           # assign(): leave this field as it is
 
 
@@ -78,7 +94,7 @@ class Entry:
     source: str
     scan: int
     film: str = ""
-    mode: str = ""                        # "", "CV" or "CA"
+    mode: str = ""                        # "", "CV", "CA" or "OCV"
     potential: float = None               # CA: the held potential (library unit)
     roi: str = ""                         # "": the library's default ROI
     use: bool = True
@@ -93,6 +109,7 @@ class Entry:
     points: int = 0
     command: str = ""
     rois: list = field(default_factory=list)     # the ROI names this scan has
+    cv_start: int = None                  # CV: SPEC point (0-based) where the CV starts
 
     @property
     def key(self):
@@ -107,12 +124,12 @@ class Entry:
 
     @property
     def assigned(self):
-        return bool(self.film) and self.mode in ("CV", "CA")
+        return bool(self.film) and self.mode in MODES[1:]
 
     def condition(self, unit=""):
-        """'CV', 'CA 1.2 V vs RHE', 'CA (no potential)' or 'no condition'."""
-        if self.mode == "CV":
-            return "CV"
+        """'CV', 'OCV', 'CA 1.2 V vs RHE', 'CA (no potential)' or 'no condition'."""
+        if self.mode in ("CV", "OCV"):
+            return self.mode
         if self.mode == "CA":
             return f"CA {format_potential(self.potential, unit)}" if self.potential is not None else "CA (no potential)"
         return "no condition"
@@ -253,7 +270,13 @@ class Library:
             if not os.path.isfile(p):
                 raise ValueError(f"no ROI sums file {p}")
         read_sums(sums)                   # every file is a ROI sums file, before anything is changed
-        src = next((s for s in self.sources if os.path.normcase(s.spec) == os.path.normcase(spec)), None)
+        src = next((s for s in self.sources if s.spec and os.path.normcase(s.spec) == os.path.normcase(spec)),
+                   None)
+        if src is None:
+            src = next((s for s in self.sources if not s.spec), None)        # a placeholder: fill it
+            if src is not None:
+                src.spec = spec
+                src.label = label or os.path.splitext(os.path.basename(spec))[0]
         if src is None:
             src = Source(self._next_id(), spec, [], label or os.path.splitext(os.path.basename(spec))[0])
             self.sources.append(src)
@@ -288,6 +311,9 @@ class Library:
         for s in self.sources:
             if ids is not None and s.id not in ids:
                 continue
+            if not s.spec:
+                notes.append(f"{s.id} {s.label}: no SPEC file yet (Add SPEC + ROI sums fills it)")
+                continue
             for p in [s.spec] + list(s.sums):
                 if p in changed:
                     notes.append(f"{os.path.basename(p)} changed since it was last read")
@@ -315,14 +341,16 @@ class Library:
                 self._data[e.key] = ScanData(scan, rois)
                 images = sorted({int(i) for v in rois.values() for i in v[0]})
                 if sn not in sums:
-                    e.kind, e.H, e.K, e.L, e.L_min, e.L_max = ("missing",) + (math.nan,) * 5
-                    notes.append(f"{s.id} scan {sn}: no ROI sums any more (its assignments are kept)")
+                    if scan is not None:                 # where the scan is, from the SPEC file
+                        e.H, e.K, e.L, e.L_min, e.L_max = describe(scan)[1:]
+                    e.kind = "missing"                   # else H K L as the library file had them
+                    notes.append(f"{s.id} scan {sn}: no ROI sums (yet, or any more; its assignments are kept)")
                 else:
                     e.kind, e.H, e.K, e.L, e.L_min, e.L_max = describe(scan, images)
                     if scan is None:
                         notes.append(f"{s.id} scan {sn}: not in the SPEC file {os.path.basename(s.spec)}")
                 e.points = len(images)
-                e.command = scan.scan_cmd if scan is not None else ""
+                e.command = scan.scan_cmd if scan is not None else e.command
                 e.rois = list(rois)
                 if e.roi and e.roi not in e.rois and sn in sums:
                     notes.append(f"{s.id} scan {sn}: ROI '{e.roi}' not in its ROI sums any more")
@@ -364,6 +392,11 @@ class Library:
                 out.append(v)
         return out
 
+    def holds(self, entries=None):
+        """What scans were held at, for the potential list: 'OCV' (if any) then the CA potentials."""
+        es = self.entries if entries is None else entries
+        return ([OCV] if any(e.mode == OCV for e in es) else []) + self.potentials(es)
+
     def effective_roi(self, entry):
         """The ROI a scan is shown with: its own pick, else the default, else its first ROI with an
         error column, else its first ROI (None if it has none)."""
@@ -389,11 +422,15 @@ class Library:
         kind, x, y, w, h = p
         return f"{name}: {kind} ROI {w} x {h} px at ({x}, {y}) in {os.path.basename(d[3])}"
 
-    def assign(self, entries, film=KEEP, mode=KEEP, potential=KEEP, roi=KEEP, use=KEEP, notes=KEEP):
+    def assign(self, entries, film=KEEP, mode=KEEP, potential=KEEP, roi=KEEP, use=KEEP, notes=KEEP,
+               cv_start=KEEP):
         """Set fields of several entries. mode CA keeps a potential that is given (or the entry's);
-        mode CV or '' clears the potential; a potential alone makes the scan a CA."""
+        another mode clears it; a potential alone makes the scan a CA. cv_start (SPEC point) is kept
+        by CV only; a start point alone makes the scan a CV."""
         if mode is not KEEP and mode not in MODES:
-            raise ValueError(f"measurement must be one of CV, CA or blank, not '{mode}'")
+            raise ValueError(f"measurement must be one of CV, CA, OCV or blank, not '{mode}'")
+        if cv_start is not KEEP and cv_start is not None and int(cv_start) < 0:
+            raise ValueError("the CV start point is a SPEC point number, 0 or more")
         for e in entries:
             if film is not KEEP:
                 e.film = _clean(film)
@@ -401,10 +438,18 @@ class Library:
                 e.mode = mode
                 if mode != "CA":
                     e.potential = None
+                if mode != "CV":
+                    e.cv_start = None
             if potential is not KEEP:
                 e.potential = None if potential is None else float(potential)
                 if potential is not None and mode is KEEP:
                     e.mode = "CA"
+                    e.cv_start = None
+            if cv_start is not KEEP:
+                e.cv_start = None if cv_start is None else int(cv_start)
+                if cv_start is not None and mode is KEEP:
+                    e.mode = "CV"
+                    e.potential = None
             if roi is not KEEP:
                 e.roi = _clean(roi)
             if use is not KEEP:
@@ -442,15 +487,15 @@ def write_library(lib, path=None, remember=True):
     base = os.path.dirname(path)
     lines = [FORMAT,
              "# The data files are only read, never changed. Paths are relative to this file's folder.",
-             "# Tab separated. mode: CV, CA or blank; potential: the CA hold, in the unit below; roi blank: the",
-             "# default ROI; use: 1 or 0. The columns kind to command describe the data and are worked out",
-             "# again from the data when the library is opened.",
+             "# Tab separated. mode: CV, CA, OCV or blank; potential: the CA hold, in the unit below; cv_start:",
+             "# the SPEC point where a CV starts; roi blank: the default ROI; use: 1 or 0. The columns kind to",
+             "# command describe the data and are worked out again from the data when the library is opened.",
              "", "# [settings]"]
     lines += [f"{k}\t{_clean(lib.settings.get(k, ''))}" for k in SETTINGS]
     lines += ["", "# [sources]", "# id\twhat\tvalue\tsize\tmtime"]
     for s in lib.sources:
         lines.append(f"{s.id}\tlabel\t{_clean(s.label)}")
-        for what, p in [("spec", s.spec)] + [("sums", q) for q in s.sums]:
+        for what, p in ([("spec", s.spec)] if s.spec else []) + [("sums", q) for q in s.sums]:
             st = s.stamps.get(p) or _stamp(p)
             extra = f"\t{st[0]}\t{st[1]:.3f}" if st else ""
             lines.append(f"{s.id}\t{what}\t{_rel(p, base)}{extra}")
@@ -458,7 +503,7 @@ def write_library(lib, path=None, remember=True):
     fmt = lambda v, d=4: "" if v is None or not np.isfinite(v) else f"{v:.{d}g}"
     for e in lib.entries:
         vals = (e.source, str(e.scan), _clean(e.film), e.mode, "" if e.potential is None else f"{e.potential:.6g}",
-                _clean(e.roi), "1" if e.use else "0", e.kind, fmt(e.H), fmt(e.K), fmt(e.L), fmt(e.L_min),
+                "" if e.cv_start is None else str(e.cv_start), _clean(e.roi), "1" if e.use else "0", e.kind, fmt(e.H), fmt(e.K), fmt(e.L), fmt(e.L_min),
                 fmt(e.L_max), str(e.points), _clean(e.command), _clean(e.notes))
         lines.append("\t".join(vals))
     tmp = path + ".tmp"
@@ -481,11 +526,16 @@ def read_library(path, load=True):
     lib = Library()
     lib.path = path
     section = None
+    columns = SCAN_COLUMNS_1
     for raw in text.splitlines():
         line = raw.rstrip("\r\n")
         m = re.match(r"#\s*\[(\w+)\]", line)
         if m:
             section = m.group(1)
+            continue
+        head = line.lstrip("#").strip().split("\t")
+        if section == "scans" and line.startswith("#") and head[:2] == ["source", "scan"]:
+            columns = tuple(h.strip() for h in head)             # the file names its columns
             continue
         if not line.strip() or line.startswith("#"):
             continue
@@ -500,7 +550,7 @@ def read_library(path, load=True):
                 lib.sources.append(src)
             if what == "label":
                 src.label = value
-            elif what in ("spec", "sums"):
+            elif what in ("spec", "sums") and value.strip():
                 p = os.path.normpath(value if os.path.isabs(value) else os.path.join(base, value))
                 if what == "spec":
                     src.spec = p
@@ -512,8 +562,8 @@ def read_library(path, load=True):
                     except ValueError:
                         pass
         elif section == "scans" and len(parts) >= 7:
-            parts += [""] * (len(SCAN_COLUMNS) - len(parts))
-            row = dict(zip(SCAN_COLUMNS, parts))
+            row = dict.fromkeys(SCAN_COLUMNS, "")
+            row.update(zip(columns, parts))
             try:
                 scan = int(row["scan"])
             except ValueError:
@@ -529,19 +579,64 @@ def read_library(path, load=True):
                       row["notes"].strip())
             if E is not None and e.mode == "":
                 e.mode = "CA"
+            start = row["cv_start"].strip()
+            try:
+                e.cv_start = int(float(start)) if start and e.mode in ("", "CV") else None
+            except ValueError:
+                raise ValueError(f"scan {row['source']} {scan}: CV start '{start}' is not a point number")
+            if e.cv_start is not None:
+                e.mode = "CV"
             e.command = row["command"].strip()
+            e.kind = row["kind"].strip()                          # until the data say otherwise
+            for name in ("H", "K", "L", "L_min", "L_max"):
+                try:
+                    setattr(e, name, float(row[name]) if row[name].strip() else math.nan)
+                except ValueError:
+                    pass
+            if e.kind == "rod" and not np.isfinite(e.L) and np.isfinite(e.L_min) and np.isfinite(e.L_max):
+                e.L = (e.L_min + e.L_max) / 2
             lib.entries.append(e)
     if load:
         lib.load()
     return lib
 
 
+FIELDS = ("film", "mode", "potential", "cv_start", "roi", "use", "notes")
+
+
+def apply_assignments(lib, other, sid, from_source=None):
+    """Copy the assignments (film, measurement, potential, CV start, ROI, use, notes) of another
+    library's scans onto the scans of source `sid` of lib, by scan number. from_source: the other
+    library's source to take them from (None: every source). A scan the data do not have yet gets an
+    entry (kind missing), so the assignment is there once it is processed. Returns (matched, added)."""
+    if lib.source(sid) is None:
+        raise ValueError(f"no source {sid} in the library")
+    if isinstance(other, (str, os.PathLike)):
+        other = read_library(other, load=False)
+    matched = added = 0
+    for o in other.entries:
+        if from_source is not None and o.source != from_source:
+            continue
+        e = lib.entry(sid, o.scan)
+        if e is None:
+            e = Entry(sid, o.scan, kind="missing", H=o.H, K=o.K, L=o.L, L_min=o.L_min, L_max=o.L_max,
+                      command=o.command)
+            lib.entries.append(e)
+            added += 1
+        else:
+            matched += 1
+        for name in FIELDS:
+            setattr(e, name, copy.copy(getattr(o, name)))
+    order = {s.id: i for i, s in enumerate(lib.sources)}
+    lib.entries.sort(key=lambda e: (order.get(e.source, 99), e.scan))
+    return matched, added
+
+
 # ------------------------------------------------------------------ comparisons
 def select(lib, kind, modes=None, films=None, potential=None, rod=None, L=None, tol=TOL, used_only=True):
-    """Entries of one kind ('rod' or 'stationary'). modes: a set of 'CV', 'CA', '' (None: any); films: a
-    set of film names, '' for no film (None: any); potential: CA scans held at it (scans that are not
-    CA pass);
-    rod: (h, k); L: stationary scans within tol of it."""
+    """Entries of one kind ('rod' or 'stationary'). modes: a set of 'CV', 'CA', 'OCV', '' (None: any);
+    films: a set of film names, '' for no film (None: any); potential: a number (CA scans held at it)
+    or 'OCV' (OCV scans); CV and unassigned scans pass; rod: (h, k); L: stationary scans within tol."""
     out = []
     for e in lib.entries:
         if e.kind != kind or (used_only and not e.use):
@@ -550,8 +645,12 @@ def select(lib, kind, modes=None, films=None, potential=None, rod=None, L=None, 
             continue
         if films is not None and e.film not in films:
             continue
-        if potential is not None and e.mode == "CA" and (e.potential is None or abs(e.potential - potential) > E_TOL):
-            continue
+        if potential is not None and e.mode in HOLDS:
+            if potential == OCV:
+                if e.mode != OCV:
+                    continue
+            elif e.mode != "CA" or e.potential is None or abs(e.potential - float(potential)) > E_TOL:
+                continue
         if rod is not None and e.rod != tuple(rod):
             continue
         if L is not None and not (np.isfinite(e.L) and abs(e.L - L) <= tol):
@@ -596,8 +695,8 @@ def group_label(lib, e, colour_by):
 
 def group_key(lib, e, colour_by):
     """Sort key of a trace's group: films in natural order, CV before CA, potentials by value."""
-    cond = (0, 0.0) if e.mode == "CV" else (1, e.potential if e.potential is not None else math.inf) \
-        if e.mode == "CA" else (2, 0.0)
+    cond = {"CV": (0, 0.0), OCV: (1, -math.inf)}.get(e.mode) or \
+        ((1, e.potential if e.potential is not None else math.inf) if e.mode == "CA" else (2, 0.0))
     film = natural_key(e.film) if e.film else [(2, 0.0, "")]
     if colour_by == "potential":
         return (cond, film)
@@ -620,8 +719,9 @@ def time_axis(scan, count_time=None):
 
 
 def trace(lib, e, x=X_TIME, mon_ref=None):
-    """Trace of one entry: its ROI against L (rod scans) or x (stationary: X_TIME, X_POINT or a SPEC
-    column), divided by the normalisation columns of the library's settings."""
+    """Trace of one entry: its ROI against L (rod scans) or x (stationary: X_TIME, X_CV, X_POINT or a
+    SPEC column), divided by the normalisation columns of the library's settings; sigma is the
+    counting error with the systematic error (sys_error, % of I) added in quadrature."""
     d = lib.data(e)
     roi = lib.effective_roi(e)
     if roi is None:
@@ -656,6 +756,13 @@ def trace(lib, e, x=X_TIME, mon_ref=None):
             f = f / v
     y = I * f
     s = sig * f if sig is not None else None
+    try:
+        pct = float(st.get("sys_error") or 0)
+    except ValueError:
+        pct = 0.0
+    if pct > 0:
+        floor = np.abs(y) * pct / 100
+        s = np.sqrt(s ** 2 + floor ** 2) if s is not None else floor
     if e.kind == "rod":
         Lc = _column(scan, "L")
         if Lc is None:
@@ -663,11 +770,17 @@ def trace(lib, e, x=X_TIME, mon_ref=None):
         xs, xlabel = Lc[img], "L (r.l.u.)"
     elif x == X_POINT or scan is None:
         xs, xlabel = img.astype(float), "SPEC point"
-    elif x == X_TIME:
+    elif x in (X_TIME, X_CV):
         t, how = time_axis(scan, st.get("count_time"))
         if t is None:
             xs, xlabel = img.astype(float), "SPEC point"
             notes.append("no time column: plotted against the SPEC point")
+        elif x == X_CV:
+            xs, xlabel = t[img], X_CV
+            if e.cv_start is not None and 0 <= e.cv_start < t.size and np.isfinite(t[e.cv_start]):
+                xs = xs - t[e.cv_start]
+            else:
+                notes.append("no CV start point: t = 0 at the scan start")
         else:
             xs, xlabel = t[img], "time from scan start (s)"
     else:

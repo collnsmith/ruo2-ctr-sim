@@ -14,8 +14,8 @@ from PyQt5.QtCore import QItemSelectionModel, Qt, QTimer
 from PyQt5.QtGui import QBrush, QColor, QKeySequence
 from PyQt5.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
                              QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                             QPushButton, QRadioButton, QShortcut, QSplitter, QTableWidget, QTableWidgetItem,
-                             QVBoxLayout, QWidget)
+                             QPushButton, QRadioButton, QShortcut, QSpinBox, QSplitter, QTableWidget,
+                             QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ctrfit.app.datatools.common import (SafeCanvas, StatusMixin, group, hint, primary_button, row, run_tool,
                                          sidebar)
@@ -35,12 +35,13 @@ NONE = "(none)"
 ANY = "(any)"
 NO_FILM = "(no film)"
 KIND_ITEMS = ("Rod scans (I vs L)", "Stationary scans (I vs time)")
-MODE_ITEMS = ("CA", "CV", "CV and CA", "any (also unassigned)")
-MODE_SETS = ({"CA"}, {"CV"}, {"CV", "CA"}, None)
-COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Measurement", "Potential", "ROI", "Notes",
-           "SPEC command")
-C_USE, C_SRC, C_SCAN, C_KIND, C_HK, C_L, C_PTS, C_FILM, C_MODE, C_E, C_ROI, C_NOTES, C_CMD = range(len(COLUMNS))
-TYPED = (C_FILM, C_E, C_NOTES)               # typed with several rows selected: set for all of them
+MODE_ITEMS = ("CA / OCV", "CV", "all assigned", "any (also unassigned)")
+MODE_SETS = ({"CA", "OCV"}, {"CV"}, {"CV", "CA", "OCV"}, None)
+COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Measurement", "Potential", "CV start", "ROI",
+           "Notes", "SPEC command")
+(C_USE, C_SRC, C_SCAN, C_KIND, C_HK, C_L, C_PTS, C_FILM, C_MODE, C_E, C_START, C_ROI, C_NOTES,
+ C_CMD) = range(len(COLUMNS))
+TYPED = (C_FILM, C_E, C_START, C_NOTES)      # typed with several rows selected: set for all of them
 TODO = QColor("#fff1db")                     # a field still to fill
 BAD = QColor("#fde2e4")
 PALETTE = ("#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf", "#7f7f7f",
@@ -110,8 +111,12 @@ class LibraryWindow(StatusMixin, QMainWindow):
         b_ref.setToolTip("Read the data files again (new scans are added, assignments kept)")
         b_rm.clicked.connect(lambda: self.remove_source())
         b_ref.clicked.connect(lambda: self.refresh())
+        b_imp = QPushButton("Import assignments…")
+        b_imp.setToolTip("Film, measurement, potential, CV start, ROI and notes from another library or "
+                         "assignment file, onto the scans of the selected SPEC file (by scan number)")
+        b_imp.clicked.connect(lambda: self.import_dialog())
         dl.addWidget(row(b_add, b_more, stretch_first=False))
-        dl.addWidget(row(b_rm, b_ref, 1, stretch_first=False))
+        dl.addWidget(row(b_rm, b_ref, b_imp, stretch_first=False))
         dl.addWidget(hint("Files are opened for reading only. The library refers to them by path (relative to "
                           "the library file), so keep the folders together when moving them."))
 
@@ -124,13 +129,23 @@ class LibraryWindow(StatusMixin, QMainWindow):
         b_film = QPushButton("Set")
         b_film.clicked.connect(lambda: self.assign_selected(film=self._film.currentText()))
         af.addRow("Film", row(self._film, b_film))
-        self._rb_cv, self._rb_ca = QRadioButton("CV"), QRadioButton("CA at")
-        self._rb_cv.setToolTip("Measured during a cyclic voltammogram (nothing else to set)")
+        self._rb_cv, self._rb_ca, self._rb_ocv = QRadioButton("CV"), QRadioButton("CA at"), QRadioButton("OCV")
+        self._rb_cv.setToolTip("Measured during a cyclic voltammogram; the start point is optional")
         self._rb_ca.setToolTip("Chronoamperometry: the potential held at this value")
+        self._rb_ocv.setToolTip("At open circuit (no potential applied)")
         self._rb_ca.setChecked(True)
         bg = QButtonGroup(self)
-        bg.addButton(self._rb_cv)
-        bg.addButton(self._rb_ca)
+        for b in (self._rb_cv, self._rb_ca, self._rb_ocv):
+            bg.addButton(b)
+        self._start = QSpinBox()
+        self._start.setRange(-1, 1000000)
+        self._start.setValue(-1)
+        self._start.setSpecialValueText("start point not set")
+        self._start.setPrefix("starts at point ")
+        self._start.setToolTip("SPEC point (0-based) where the CV starts: t = 0 on the 'time from CV start' axis. "
+                               "Not set: the scans keep the start they have.")
+        self._start.setEnabled(False)
+        self._rb_cv.toggled.connect(self._start.setEnabled)
         self._pot = QDoubleSpinBox()
         self._pot.setRange(-5, 5)
         self._pot.setDecimals(3)
@@ -142,8 +157,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         b_mode.clicked.connect(lambda: self.assign_selected(**self._mode_fields()))
         b_clear.setToolTip("Back to no measurement assigned")
         b_clear.clicked.connect(lambda: self.assign_selected(mode=""))
-        af.addRow("Measurement", row(self._rb_cv, self._rb_ca, self._pot, stretch_first=False))
-        af.addRow("", row(b_mode, b_clear, 1, stretch_first=False))
+        af.addRow("Measurement", row(self._rb_cv, self._start, stretch_first=False))
+        af.addRow("", row(self._rb_ca, self._pot, stretch_first=False))
+        af.addRow("", row(self._rb_ocv, 1, b_mode, b_clear, stretch_first=False))
         self._roi_set = QComboBox()
         b_roi = QPushButton("Set")
         b_roi.clicked.connect(lambda: self.assign_selected(roi=self._roi_value(self._roi_set.currentText())))
@@ -158,8 +174,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         b_use.clicked.connect(lambda: self.assign_selected(use=True))
         b_skip.clicked.connect(lambda: self.assign_selected(use=False))
         af.addRow("", row(b_use, b_skip, 1, stretch_first=False))
-        af.addRow(hint("Or edit the table: typing a film, potential or note with several rows selected sets "
-                       "them all; a potential makes the scan a CA. Ctrl+Z undoes, Ctrl+Y redoes."))
+        af.addRow(hint("Or edit the table: typing a film, potential, CV start or note with several rows selected "
+                       "sets them all; a potential makes the scan a CA, a start point a CV. Ctrl+Z undoes, "
+                       "Ctrl+Y redoes."))
 
         # intensity
         ig, iff = group("Intensity")
@@ -171,10 +188,19 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._ctime.setToolTip("Count time per point (I is divided by it)")
         for w in (self._roi_def, self._monitor, self._transm, self._ctime):
             w.currentIndexChanged.connect(self._settings_changed)
+        self._sys = QDoubleSpinBox()
+        self._sys.setRange(0, 100)
+        self._sys.setDecimals(1)
+        self._sys.setSingleStep(1)
+        self._sys.setSuffix(" % of I")
+        self._sys.setToolTip("Systematic error added in quadrature to the counting error (error band and exported "
+                             "I_err); usually 5 to 10 %")
+        self._sys.valueChanged.connect(self._settings_changed)
         iff.addRow("Default ROI", self._roi_def)
         iff.addRow("Monitor", self._monitor)
         iff.addRow("Transmission", self._transm)
         iff.addRow("Count time", self._ctime)
+        iff.addRow("Systematic error", self._sys)
 
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -476,6 +502,32 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self.lib.remove_source(src.id)
         self._after_change(f"Removed {src.id} {src.label} from the library (the files are untouched; Ctrl+Z undoes)")
 
+    def import_dialog(self):
+        path = QFileDialog.getOpenFileName(self, "Import assignments (a library or assignment file)", self._folder(),
+                                           "Scan library (*.txt);;All files (*)")[0]
+        return self.import_assignments(path) if path else None
+
+    def import_assignments(self, path, sid=None):
+        """Film, measurement, potential, CV start, ROI, use and notes of another library file onto the
+        scans of source sid (default: the selected one, or the only one), by scan number."""
+        src = self.lib.source(sid) if sid else (self._current_source() or
+                                                (self.lib.sources[0] if len(self.lib.sources) == 1 else None))
+        if src is None:
+            self.say("Add the SPEC file first (or pick it in the Data list), then import its assignments", error=True)
+            return None
+
+        def go():
+            other = lb.read_library(path, load=False)
+            self._checkpoint()
+            matched, added = lb.apply_assignments(self.lib, other, src.id)
+            for key in ("unit", "sys_error", "roi"):              # the file's settings if this library has none
+                if other.settings.get(key) and self.lib.settings.get(key) in ("", "0", None):
+                    self.lib.settings[key] = other.settings[key]
+            self._after_change(f"Imported {matched + added} assignment(s) onto {src.id} {src.label}: {matched} "
+                               f"scan(s) in the data, {added} not (yet)")
+            return matched, added
+        return self.guarded(go)
+
     def refresh(self):
         def go():
             self.lib.load()
@@ -528,6 +580,12 @@ class LibraryWindow(StatusMixin, QMainWindow):
                 combo.addItem(value)                   # a setting the data no longer have stays visible
             combo.setCurrentText(value)
             combo.blockSignals(False)
+        self._sys.blockSignals(True)
+        try:
+            self._sys.setValue(float(st.get("sys_error") or 0))
+        except ValueError:
+            self._sys.setValue(0)
+        self._sys.blockSignals(False)
         films = self.lib.films()
         text = self._film.currentText()
         self._film.blockSignals(True)
@@ -542,7 +600,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
             return
         col = lambda c: "" if c.currentText() in (NONE, AUTO_ROI, "") else c.currentText()
         new = {"roi": col(self._roi_def), "monitor": col(self._monitor), "transmission": col(self._transm),
-               "count_time": col(self._ctime)}
+               "count_time": col(self._ctime), "sys_error": f"{self._sys.value():g}"}
         if all(self.lib.settings.get(k, "") == v for k, v in new.items()):
             return
         self._checkpoint()
@@ -613,6 +671,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
                  C_PTS: self._item(str(e.points)), C_FILM: self._item(e.film, True),
                  C_MODE: self._item(""), C_E: self._item(lb.format_potential(e.potential) if e.potential is not None
                                                           else "", True),
+                 C_START: self._item("" if e.cv_start is None else str(e.cv_start), True,
+                                     "SPEC point where the CV starts (t = 0 on 'time from CV start'); typing one "
+                                     "makes the scan a CV"),
                  C_ROI: self._item(""), C_NOTES: self._item(e.notes, True), C_CMD: self._item(e.command)}
         if not e.film:
             cells[C_FILM].setBackground(QBrush(TODO))
@@ -631,8 +692,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         mode = t.cellWidget(r, C_MODE)
         if not isinstance(mode, QComboBox):
             mode = QComboBox()
-            mode.addItems(["", "CV", "CA"])
-            mode.setToolTip("CV: during a cyclic voltammogram; CA: potential held (type it under Potential)")
+            mode.addItems(list(lb.MODES))
+            mode.setToolTip("CV: during a cyclic voltammogram; CA: potential held (type it under Potential); "
+                            "OCV: at open circuit")
             mode.currentTextChanged.connect(self._row_mode)
             t.setCellWidget(r, C_MODE, mode)
         mode.blockSignals(True)
@@ -698,7 +760,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
 
     def _mode_fields(self):
         if self._rb_cv.isChecked():
-            return {"mode": "CV"}
+            return {"mode": "CV"} if self._start.value() < 0 else {"mode": "CV", "cv_start": self._start.value()}
+        if self._rb_ocv.isChecked():
+            return {"mode": "OCV"}
         return {"mode": "CA", "potential": self._pot.value()}
 
     def assign_selected(self, **fields):
@@ -758,7 +822,16 @@ class LibraryWindow(StatusMixin, QMainWindow):
         rows = self._selected_rows()
         targets = [x for x in (self._entry_at(i) for i in rows) if x is not None] if r in rows and len(rows) > 1 \
             else [e]
-        if c == C_E:
+        if c == C_START:
+            try:
+                fields = {"cv_start": int(text) if text else None}
+                if fields["cv_start"] is not None and fields["cv_start"] < 0:
+                    raise ValueError
+            except ValueError:
+                self.say(f"CV start '{text}' is not a SPEC point number (0 or more)", error=True)
+                QTimer.singleShot(0, lambda: self._refresh_rows([e]))
+                return
+        elif c == C_E:
             try:
                 fields = {"potential": float(text.split()[0].replace(",", ".")) if text else None}
             except ValueError:
@@ -785,7 +858,8 @@ class LibraryWindow(StatusMixin, QMainWindow):
             src = self.lib.source(e.source)
             text = " ".join(str(x) for x in (e.source, src.label if src else "", e.scan, e.kind, e.film, e.mode,
                                              lb.format_potential(e.potential) if e.potential is not None else "",
-                                             e.roi, e.notes, e.command, f"{_fmt(e.H)} {_fmt(e.K)}")).lower()
+                                             e.roi, e.notes, e.command, f"{_fmt(e.H)} {_fmt(e.K)}",
+                                             "" if e.cv_start is None else f"start {e.cv_start}")).lower()
             hide = (todo and e.assigned and not (e.mode == "CA" and e.potential is None)) or \
                 any(w not in text for w in words)
             self._table.setRowHidden(r, hide)
@@ -825,8 +899,8 @@ class LibraryWindow(StatusMixin, QMainWindow):
         cur = self._pot_f.currentText()
         self._pot_f.clear()
         self._pot_f.addItem(ANY, None)
-        for E in self.lib.potentials(shown):
-            self._pot_f.addItem(lb.format_potential(E, unit), E)
+        for E in self.lib.holds(shown):
+            self._pot_f.addItem(lb.OCV if E == lb.OCV else lb.format_potential(E, unit), E)
         self._pot_f.setCurrentText(cur if self._pot_f.findText(cur) >= 0 else ANY)
         self._pot_f.setEnabled(modes is None or "CA" in modes)
         self._films.blockSignals(True)
@@ -840,7 +914,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._films.blockSignals(False)
         cur = self._x.currentText()
         self._x.clear()
-        self._x.addItems([lb.X_TIME, lb.X_POINT] + [c for c in self.lib.spec_columns()
+        self._x.addItems([lb.X_TIME, lb.X_CV, lb.X_POINT] + [c for c in self.lib.spec_columns()
                                                     if c not in ("H", "K", "L")])
         if self._pending_x and self._x.findText(self._pending_x) >= 0:
             self._x.setCurrentText(self._pending_x)
@@ -876,6 +950,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
             self._kind.setCurrentIndex(1)
             self._mode_f.setCurrentIndex(1)
             self._chk_log.setChecked(False)
+            self._pending_x = lb.X_CV                   # CVs lined up at their start points
         else:
             self._kind.setCurrentIndex(0)
             self._mode_f.setCurrentIndex(0)
@@ -910,8 +985,14 @@ class LibraryWindow(StatusMixin, QMainWindow):
         rod = tuple(where[:2]) if where else None
         L = where[2] if where and kind == "stationary" else None
         es = lb.select(self.lib, kind, modes, films, E, rod, L)
-        what = {0: "CA", 1: "CV", 2: "CV and CA", 3: "All"}[self._mode_f.currentIndex()]
-        parts = [what + (f" at {lb.format_potential(E, unit)}" if E is not None else "")]
+        what = {0: "CA / OCV", 1: "CV", 2: "All assigned", 3: "All"}[self._mode_f.currentIndex()]
+        if E == lb.OCV:
+            head = "OCV"
+        elif E is not None:
+            head = ("CA" if self._mode_f.currentIndex() == 0 else what) + f" at {lb.format_potential(E, unit)}"
+        else:
+            head = what
+        parts = [head]
         if kind == "rod":
             parts.append(f"rod {rod[0]} {rod[1]}" if rod else "every rod")
         else:
@@ -935,6 +1016,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._plot_info.setToolTip("")
         if not trs:
             msg = "No scans match: " + title
+            if es:
+                msg = (f"{len(es)} scan(s) match ({title}) but have no ROI sums loaded yet:\n"
+                       "Add SPEC + ROI sums (Data) to read them")
             if not self.lib.entries:
                 msg = "Add a SPEC file and its ROI sums, then assign film and CV / CA to the scans"
             elif not any(e.assigned for e in self.lib.entries):

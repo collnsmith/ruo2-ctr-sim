@@ -15,8 +15,9 @@ def rod_I(H, K, L):
     return 1e4 / (0.05 + np.sin(np.pi * L) ** 2) + 100 * (abs(H) + abs(K))
 
 
-def write_beamtime(folder, name, scale, seed=0):
-    """SPEC file and ROI sums of one film, `scale` times the same structure:
+def write_beamtime(folder, name, scale, seed=0, ksign=1):
+    """SPEC file and ROI sums of one film, `scale` times the same structure (ksign=-1: every K the
+    other way, i.e. the symmetry equivalents (0 -1), (1 -1), ...):
         1, 2  rod 0 1 (scan 2 is 1.2x scan 1)       4  rod 1 1
         3     loopscan at 0 1 0.5 (#Q, no H K L columns), intensity changing in time
         5     hklscan that stays at 0 1 1.5 (stationary from its columns)
@@ -46,6 +47,7 @@ def write_beamtime(folder, name, scale, seed=0):
                                      4: (1, 1, 0.5, 1.5, 20, 1.0)}.items():
         L = np.linspace(L0, L1, n)
         mon, tr, ct, I = counts(sn, scale * f * rod_I(H, K, L), n)
+        K = ksign * K
         spec += [f"#S {sn}  hklscan {H} {H} {K} {K} {L0} {L1} {n - 1} 0.5", "#D Sat Mar 07 14:10:00 2026",
                  "#L H  K  L  Epoch  Seconds  Monitor  transm  Detector"]
         spec += [f"{H} {K} {l:.6f} {100 * sn + i} {c:g} {m:.3f} {x:g} {d:.3f}" for i, (l, c, m, x, d) in
@@ -53,22 +55,22 @@ def write_beamtime(folder, name, scale, seed=0):
         add_sums(sn, I)
     n = 40
     mon, tr, ct, I = counts(3, scale * rod_I(0, 1, 0.5) * (1 + 0.3 * np.sin(np.arange(n) / 5)), n)
-    spec += ["#S 3  loopscan 40 0.5 0", "#D Sat Mar 07 14:20:00 2026", "#Q 0 1 0.5",
+    spec += ["#S 3  loopscan 40 0.5 0", "#D Sat Mar 07 14:20:00 2026", f"#Q 0 {ksign} 0.5",
              "#L Time  Epoch  Seconds  Monitor  transm  Detector"]
     spec += [f"{2.0 * i:g} {1000 + 2.0 * i:g} {c:g} {m:.3f} {x:g} {d:.3f}" for i, (c, m, x, d) in
              enumerate(zip(ct, mon, tr, I))] + [""]
     add_sums(3, I)
     mon, tr, ct, I = counts(5, scale * rod_I(0, 1, 1.5) * np.linspace(1, 0.5, n), n)
-    spec += ["#S 5  hklscan 0 0 1 1 1.5 1.5 39 0.5", "#D Sat Mar 07 14:30:00 2026",
+    spec += [f"#S 5  hklscan 0 0 {ksign} {ksign} 1.5 1.5 39 0.5", "#D Sat Mar 07 14:30:00 2026",
              "#L H  K  L  Epoch  Seconds  Monitor  transm  Detector"]
-    spec += [f"0 1 1.5 {2000 + i} {c:g} {m:.3f} {x:g} {d:.3f}" for i, (c, m, x, d) in
+    spec += [f"0 {ksign} 1.5 {2000 + i} {c:g} {m:.3f} {x:g} {d:.3f}" for i, (c, m, x, d) in
              enumerate(zip(ct, mon, tr, I))] + [""]
     add_sums(5, I)
     th = np.linspace(-1, 1, 10)
     mon, tr, ct, I = counts(6, scale * 1e3 * np.exp(-th ** 2), 10)
     spec += ["#S 6  ascan th -1 1 9 0.5", "#D Sat Mar 07 14:40:00 2026",
              "#L th  H  K  L  Epoch  Seconds  Monitor  transm  Detector"]
-    spec += [f"{t:g} {0.05 * t:.5f} {1 - 0.05 * t:.5f} 0.5 {3000 + i} {c:g} {m:.3f} {x:g} {d:.3f}"
+    spec += [f"{t:g} {0.05 * t:.5f} {ksign * (1 - 0.05 * t):.5f} 0.5 {3000 + i} {c:g} {m:.3f} {x:g} {d:.3f}"
              for i, (t, c, m, x, d) in enumerate(zip(th, ct, mon, tr, I))] + [""]
     add_sums(6, I)
     sums += [""] + images.roi_positions_section(used)
@@ -125,8 +127,11 @@ def test_library_reads_the_scans(tmp_path):
     # the same SPEC file again with a second background subtraction run: its ROIs are kept apart
     second = tmp_path / "data" / "a_rerun.txt"
     shutil.copy(ua, second)
+    os.utime(ua, ns=(1_700_000_000 * 10 ** 9,) * 2)                                   # the re-run is newer
     assert lib.add_source(sa, [second]) is src and len(src.sums) == 2 and len(lib.sources) == 1
-    assert by[1].rois == ["ROI1", "ROI2", "ROI1 (a_rerun)", "ROI2 (a_rerun)"]
+    assert by[1].rois == ["ROI1", "ROI2", "ROI1 (a_sums)", "ROI2 (a_sums)"]          # the newest keeps the names
+    assert lib.data(by[1]).rois["ROI1"][3] == str(second)
+    assert any("scan 1 is in 2 ROI sums files" in n and "a_rerun.txt" in n for n in lib.notes)
     with pytest.raises(ValueError, match="not a ROI sums file"):
         lib.add_source(sa, [sa])
 
@@ -345,6 +350,72 @@ def test_assignment_file_before_the_data(tmp_path):
     assert (e.mode, e.potential, e.roi, e.kind) == ("CA", 0.7, "ROI2", "rod")
 
 
+def test_folder_of_roi_sums_files(tmp_path):
+    """ROI sums as single files in one folder (one scan or several per file): the folder is listed again
+    on every load, so files written later appear; other .txt files there are skipped."""
+    (sa, ua, ta), _ = two_films(tmp_path)
+    folder = tmp_path / "sums"
+    folder.mkdir()
+    lines = open(ua).read().split("\n\n")[0].splitlines()
+    rows = lambda *scans: [lines[0]] + [l for l in lines[1:] if int(l.split("\t")[0]) in scans]
+    (folder / "scan_001_002.txt").write_text("\n".join(rows(1, 2)) + "\n")
+    (folder / "scan_003.txt").write_text("\n".join(rows(3)) + "\n")
+    (folder / "scans_004_006.txt").write_text("\n".join(rows(4, 5, 6)) + "\n")
+    (folder / "notes.txt").write_text("not a sums file\n")
+    lib = lb.Library()
+    lib.add_source(sa, folder=folder)
+    lib.assign([lib.entry("S1", 3)], film="7 nm", mode="CV", cv_start=2)
+    assert [e.scan for e in lib.entries] == [1, 2, 3, 4, 5, 6] and lib.entry("S1", 4).points == 20
+    path = lb.write_library(lib, folder / "library.txt")                            # saved next to the sums
+    assert "S1\tfolder\t.\n" in open(path).read()
+    back = lb.read_library(path)
+    assert [e.scan for e in back.entries] == [1, 2, 3, 4, 5, 6] and back.notes == []  # the library is skipped
+    assert lb.traces(back, [back.entry("S1", 3)])[0][0].y.size == 40
+    # a scan processed later, and scan 3 run again with another ROI: both show up on the next load
+    (folder / "scan_007.txt").write_text("\n".join([lines[0]] + [l.replace("001\t", "007\t", 1)
+                                                                  for l in lines[1:] if l.startswith("001\t")]) + "\n")
+    (folder / "scan_003_redo.txt").write_text("scan\timage\tROI5\tROI5_err\n" + "".join(
+        f"003\t{i:03d}\t{10.0 + i}\t1\n" for i in range(40)))
+    old = 1_700_000_000 * 10 ** 9
+    for f in ("scan_001_002.txt", "scan_003.txt", "scans_004_006.txt", "scan_007.txt"):
+        os.utime(folder / f, ns=(old, old))
+    notes = back.load()
+    assert back.entry("S1", 7) is not None and not back.entry("S1", 7).assigned
+    assert any("2 new ROI sums file(s)" in n for n in notes)
+    e3 = back.entry("S1", 3)
+    assert e3.rois == ["ROI5", "ROI1", "ROI2"] and (e3.film, e3.cv_start) == ("7 nm", 2)
+    with pytest.raises(ValueError, match="read only"):
+        lb.write_library(back, folder / "scan_003.txt")
+    with pytest.raises(ValueError, match="no ROI sums files"):
+        lib.add_source(sa, folder=tmp_path / "data" / "..")
+
+
+def test_symmetry_equivalents_together(tmp_path):
+    """p2mm: (0 1) and (0 -1) are one rod (and one CV point); each keeps its own rod in the traces."""
+    lib, _, _ = assigned_library(tmp_path)
+    sc, uc, tc = write_beamtime(tmp_path / "data", "c", 3.0, seed=2, ksign=-1)
+    src = lib.add_source(sc, [uc], "film C")
+    es = [e for e in lib.entries if e.source == src.id]
+    lib.assign(es, film="4 nm")
+    lib.assign([lib.entry(src.id, 1)], mode="CA", potential=1.0)
+    lib.assign([lib.entry(src.id, 3)], mode="CV")
+    assert lib.entry(src.id, 1).rod == (0, -1)
+    plain = lb.select(lib, "rod", {"CA"}, potential=1.0, rod=(0, 1))
+    both = lb.select(lib, "rod", {"CA"}, potential=1.0, rod=(0, 1), equiv=lb.P2MM)
+    assert {e.key for e in both} - {e.key for e in plain} == {(src.id, 1)}
+    assert lb.rods(lb.select(lib, "rod"), lb.P2MM) == [(0, 1), (1, 1)]
+    assert lb.rods(lb.select(lib, "rod")) == [(0, -1), (0, 1), (1, -1), (1, 1)]
+    assert lb.members(both, (0, 1), lb.P2MM) == [(0, 1), (0, -1)]
+    st = lb.select(lib, "stationary", {"CV"})
+    assert lb.positions(st, equiv=lb.P2MM) == [(0, 1, 0.5), (0, 1, 1.5)]
+    assert lb.positions(st) == [(0, -1, 0.5), (0, 1, 0.5), (0, 1, 1.5)]
+    trs, _ = lb.traces(lib, lb.select(lib, "stationary", {"CV"}, rod=(0, 1), L=0.5, equiv=lb.P2MM),
+                       colour_by="rod")
+    assert sorted({t.group for t in trs}) == ["rod 0 -1", "rod 0 1"]
+    t = {tr.entry.key: tr for tr in lb.traces(lib, both)[0]}
+    assert np.allclose(t[(src.id, 1)].y / t[("S1", 1)].y, 3.0, rtol=1e-6)            # the same rod, 3 x film A
+
+
 # ------------------------------------------------------------------ the tab
 @pytest.fixture
 def qapp():
@@ -480,6 +551,30 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     assert not w._fig.axes and "No scans match" in w._fig.texts[0].get_text()
     w.preset("cv")
     settle()
+    # symmetry equivalents: a film measured on (0 -1) joins the (0 1) comparison, in its own line style
+    sc, uc, _ = write_beamtime(tmp_path / "data", "c", 3.0, seed=2, ksign=-1)
+    w.add_source(sc, [uc], "film C")
+    w.select_scans([("S3", i) for i in range(1, 7)])
+    w.assign_selected(film="4 nm")
+    w.select_scans([("S3", 1)])
+    w._rb_ca.setChecked(True)
+    w._pot.setValue(1.0)
+    w.assign_selected(**w._mode_fields())
+    w.select_scans([])
+    w._norm.setCurrentText(lb.NORMS[0])
+    w.preset("ca")
+    settle()
+    ax = w._fig.axes[0]
+    assert w._equiv.currentText() == lb.P2MM and w._where.currentText() == "0 1  (0 1 / 0 -1)"
+    assert ax.get_title() == "CA at 1 V vs RHE, rods 0 1 and 0 -1"
+    styles = {l.get_label(): l.get_linestyle() for l in ax.get_lines()}
+    assert styles == {"2 nm, rod 0 1": "-", "4 nm, rod 0 -1": "--", "10 nm, rod 0 1": "-"}
+    w._equiv.setCurrentText(lb.EQUIVALENTS[0])
+    settle()
+    assert w._where.currentText() == "0 1" and [l.get_label() for l in w._fig.axes[0].get_lines()] == ["2 nm", "10 nm"]
+    w._equiv.setCurrentText(lb.P2MM)
+    w.preset("cv")
+    settle()
     # OCV, CV start and the systematic error in the tab
     w.select_scans([("S2", 4)])
     w._rb_ocv.setChecked(True)
@@ -515,15 +610,16 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     # the next window opens the library again, with the comparison settings
     w = ui.LibraryWindow()
     settle()
-    assert w.lib.path == path and w._table.rowCount() == 12 and w._kind.currentIndex() == 1
+    assert w.lib.path == path and w._table.rowCount() == 18 and w._kind.currentIndex() == 1
+    assert w._equiv.currentText() == lb.P2MM
     assert w._x.currentText() == lb.X_CV and w._state.text() == "Saved"
     assert w._table.cellWidget(w._row_of[("S1", 3)], ui.C_ROI).currentText() == "ROI2"
     # removing a source: undo brings it back
     w._sources.setCurrentRow(1)
     w.remove_source()
-    assert w._table.rowCount() == 6
+    assert w._table.rowCount() == 12
     w.undo()
-    assert w._table.rowCount() == 12 and w.lib.entry("S2", 1).film == "2 nm"
+    assert w._table.rowCount() == 18 and w.lib.entry("S2", 1).film == "2 nm"
     # assignments from another file, by scan number
     imp = lb.Library()
     imp.sources.append(lb.Source("S1", "", []))
@@ -533,6 +629,14 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     assert w.import_assignments(str(tmp_path / "imp.txt")) == (1, 1)
     assert w.lib.entry("S1", 2).mode == "OCV" and w.lib.entry("S1", 99).kind == "missing"
     assert "1 scan(s) in the data, 1 not (yet)" in w._status_label.text()
+    # the add dialog: a folder of ROI sums
+    folder = tmp_path / "sums_folder"
+    folder.mkdir()
+    shutil.copy(ub, folder / "b_part.txt")
+    dlg = ui.AddDataDialog(w, spec=str(sb), folder=str(folder))
+    assert dlg.found.text() == "1 ROI sums file(s) in this folder"
+    assert dlg.values() == {"spec": str(sb), "sums": [], "folder": str(folder), "label": ""}
+    dlg.deleteLater()
     # a new library that is never saved comes back as a draft
     w.new_library(ask=False)
     assert w._table.rowCount() == 0 and w._state.text() == ""

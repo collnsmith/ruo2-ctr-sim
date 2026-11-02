@@ -347,9 +347,12 @@ in a dialog):
   marker, size, left or right axis). "Refresh from plot" takes the working plot again and keeps the
   edits; the last style is reused for the next figure; "Copy image" puts it on the clipboard.
   "View options…" (the old figure options) only changes the working view.
-- **Scan library.** Sorts the background-subtracted scans for comparisons. "Add SPEC + ROI sums…" lists
-  every scan of the ROI sums files (several SPEC files, e.g. one per film or beamtime, each with one
-  or more ROI sums files) with its kind from the SPEC scan: rod (L moves), stationary (H K L fixed,
+- **Scan library.** Sorts the background-subtracted scans for comparisons. "Add SPEC + ROI sums…" takes
+  a SPEC file and its ROI sums: a folder (every ROI sums `.txt` file in it, one scan or several per
+  file; other `.txt` files are skipped; the folder is listed again on Refresh, so sums written later
+  appear) or files picked one by one; several SPEC files can be added (e.g. one per beamtime). A scan
+  in several sums files (a re-run) gets the newest file's ROIs under their names, the older ones as
+  `<ROI> (<file>)`. Every scan is listed with its kind from the SPEC scan: rod (L moves), stationary (H K L fixed,
   from the columns or `#Q` for time scans), other. Assign to the selected rows: the film, the
   measurement (CV, optionally with the SPEC point where the CV starts; CA at a potential, in the
   library's unit, e.g. V vs RHE; or OCV, open circuit), the ROI, notes, use / skip; or type in the
@@ -370,8 +373,10 @@ in a dialog):
   "CVs at one H K L" (stationary scans during CVs at one point, against the time from each CV's
   start point, so the CVs line up, or from the scan start, the SPEC point or any SPEC column such as
   a potential counter) and "CAs on one rod" (rod scans held at one potential or at OCV, against L), or any mix of scans (rod or stationary), measurement,
-  rod / point, potential and films, coloured by film, potential, both, or scan; scans of one group
-  share a colour (a rod measured in two L ranges is one curve). Intensities are the ROI divided by the
+  rod / point, potential and films, coloured by film, potential, both, rod or scan; scans of one
+  group share a colour (a rod measured in two L ranges is one curve). "Equivalents ±H ±K (p2mm)"
+  (default) puts symmetry-equivalent rods together, e.g. (0 1) and (0 -1) at the same L, each drawn
+  with its own line style (the picked rod solid) so that disagreeing equivalents show. Intensities are the ROI divided by the
   monitor (relative to the mean monitor of the plotted scans), transmission and count time chosen
   under Intensity (not the geometric corrections: those are the same for one rod and L at a given
   energy and incidence angle, so comparisons on one rod are fair; use Processing for |F|); "÷ max"

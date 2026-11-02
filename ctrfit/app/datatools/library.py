@@ -12,10 +12,10 @@ from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as Navigatio
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QItemSelectionModel, Qt, QTimer
 from PyQt5.QtGui import QBrush, QColor, QKeySequence
-from PyQt5.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDoubleSpinBox, QFileDialog,
-                             QHeaderView, QLabel, QLineEdit, QListWidget, QListWidgetItem, QMainWindow, QMessageBox,
-                             QPushButton, QRadioButton, QShortcut, QSpinBox, QSplitter, QTableWidget,
-                             QTableWidgetItem, QVBoxLayout, QWidget)
+from PyQt5.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+                             QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
+                             QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QRadioButton, QShortcut, QSpinBox,
+                             QSplitter, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from ctrfit.app.datatools.common import (SafeCanvas, StatusMixin, group, hint, primary_button, row, run_tool,
                                          sidebar)
@@ -44,12 +44,107 @@ COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Measu
 TYPED = (C_FILM, C_E, C_START, C_NOTES)      # typed with several rows selected: set for all of them
 TODO = QColor("#fff1db")                     # a field still to fill
 BAD = QColor("#fde2e4")
+ROD_STYLES = (("-", "o"), ("--", "s"), (":", "^"), ("-.", "D"))   # one per rod of a set of equivalents
 PALETTE = ("#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf", "#7f7f7f",
            "#bcbd22")
 
 
 def _fmt(v, d=3):
     return "" if v is None or not np.isfinite(v) else f"{v:.{d}g}"
+
+
+def _rod_text(rod, members, L=None):
+    """'0 1', or '0 1  (0 1 / 0 -1)' for a set of equivalents (what was measured in brackets)."""
+    h, k = rod
+    text = f"{h} {k}" + (f" {L:.3g}" if L is not None else "")
+    if members and (len(members) > 1 or tuple(members[0]) != tuple(rod)):
+        text += "  (" + " / ".join(f"{a} {b}" for a, b in members) + ")"
+    return text
+
+
+class AddDataDialog(QDialog):
+    """A SPEC file and its ROI sums: every ROI sums file in a folder (listed again on each refresh, so
+    files written later appear), or files picked one by one. Everything is only read."""
+
+    def __init__(self, parent=None, spec="", folder="", fixed_spec=False):
+        super().__init__(parent)
+        self.setWindowTitle("Add data (read only)")
+        self.setMinimumWidth(660)
+        form = QFormLayout(self)
+        self.spec = QLineEdit(spec)
+        self.spec.setReadOnly(fixed_spec)
+        b_spec = QPushButton("Browse…")
+        b_spec.setEnabled(not fixed_spec)
+        b_spec.clicked.connect(self._pick_spec)
+        form.addRow("SPEC file", row(self.spec, b_spec))
+        self.rb_folder = QRadioButton("Every ROI sums file in a folder (new files appear on Refresh)")
+        self.rb_files = QRadioButton("ROI sums files picked one by one")
+        self.rb_folder.setChecked(True)
+        self.folder = QLineEdit(folder)
+        b_folder = QPushButton("Browse…")
+        b_folder.clicked.connect(self._pick_folder)
+        self.found = hint("")
+        self.files = []
+        self.files_label = QLabel("none picked")
+        b_files = QPushButton("Pick…")
+        b_files.clicked.connect(self._pick_files)
+        form.addRow(self.rb_folder)
+        form.addRow("Folder", row(self.folder, b_folder))
+        form.addRow("", self.found)
+        form.addRow(self.rb_files)
+        form.addRow("Files", row(self.files_label, b_files))
+        self.label = QLineEdit()
+        self.label.setPlaceholderText("(the SPEC file's name)")
+        form.addRow("Label", self.label)
+        note = hint("Files are only read. One file may hold one scan or several. Other .txt files in the folder "
+                    "(notes, the library) are skipped. Keep only this SPEC file's ROI sums in the folder: a scan "
+                    "number found in several files gets the newest file's ROIs.")
+        note.setMinimumHeight(note.fontMetrics().lineSpacing() * 4)
+        form.addRow(note)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+        self.folder.textChanged.connect(self._count)
+        self._count()
+        self.adjustSize()
+
+    def _count(self, *_):
+        d = self.folder.text().strip()
+        if d and os.path.isdir(d):
+            n = len(lb.sum_files(d))
+            self.found.setText(f"{n} ROI sums file(s) in this folder" if n else "no ROI sums files in this folder")
+        else:
+            self.found.setText("")
+
+    def _pick_spec(self):
+        p = QFileDialog.getOpenFileName(self, "SPEC file", os.path.dirname(self.spec.text()),
+                                        "SPEC (*.spec *.dat *.txt);;All files (*)")[0]
+        if p:
+            self.spec.setText(p)
+
+    def _start(self):
+        return self.folder.text() or os.path.dirname(self.spec.text())
+
+    def _pick_folder(self):
+        d = QFileDialog.getExistingDirectory(self, "Folder of ROI sums files", self._start())
+        if d:
+            self.folder.setText(d)
+            self.rb_folder.setChecked(True)
+
+    def _pick_files(self):
+        ps = QFileDialog.getOpenFileNames(self, "ROI sums files", self._start(), "ROI sums (*.txt);;All files (*)")[0]
+        if ps:
+            self.files = list(ps)
+            self.files_label.setText(f"{len(ps)} file(s): " + ", ".join(os.path.basename(p) for p in ps[:3])
+                                     + (" ..." if len(ps) > 3 else ""))
+            self.rb_files.setChecked(True)
+
+    def values(self):
+        """{'spec', 'sums', 'folder', 'label'} as add_source takes them."""
+        folder = self.rb_folder.isChecked()
+        return {"spec": self.spec.text().strip(), "sums": [] if folder else list(self.files),
+                "folder": self.folder.text().strip() or None if folder else None, "label": self.label.text().strip()}
 
 
 class LibraryWindow(StatusMixin, QMainWindow):
@@ -63,6 +158,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._row_of = {}
         self._films_off = set()               # films unticked in the comparison
         self._last_traces = []
+        self._sums_folder = ""                # the last ROI sums folder picked
         self._pending_x = None                # X axis from the settings, picked once its column is there
         self._loading = False
         self._timer = QTimer(self)
@@ -102,8 +198,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._sources.itemChanged.connect(self._source_renamed)
         dl.addWidget(self._sources)
         b_add, b_more = QPushButton("Add SPEC + ROI sums…"), QPushButton("More ROI sums…")
-        b_add.setToolTip("A SPEC file, then the ROI sums files of its scans (background subtraction output)")
-        b_more.setToolTip("Add ROI sums files to the selected SPEC file (e.g. another background subtraction run)")
+        b_add.setToolTip("A SPEC file and its ROI sums: every ROI sums file in a folder, or files picked")
+        b_more.setToolTip("More ROI sums (a folder or files) for the selected SPEC file, e.g. another background "
+                          "subtraction run")
         b_add.clicked.connect(lambda: self.add_source_dialog())
         b_more.clicked.connect(lambda: self.more_sums_dialog())
         b_rm, b_ref = QPushButton("Remove"), QPushButton("Refresh  (F5)")
@@ -257,6 +354,13 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._mode_f.addItems(MODE_ITEMS)
         self._where = QComboBox()
         self._where.setToolTip("Rod (H K) of rod scans, or H K L of stationary scans")
+        self._equiv = QComboBox()
+        self._equiv.addItems(list(lb.EQUIVALENTS))
+        self._equiv.setCurrentText(lb.P2MM)
+        self._equiv.setToolTip("±H ±K (p2mm): rods (H K), (-H K), (H -K), (-H -K) at the same L are one rod / point, "
+                               "plotted together with a line style per rod. The intensities here are not "
+                               "geometry-corrected, so equivalents that differ point to alignment, footprint or "
+                               "absorption differences (Processing gives R_sym)")
         self._pot_f = QComboBox()
         self._pot_f.setToolTip("CA scans held at this potential (CV scans are not filtered by it)")
         self._films = QListWidget()
@@ -284,13 +388,14 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._stack.setDecimals(1)
         self._stack.setValue(1.0)
         self._stack.setToolTip("Log intensity: each group drawn this factor above the one before (1: overlaid)")
-        for w in (self._kind, self._mode_f, self._where, self._pot_f, self._colour, self._x, self._norm):
+        for w in (self._kind, self._mode_f, self._equiv, self._where, self._pot_f, self._colour, self._x, self._norm):
             w.currentIndexChanged.connect(self._compare_changed)
         for w in (self._chk_log, self._chk_err, self._chk_sel):
             w.toggled.connect(self._compare_changed)
         self._stack.valueChanged.connect(self._compare_changed)
         cf.addRow("Scans", self._kind)
         cf.addRow("Measurement", self._mode_f)
+        cf.addRow("Equivalents", self._equiv)
         cf.addRow("Rod / point", self._where)
         cf.addRow("Potential", self._pot_f)
         cf.addRow("Films", self._films)
@@ -454,22 +559,23 @@ class LibraryWindow(StatusMixin, QMainWindow):
         return ""
 
     # ------------------------------------------------------------------ data
-    def add_source_dialog(self):
-        spec = QFileDialog.getOpenFileName(self, "SPEC file", self._folder(),
-                                           "SPEC (*.spec *.dat *.txt);;All files (*)")[0]
-        if not spec:
+    def add_source_dialog(self, src=None):
+        """The SPEC file and its ROI sums (a folder or files); src: more ROI sums for that source."""
+        dlg = AddDataDialog(self, spec=src.spec if src else "",
+                            folder=self._sums_folder or (os.path.dirname(src.spec) if src else self._folder()),
+                            fixed_spec=src is not None)
+        if dlg.exec_() != QDialog.Accepted:
             return None
-        sums = QFileDialog.getOpenFileNames(self, "ROI sums files of this SPEC file", os.path.dirname(spec),
-                                            "ROI sums (*.txt);;All files (*)")[0]
-        if not sums:
-            return None
-        return self.add_source(spec, sums)
+        v = dlg.values()
+        if v["folder"]:
+            self._sums_folder = v["folder"]
+        return self.add_source(v["spec"], v["sums"], v["label"], v["folder"])
 
-    def add_source(self, spec, sums, label=""):
+    def add_source(self, spec, sums=(), label="", folder=None):
         def go():
             self._checkpoint()
             n0 = len(self.lib.entries)
-            src = self.lib.add_source(spec, sums, label)
+            src = self.lib.add_source(spec, sums, label, folder)
             new = len(self.lib.entries) - n0
             self._after_change()
             msg = f"{src.id} {src.label}: {new} new scan(s) with ROI sums"
@@ -485,9 +591,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         if src is None:
             self.say("Pick the SPEC file in the Data list first", error=True)
             return None
-        sums = QFileDialog.getOpenFileNames(self, f"More ROI sums for {os.path.basename(src.spec)}",
-                                            os.path.dirname(src.spec), "ROI sums (*.txt);;All files (*)")[0]
-        return self.add_source(src.spec, sums) if sums else None
+        if not src.spec:
+            return self.add_source_dialog()               # an assignment file's source: pick its SPEC file too
+        return self.add_source_dialog(src)
 
     def _current_source(self):
         it = self._sources.currentItem()
@@ -548,7 +654,11 @@ class LibraryWindow(StatusMixin, QMainWindow):
             it = QListWidgetItem(s.label or s.id)
             it.setData(Qt.UserRole, s.id)
             it.setFlags(it.flags() | Qt.ItemIsEditable)
-            it.setToolTip(f"{s.id}: {n} scans\nSPEC: {s.spec}\nROI sums:\n" + "\n".join(s.sums))
+            files = s.sum_paths()
+            it.setToolTip(f"{s.id}: {n} scans\nSPEC: {s.spec or '(not set yet)'}\n"
+                          + "".join(f"ROI sums folder: {d}\n" for d in s.folders)
+                          + f"{len(files)} ROI sums file(s):\n" + "\n".join(os.path.basename(p) for p in files[:40])
+                          + ("\n..." if len(files) > 40 else ""))
             self._sources.addItem(it)
             if cur is not None and cur.id == s.id:
                 self._sources.setCurrentItem(it)
@@ -886,16 +996,26 @@ class LibraryWindow(StatusMixin, QMainWindow):
         modes = MODE_SETS[self._mode_f.currentIndex()]
         shown = [e for e in of_kind if modes is None or e.mode in modes]
         unit = self.lib.settings.get("unit", "")
-        cur = self._where.currentText()
+        equiv = self._equiv.currentText()
+        cur = self._where.currentData()
         self._where.clear()
         self._where.addItem(ANY, None)
         if kind == "rod":
-            for h, k in lb.rods(shown):
-                self._where.addItem(f"{h} {k}", (h, k))
+            for h, k in lb.rods(shown, equiv):
+                self._where.addItem(_rod_text((h, k), lb.members(shown, (h, k), equiv)), (h, k))
         else:
-            for h, k, L in lb.positions(shown):
-                self._where.addItem(f"{h} {k} {L:.3g}", (h, k, L))
-        self._where.setCurrentText(cur if self._where.findText(cur) >= 0 else ANY)
+            for h, k, L in lb.positions(shown, equiv=equiv):
+                near = [e for e in shown if np.isfinite(e.L) and abs(e.L - L) <= lb.TOL]
+                self._where.addItem(_rod_text((h, k), lb.members(near, (h, k), equiv), L), (h, k, L))
+        pick = 0
+        if cur:
+            for i in range(1, self._where.count()):
+                d = self._where.itemData(i)
+                same_rod = lb.fold(tuple(d[:2]), equiv) == lb.fold(tuple(cur[:2]), equiv)
+                if same_rod and (len(d) == 2 or len(cur) == 3 and abs(d[2] - cur[2]) <= lb.TOL):
+                    pick = i
+                    break
+        self._where.setCurrentIndex(pick)
         cur = self._pot_f.currentText()
         self._pot_f.clear()
         self._pot_f.addItem(ANY, None)
@@ -937,7 +1057,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
         if self._loading:
             return
         sender = self.sender()
-        if sender in (self._kind, self._mode_f):
+        if sender in (self._kind, self._mode_f, self._equiv):
             self._fill_compare()
         self._stack.setEnabled(self._chk_log.isChecked())
         self._x.setEnabled(self._kind_value() == "stationary")
@@ -984,7 +1104,8 @@ class LibraryWindow(StatusMixin, QMainWindow):
         E = self._pot_f.currentData() if self._pot_f.isEnabled() else None
         rod = tuple(where[:2]) if where else None
         L = where[2] if where and kind == "stationary" else None
-        es = lb.select(self.lib, kind, modes, films, E, rod, L)
+        es = lb.select(self.lib, kind, modes, films, E, rod, L, equiv=self._equiv.currentText())
+        actual = sorted({e.rod for e in es if e.rod is not None}, key=lambda r: (r != rod, r))
         what = {0: "CA / OCV", 1: "CV", 2: "All assigned", 3: "All"}[self._mode_f.currentIndex()]
         if E == lb.OCV:
             head = "OCV"
@@ -993,10 +1114,12 @@ class LibraryWindow(StatusMixin, QMainWindow):
         else:
             head = what
         parts = [head]
+        shown = actual if rod and actual else ([rod] if rod else [])
         if kind == "rod":
-            parts.append(f"rod {rod[0]} {rod[1]}" if rod else "every rod")
+            parts.append(("rods " if len(shown) > 1 else "rod ") + " and ".join(f"{h} {k}" for h, k in shown)
+                         if rod else "every rod")
         else:
-            parts.append(f"at ({rod[0]} {rod[1]} {L:.3g})" if where else "(stationary scans)")
+            parts.append("at " + ", ".join(f"({h} {k} {L:.3g})" for h, k in shown) if where else "(stationary scans)")
             return es, " ".join(parts)
         return es, ", ".join(parts)
 
@@ -1036,6 +1159,10 @@ class LibraryWindow(StatusMixin, QMainWindow):
             if t.group not in groups:
                 groups.append(t.group)
         colours = PALETTE if len(groups) <= len(PALETTE) else list(matplotlib.colormaps["tab20"].colors)
+        picked = self._where.currentData()
+        picked = tuple(picked[:2]) if picked else None
+        rods_in = sorted({t.entry.rod for t in trs if t.entry.rod is not None}, key=lambda r: (r != picked, r))
+        styled = len(rods_in) > 1 and self._colour.currentText() != "rod" and picked is not None   # picked rod solid
         seen = set()
         for t in trs:
             gi = groups.index(t.group)
@@ -1047,10 +1174,12 @@ class LibraryWindow(StatusMixin, QMainWindow):
             if log:
                 y = np.where(y > 0, y, np.nan)
             lw = 2.4 if t.entry.key in sel else 1.2
-            label = t.group if t.group not in seen else "_nolegend_"
-            seen.add(t.group)
-            marker = "o" if t.x.size < 400 else "none"
-            ax.plot(t.x, y, marker=marker, ms=2.5, lw=lw, color=c, label=label)
+            ls, marker = ROD_STYLES[rods_in.index(t.entry.rod) % len(ROD_STYLES)] if styled else ("-", "o")
+            name = f"{t.group}, rod {t.entry.rod[0]} {t.entry.rod[1]}" if styled else t.group
+            label = name if name not in seen else "_nolegend_"
+            seen.add(name)
+            marker = marker if t.x.size < 400 else "none"
+            ax.plot(t.x, y, marker=marker, ms=2.5, lw=lw, ls=ls, color=c, label=label)
             if self._chk_err.isChecked() and s is not None:
                 lo = y - s
                 ax.fill_between(t.x, np.where(lo > 0, lo, np.nan) if log else lo, y + s, color=c, alpha=0.2, lw=0)
@@ -1103,7 +1232,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
         return self._export_window
 
     # ------------------------------------------------------------------ settings
-    WIDGETS = ("_kind", "_mode_f", "_colour", "_x", "_norm", "_chk_log", "_chk_err", "_stack")
+    WIDGETS = ("_kind", "_mode_f", "_equiv", "_colour", "_x", "_norm", "_chk_log", "_chk_err", "_stack")
 
     def _save_settings(self, draft=True):
         """Remember the library and the comparison; a library with changes is saved (to its file, or
@@ -1117,7 +1246,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
                     lb.write_library(self.lib, settings_file(DRAFT), remember=False)
             except (OSError, ValueError):
                 pass
-        d = {"library": self.lib.path, "films_off": sorted(self._films_off),
+        d = {"library": self.lib.path, "films_off": sorted(self._films_off), "sums_folder": self._sums_folder,
              "draft": bool(draft and self._dirty and not self.lib.path and self.lib.sources)}
         for name in self.WIDGETS:
             w = getattr(self, name)
@@ -1150,6 +1279,7 @@ class LibraryWindow(StatusMixin, QMainWindow):
             else:
                 w.setValue(float(d[name]))
         self._films_off = set(d.get("films_off") or [])
+        self._sums_folder = d.get("sums_folder") or ""
         self._loading = False
         path = d.get("library")
         if path and os.path.isfile(path):

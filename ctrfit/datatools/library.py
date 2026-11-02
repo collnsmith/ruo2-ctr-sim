@@ -17,8 +17,11 @@ Library file (tab separated; '#' lines are comments; a section starts with a '# 
     # [settings]   key <tab> value: roi (default ROI), monitor, transmission, count_time (SPEC
                    columns for the normalisation, blank: not used), unit (of the CA potentials),
                    sys_error (% of I added in quadrature to the counting error, e.g. 5)
-    # [sources]    id <tab> what <tab> value [<tab> size <tab> mtime]; what is label, spec or sums
-                   (one row per ROI sums file); paths relative to the library file's folder; size
+    # [sources]    id <tab> what <tab> value [<tab> size <tab> mtime]; what is label, spec, sums
+                   (one row per ROI sums file), folder (every ROI sums .txt file in it, listed
+                   again on each reading, so new files appear) or seen (a file found in a folder,
+                   with its size and time, so that new and changed ones are reported); paths
+                   relative to the library file's folder; size
                    and mtime of each file when it was read (a changed file is reported on opening).
                    A source with no spec row is a placeholder (an assignment file written before the
                    data were processed): the first SPEC file added to the library fills it.
@@ -37,10 +40,12 @@ apply_assignments() copies film, measurement, potential, CV start, ROI, use and 
 library (e.g. an assignment file) onto the scans of one source, by scan number.
 
 Two ROI sums files of one SPEC file can both have a scan (the background subtraction run twice):
-each keeps its own ROIs, and a ROI name that an earlier file already has for that scan becomes
-'<name> (<file name>)'.
+each keeps its own ROIs; the newest file's ROIs keep their names and the older files' become
+'<name> (<file name>)' (a note says so).
 
-Comparisons: select() picks the scans of one kind by measurement, film, potential, rod and L;
+Comparisons: select() picks the scans of one kind by measurement, film, potential, rod and L, with
+symmetry equivalents together if asked (equiv = P2MM: rods (±H ±K) at the same L, the surface's
+p2mm symmetry, as the processing tool folds them);
 traces() gives their intensity (the scan's ROI, divided by monitor / transmission / count time as
 set) against L (rod scans) or the time from the scan start, the SPEC point or a SPEC column
 (stationary scans); group_label() names the group a trace is coloured by.
@@ -55,6 +60,7 @@ import numpy as np
 
 from ..echem.external import parse_roi_sums
 from .images import read_roi_positions, roi_position
+from .processing import EQUIVALENTS, sum_files      # sum_files: .txt files that start with 'scan image'
 from .specfile import parse_spec_file
 
 FORMAT = "# CTR scan library (ctrfit data tools, format 1)"
@@ -69,7 +75,8 @@ TIME_COLUMNS = ("epoch", "time", "elapsed", "elapsed_time", "time_s", "t")
 X_TIME, X_POINT, X_L = "time from scan start (s)", "SPEC point", "L"
 X_CV = "time from CV start (s)"           # t = 0 at the entry's cv_start point
 NORMS = ("as measured", "÷ max", "÷ first point")
-COLOUR_BY = ("film", "potential", "film and potential", "scan")
+COLOUR_BY = ("film", "potential", "film and potential", "rod", "scan")
+P2MM = EQUIVALENTS[1]                     # (H K L) ~ (-H K L) ~ (H -K L) ~ (-H -K L), as in the processing tool
 SETTINGS = ("roi", "monitor", "transmission", "count_time", "unit", "sys_error")
 DEFAULT_SETTINGS = {"roi": "", "monitor": "", "transmission": "", "count_time": "", "unit": "V vs RHE",
                     "sys_error": "0"}
@@ -84,9 +91,21 @@ KEEP = object()                           # assign(): leave this field as it is
 class Source:
     id: str                               # S1, S2, ...
     spec: str                             # absolute paths
-    sums: list = field(default_factory=list)
+    sums: list = field(default_factory=list)     # ROI sums files picked one by one
     label: str = ""
     stamps: dict = field(default_factory=dict)   # path -> (size, mtime) when last read
+    folders: list = field(default_factory=list)  # folders: every ROI sums file in them
+
+    def sum_paths(self):
+        """The ROI sums files: those picked, then those found in the folders now (each once)."""
+        out, seen = [], set()
+        found = [p for d in self.folders if os.path.isdir(d) for p in sum_files(d)]
+        for p in list(self.sums) + found:
+            k = os.path.normcase(os.path.abspath(p))
+            if k not in seen:
+                seen.add(k)
+                out.append(p)
+        return out
 
 
 @dataclass
@@ -189,9 +208,20 @@ def _column(scan, name):
 
 
 # ------------------------------------------------------------------ reading the data (read only)
+def newest_first(paths):
+    """Paths by modification time, newest first (then by name)."""
+    def key(p):
+        try:
+            return (-os.stat(p).st_mtime_ns, os.path.basename(p))
+        except OSError:
+            return (0, os.path.basename(p))
+    return sorted(paths, key=key)
+
+
 def read_sums(paths):
-    """{scan: {roi name: (images, I, sigma or None, path)}} of ROI sums files, in order. A ROI name an
-    earlier file already gave a scan becomes '<name> (<file stem>)'."""
+    """{scan: {roi name: (images, I, sigma or None, path)}} of ROI sums files, in the order given
+    (load() gives the newest first). A ROI name an earlier file already gave a scan becomes
+    '<name> (<file stem>)'."""
     out = {}
     for path in paths:
         with open(path, "r", errors="replace") as f:
@@ -257,18 +287,25 @@ class Library:
             i += 1
         return f"S{i}"
 
-    def add_source(self, spec, sums, label=""):
-        """Add a SPEC file and its ROI sums files (or more ROI sums to a SPEC file already in the
-        library); reads them and adds every scan with ROI sums. Returns the Source."""
+    def add_source(self, spec, sums=(), label="", folder=None):
+        """Add a SPEC file and its ROI sums: files, and / or a folder (every ROI sums file in it, now
+        and on every refresh); or more ROI sums to a SPEC file already in the library. Reads them and
+        adds every scan with ROI sums. Returns the Source."""
         spec = os.path.abspath(str(spec))
         sums = [os.path.abspath(str(p)) for p in sums]
+        folder = os.path.abspath(str(folder)) if folder else None
         if not os.path.isfile(spec):
             raise ValueError(f"no SPEC file {spec}")
-        if not sums:
-            raise ValueError("pick at least one ROI sums file")
+        if not sums and not folder:
+            raise ValueError("pick a folder of ROI sums files, or ROI sums files")
         for p in sums:
             if not os.path.isfile(p):
                 raise ValueError(f"no ROI sums file {p}")
+        if folder:
+            if not os.path.isdir(folder):
+                raise ValueError(f"no folder {folder}")
+            if not sum_files(folder):
+                raise ValueError(f"no ROI sums files in {folder} (.txt files whose first line is 'scan image ...')")
         read_sums(sums)                   # every file is a ROI sums file, before anything is changed
         src = next((s for s in self.sources if s.spec and os.path.normcase(s.spec) == os.path.normcase(spec)),
                    None)
@@ -285,6 +322,8 @@ class Library:
         for p in sums:
             if all(os.path.normcase(p) != os.path.normcase(q) for q in src.sums):
                 src.sums.append(p)
+        if folder and all(os.path.normcase(folder) != os.path.normcase(d) for d in src.folders):
+            src.folders.append(folder)
         self.load([src.id])
         return src
 
@@ -297,7 +336,7 @@ class Library:
         """Data files whose size or time differ from when the library last read them."""
         out = []
         for s in self.sources:
-            for p in [s.spec] + list(s.sums):
+            for p in [s.spec] + s.sum_paths():
                 old = s.stamps.get(p)
                 if old is not None and _stamp(p) != tuple(old):
                     out.append(p)
@@ -314,21 +353,25 @@ class Library:
             if not s.spec:
                 notes.append(f"{s.id} {s.label}: no SPEC file yet (Add SPEC + ROI sums fills it)")
                 continue
-            for p in [s.spec] + list(s.sums):
+            files = newest_first([p for p in s.sum_paths() if os.path.isfile(p)])
+            for p in [s.spec] + files:
                 if p in changed:
                     notes.append(f"{os.path.basename(p)} changed since it was last read")
-            missing = [p for p in [s.spec] + list(s.sums) if not os.path.isfile(p)]
+            new = [p for p in files if s.stamps and p not in s.stamps]
+            if new:
+                notes.append(f"{s.id}: {len(new)} new ROI sums file(s): {', '.join(os.path.basename(p) for p in new)}")
+            missing = [p for p in [s.spec] + list(s.sums) if not os.path.isfile(p)] + \
+                [d for d in s.folders if not os.path.isdir(d)]
             if missing:
-                notes.append(f"{s.id}: file(s) not found: {', '.join(missing)}")
+                notes.append(f"{s.id}: not found: {', '.join(missing)}")
             spec = parse_spec_file(s.spec) if os.path.isfile(s.spec) else {}
-            sums = read_sums([p for p in s.sums if os.path.isfile(p)])
-            for p in s.sums:
-                if os.path.isfile(p):
-                    try:
-                        self._positions[p] = read_roi_positions(p)
-                    except OSError:
-                        self._positions[p] = {}
-            s.stamps = {p: _stamp(p) for p in [s.spec] + list(s.sums) if _stamp(p) is not None}
+            sums = read_sums(files)
+            for p in files:
+                try:
+                    self._positions[p] = read_roi_positions(p)
+                except OSError:
+                    self._positions[p] = {}
+            s.stamps = {p: _stamp(p) for p in [s.spec] + files if _stamp(p) is not None}
             self._spec[s.id] = spec
             have = {e.scan: e for e in self.entries if e.source == s.id}
             for sn in sorted(set(sums) | set(have)):
@@ -349,6 +392,11 @@ class Library:
                     e.kind, e.H, e.K, e.L, e.L_min, e.L_max = describe(scan, images)
                     if scan is None:
                         notes.append(f"{s.id} scan {sn}: not in the SPEC file {os.path.basename(s.spec)}")
+                in_files = list(dict.fromkeys(v[3] for v in rois.values()))
+                if len(in_files) > 1:
+                    notes.append(f"{s.id} scan {sn} is in {len(in_files)} ROI sums files: the ROIs of the newest "
+                                 f"({os.path.basename(in_files[0])}) keep their names, the others are "
+                                 "'<ROI> (<file>)'")
                 e.points = len(images)
                 e.command = scan.scan_cmd if scan is not None else e.command
                 e.rois = list(rois)
@@ -480,7 +528,7 @@ def write_library(lib, path=None, remember=True):
     if not path or os.path.isdir(path):
         raise ValueError("pick a file name for the library")
     for s in lib.sources:
-        for p in [s.spec] + list(s.sums):
+        for p in [s.spec] + s.sum_paths():
             if os.path.normcase(os.path.abspath(p)) == os.path.normcase(path):
                 raise ValueError(f"{os.path.basename(path)} is one of the library's data files; the data are "
                                  "read only, save the library under another name")
@@ -495,10 +543,16 @@ def write_library(lib, path=None, remember=True):
     lines += ["", "# [sources]", "# id\twhat\tvalue\tsize\tmtime"]
     for s in lib.sources:
         lines.append(f"{s.id}\tlabel\t{_clean(s.label)}")
+        for d in s.folders:
+            lines.append(f"{s.id}\tfolder\t{_rel(d, base)}")
         for what, p in ([("spec", s.spec)] if s.spec else []) + [("sums", q) for q in s.sums]:
             st = s.stamps.get(p) or _stamp(p)
             extra = f"\t{st[0]}\t{st[1]:.3f}" if st else ""
             lines.append(f"{s.id}\t{what}\t{_rel(p, base)}{extra}")
+        listed = {os.path.normcase(p) for p in [s.spec] + list(s.sums)}
+        for p, st in sorted(s.stamps.items()):
+            if os.path.normcase(p) not in listed and st:
+                lines.append(f"{s.id}\tseen\t{_rel(p, base)}\t{st[0]}\t{st[1]:.3f}")
     lines += ["", "# [scans]", "# " + "\t".join(SCAN_COLUMNS)]
     fmt = lambda v, d=4: "" if v is None or not np.isfinite(v) else f"{v:.{d}g}"
     for e in lib.entries:
@@ -550,8 +604,17 @@ def read_library(path, load=True):
                 lib.sources.append(src)
             if what == "label":
                 src.label = value
-            elif what in ("spec", "sums") and value.strip():
+            elif what in ("spec", "sums", "folder", "seen") and value.strip():
                 p = os.path.normpath(value if os.path.isabs(value) else os.path.join(base, value))
+                if what == "folder":
+                    src.folders.append(p)
+                    continue
+                if what == "seen":
+                    try:
+                        src.stamps[p] = (int(parts[3]), float(parts[4]))
+                    except (IndexError, ValueError):
+                        pass
+                    continue
                 if what == "spec":
                     src.spec = p
                 else:
@@ -633,10 +696,20 @@ def apply_assignments(lib, other, sid, from_source=None):
 
 
 # ------------------------------------------------------------------ comparisons
-def select(lib, kind, modes=None, films=None, potential=None, rod=None, L=None, tol=TOL, used_only=True):
+def fold(rod, equiv=None):
+    """The rod that stands for its symmetry equivalents: (|h|, |k|) with P2MM, else the rod itself."""
+    if rod is None:
+        return None
+    h, k = rod
+    return (abs(h), abs(k)) if equiv == P2MM else (h, k)
+
+
+def select(lib, kind, modes=None, films=None, potential=None, rod=None, L=None, tol=TOL, used_only=True,
+           equiv=None):
     """Entries of one kind ('rod' or 'stationary'). modes: a set of 'CV', 'CA', 'OCV', '' (None: any);
     films: a set of film names, '' for no film (None: any); potential: a number (CA scans held at it)
-    or 'OCV' (OCV scans); CV and unassigned scans pass; rod: (h, k); L: stationary scans within tol."""
+    or 'OCV' (OCV scans); CV and unassigned scans pass; rod: (h, k), and its equivalents with
+    equiv = P2MM; L: stationary scans within tol."""
     out = []
     for e in lib.entries:
         if e.kind != kind or (used_only and not e.use):
@@ -651,7 +724,7 @@ def select(lib, kind, modes=None, films=None, potential=None, rod=None, L=None, 
                     continue
             elif e.mode != "CA" or e.potential is None or abs(e.potential - float(potential)) > E_TOL:
                 continue
-        if rod is not None and e.rod != tuple(rod):
+        if rod is not None and fold(e.rod, equiv) != fold(tuple(rod), equiv):
             continue
         if L is not None and not (np.isfinite(e.L) and abs(e.L - L) <= tol):
             continue
@@ -659,16 +732,24 @@ def select(lib, kind, modes=None, films=None, potential=None, rod=None, L=None, 
     return out
 
 
-def rods(entries):
-    return sorted({e.rod for e in entries if e.rod is not None})
+def rods(entries, equiv=None):
+    """The rods of the entries (each equivalent set once, as its folded rod, with equiv = P2MM)."""
+    return sorted({fold(e.rod, equiv) for e in entries if e.rod is not None})
 
 
-def positions(entries, tol=TOL):
-    """[(h, k, L)] of stationary entries: L values of one rod within tol are one position."""
+def members(entries, rod, equiv=None):
+    """The rods of the entries that are rod or (with P2MM) one of its equivalents."""
+    return sorted({e.rod for e in entries if e.rod is not None and fold(e.rod, equiv) == fold(rod, equiv)},
+                  key=lambda r: (r != tuple(rod), r))
+
+
+def positions(entries, tol=TOL, equiv=None):
+    """[(h, k, L)] of stationary entries: L values of one rod (or set of equivalents) within tol are
+    one position."""
     by = {}
     for e in entries:
         if e.rod is not None and np.isfinite(e.L):
-            by.setdefault(e.rod, []).append(e.L)
+            by.setdefault(fold(e.rod, equiv), []).append(e.L)
     out = []
     for (h, k), Ls in sorted(by.items()):
         Ls.sort()
@@ -688,6 +769,8 @@ def group_label(lib, e, colour_by):
         return e.condition(unit)
     if colour_by == "film and potential":
         return f"{film}, {e.condition(unit)}"
+    if colour_by == "rod":
+        return f"rod {e.rod[0]} {e.rod[1]}" if e.rod is not None else "rod ?"
     src = lib.source(e.source)
     many = len(lib.sources) > 1
     return (f"{src.label if src and src.label else e.source} " if many else "") + f"#{e.scan}"
@@ -702,6 +785,8 @@ def group_key(lib, e, colour_by):
         return (cond, film)
     if colour_by == "scan":
         return ([s.id for s in lib.sources].index(e.source) if lib.source(e.source) else 99, e.scan)
+    if colour_by == "rod":
+        return (e.rod or (99, 99), film, cond)
     return (film, cond)
 
 

@@ -326,6 +326,9 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             self._fill_table(opt)
             self._write_summary()
             self._draw_preview()
+            out = [n for n in self._notes if " left out: " in n]
+            if out:
+                self.say(f"{len(out)} scan(s) left out (see the summary below the plot): {out[0]}")
         self.guarded(go)
 
     def _fill_table(self, opt):

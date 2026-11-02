@@ -387,7 +387,9 @@ in a dialog):
 - **Processing** (also "CTR processing" in the launcher, `python ctr_processing.py`). Steps 2 to 5
   after background subtraction, for stationary rods (one image per L point; no rocking scans): pick
   the SPEC file and the ROI sums folder or files; each row's image number is the SPEC point of its
-  scan. 2: normalise by monitor (relative to the mean monitor), transmission and count time.
+  scan. Time scans (loopscan, timescan) without H K L columns take H K L from the scan's `#Q` line; a
+  scan that cannot be processed (no H K L at all, a missing ROI or column) is left out with a note in
+  the summary and the status bar, and the other scans go on. 2: normalise by monitor (relative to the mean monitor), transmission and count time.
   3: polarisation (horizontal fraction, horizontal or vertical surface), rod interception 1/sin(beta)
   and illuminated area (beam height and width, sample length); angles from H K L, energy and a fixed
   incidence angle (specular rod: alpha = beta) or from SPEC columns. 4: |F| and sigma_F from the

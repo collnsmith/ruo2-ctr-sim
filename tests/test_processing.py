@@ -188,8 +188,34 @@ def test_roi_per_scan(tmp_path):
     # a global ROI missing in a scan: that scan's default, with a note; a missing per-scan ROI is an error
     other, _, notes = pr.process(sums, scans, opts(roi="B"))
     assert [r.roi for r in other] == ["ROI1", "B"] and any("no ROI 'B' in this scan" in n for n in notes)
-    with pytest.raises(ValueError):
-        pr.process(sums, scans, opts(scan_roi={60: "B"}))
+    left, _, notes = pr.process(sums, scans, opts(scan_roi={60: "B"}))      # a missing per-scan ROI: left out
+    assert [r.scan for r in left] == [61] and any(n.startswith("scan 60 left out: no ROI column 'B'") for n in notes)
+
+
+def test_time_scans_take_hkl_from_q_and_bad_scans_are_left_out(tmp_path):
+    """A loopscan has no H K L columns: its H K L is the #Q line. A scan with neither is left out with a
+    note and the others are processed; only when every scan fails is it an error."""
+    opt = opts()
+    spec, folder, truth = write_experiment(tmp_path, opt, [(10, 1, 0, 0.3, 2.0, 30, 1.0)])
+    rows = [f"{2 * i} {1000 + 2 * i} 2 1e5 1 {500 + 10 * i}" for i in range(20)]
+    extra = ["", "#S 11  loopscan 20 2 0", "#D Sat Mar 07 14:20:00 2026", "#Q 1 0 0.5",
+             "#L Time  Epoch  Seconds  Monitor  transm  Detector"] + rows + \
+            ["", "#S 12  timescan 2 0", "#D Sat Mar 07 14:30:00 2026",
+             "#L Time  Epoch  Seconds  Monitor  transm  Detector"] + rows
+    with open(spec, "a") as f:
+        f.write("\n".join(extra) + "\n")
+    with open(folder / "scan_sums.txt", "a") as f:
+        f.write("".join(f"{sn}\t{i}\t{500 + 10 * i}\t{np.sqrt(500 + 10 * i):.6g}\n" for sn in (11, 12)
+                        for i in range(20)))
+    results, merged, notes = pr.run_files(pr.sum_files(folder), str(spec), opt)
+    assert [r.scan for r in results] == [10, 11]
+    r11 = results[1]
+    assert r11.stationary and np.all(r11.H == 1) and np.all(r11.K == 0) and np.all(r11.L == 0.5)
+    assert np.all(np.isfinite(r11.F)) and np.all(r11.sF > 0)
+    assert any(n.startswith("scan 12 left out: no H column and no #Q line") for n in notes)
+    assert merged is not None and set(merged.rod) == {"1 0"}                          # the rod scan as before
+    with pytest.raises(ValueError, match="and 2 more scan"):                          # every scan fails
+        pr.run_files(pr.sum_files(folder), str(spec), opts(monitor="nope"))
 
 
 @pytest.fixture

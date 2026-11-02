@@ -17,7 +17,9 @@ scale: they are not merged or overlap-scaled, and the Bragg window does not appl
 as their own file (write_stationary, the ROI sums format the in-situ CV tool reads) with errors.
 
 The image number of a ROI sums row is the SPEC point of its scan; H, K, L, monitor, transmission
-and count time come from that point.
+and count time come from that point. A time scan (loopscan, timescan) usually has no H K L columns:
+its H K L is the '#Q' position of the scan. A scan that cannot be processed (no H K L at all, a ROI
+or column it lacks) is left out with a note; the others go on (an error only if every scan fails).
 
 Corrections (stationary geometry, an area detector that sees the whole footprint and the whole rod
 profile; the angles come from H K L, the energy and the incidence angle, or from SPEC columns):
@@ -183,6 +185,23 @@ def roi_columns(sums):
     return names, with_err
 
 
+def scan_hkl(scan):
+    """H, K, L at every point of a SPEC scan: its H / K / L columns, else the scan's '#Q' position
+    (time scans such as loopscans have no H K L columns)."""
+    q = getattr(scan, "hkl", None)
+    out = []
+    for i, c in enumerate("HKL"):
+        col = next((scan.data[x] for x in scan.columns if x == c or x.lower() == c.lower()), None)
+        if col is not None:
+            out.append(np.asarray(col, float))
+        elif q is not None:
+            out.append(np.full(scan.npoints, float(q[i])))
+        else:
+            raise ValueError(f"scan {scan.scan_number}: no {c} column and no #Q line (H K L of the scan) in the "
+                             "SPEC file")
+    return out
+
+
 def _col(scan, name):
     if not name:
         return None
@@ -274,8 +293,7 @@ def process_scan(number, cols, scan, opt, monitor_ref=None):
         s = np.sqrt(np.clip(np.abs(I), 1, None))
         notes.append(f"no '{roi}_err' column: sigma = sqrt(|I|), a lower bound (run the background "
                      "subtraction again to get proper errors)")
-    hkl = [_col(scan, c) for c in "HKL"]
-    H, K, L = (x[img] for x in hkl)
+    H, K, L = (x[img] for x in scan_hkl(scan))
     # 2. normalise
     f = np.ones_like(I)
     if opt.monitor:
@@ -445,10 +463,19 @@ def process(sums, spec_scans, opt):
                 except ValueError:
                     pass
         ref = float(np.mean(vals)) if vals else None
+    failed = []
     for sn in sorted(set(sums) & set(spec_scans)):
-        r = process_scan(sn, sums[sn], spec_scans[sn], opt, ref)
+        try:
+            r = process_scan(sn, sums[sn], spec_scans[sn], opt, ref)
+        except ValueError as ex:                      # one scan's problem does not stop the others
+            msg = str(ex)
+            failed.append(msg)
+            notes.append(f"scan {sn} left out: {msg[len(f'scan {sn}: '):] if msg.startswith(f'scan {sn}: ') else msg}")
+            continue
         results.append(r)
         notes += [f"scan {sn}: {x}" for x in r.notes]
+    if failed and not results:
+        raise ValueError(failed[0] + (f" (and {len(failed) - 1} more scan(s) failed)" if len(failed) > 1 else ""))
     notes += scale_scans(results, opt)
     merged = merge(results, opt) if results else None
     return results, merged, notes

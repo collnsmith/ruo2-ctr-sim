@@ -88,13 +88,16 @@ class ProcessingWindow(StatusMixin, QMainWindow):
 
         ng, nf = group("2. Normalise")
         self._roi = QComboBox()
-        self._roi.setToolTip("Signal ROI of the ROI sums (its '_err' column gives the counting error)")
+        self._roi.setToolTip("Signal ROI of the ROI sums (its '_err' column gives the counting error). Picking one "
+                             "here applies it to every scan (the table's ROI column goes back to (default)); a ROI "
+                             "picked in the table afterwards overrides it for that scan.")
         self._monitor, self._transm, self._ctime = QComboBox(), QComboBox(), QComboBox()
         self._monitor.setToolTip("I is divided by monitor / (mean monitor of all scans)")
         self._transm.setToolTip("Attenuator transmission per point (I is divided by it)")
         self._ctime.setToolTip("Count time per point, e.g. Seconds (I is divided by it)")
-        for w in (self._roi, self._monitor, self._transm, self._ctime):
+        for w in (self._monitor, self._transm, self._ctime):
             w.currentIndexChanged.connect(ch)
+        self._roi.currentIndexChanged.connect(self._global_roi_changed)
         nf.addRow("Intensity", self._roi)
         nf.addRow("Monitor", self._monitor)
         nf.addRow("Transmission", self._transm)
@@ -312,6 +315,26 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                 group.pop(sn, None)
         return scale, use, roi, group
 
+    def _global_roi_changed(self, *_):
+        """The Intensity ROI picked on the left: every scan uses it, so the table's own picks go."""
+        if self._loading:
+            return
+        name = self._roi.currentText()
+        _, _, roi, _ = self._table_state()
+        own = sorted(sn for sn, pick in roi.items() if pick != name)
+        self._saved_scans[2].clear()
+        for r in range(self._table.rowCount()):
+            combo = self._table.cellWidget(r, 6)
+            if combo is not None:
+                combo.blockSignals(True)
+                combo.setCurrentText(DEFAULT_ROI)
+                combo.setStyleSheet("")
+                combo.blockSignals(False)
+        if own:
+            self.say(f"Intensity '{name}' for every scan; the table's own ROI of scan(s) "
+                     f"{', '.join(str(sn) for sn in own)} reset to {DEFAULT_ROI}")
+        self._changed()
+
     def _changed(self, *_):
         if not self._loading:
             self._timer.start()
@@ -357,7 +380,9 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             combo.addItems([DEFAULT_ROI] + pr.roi_columns({r.scan: self._sums.get(r.scan, {})})[0])
             combo.setCurrentText(opt.scan_roi.get(r.scan, DEFAULT_ROI))
             combo.setToolTip(f"Intensity column of this scan (now '{r.roi}'); {DEFAULT_ROI}: the one picked "
-                             "under 2. Normalise")
+                             "under 2. Normalise (picking one there resets this column)")
+            if combo.currentText() != DEFAULT_ROI:
+                combo.setStyleSheet("QComboBox { font-weight: bold; }")     # this scan's own ROI
             combo.currentTextChanged.connect(self._changed)
             t.setCellWidget(i, 6, combo)
             if r.scan in sel:
@@ -485,7 +510,10 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         """Write <base>_scans.txt (every point and factor), <base>.csv and <base>_genx.dat (every kept
         point as measured, for the fitting app and GenX; one pair per group: <base>_<group>.csv) and
         <base>_stationary.dat
-        (stationary scans, for the in-situ CV tool). Returns the paths."""
+        (stationary scans, for the in-situ CV tool). Returns the paths. Processes first, so the files
+        always match the current choices (a change still waiting for the preview is included)."""
+        self._timer.stop()
+        self.reprocess()
         if not self._results:
             raise ValueError("nothing processed yet")
         base = os.path.splitext(base)[0]

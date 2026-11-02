@@ -308,6 +308,48 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w2.close()
 
 
+def test_intensity_roi_applies_to_every_scan(qapp, tmp_path, monkeypatch):
+    """The ROI picked under 2. Normalise applies to every scan (the table's own picks are reset); a pick in
+    the table afterwards overrides it for that scan only."""
+    from PyQt5.QtWidgets import QMessageBox
+    said = []
+    for kind in ("information", "warning", "critical"):
+        monkeypatch.setattr(QMessageBox, kind, staticmethod(lambda *a, k=kind, **kw: said.append((k, a[2]))))
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    from ctrfit.app.datatools.processing import DEFAULT_ROI, ProcessingWindow
+    opt = opts()
+    spec, folder, truth = write_experiment(tmp_path, opt, [(30, 1, 0, 0.3, 2.0, 20, 1.0), (31, 0, 1, 0.3, 2.0, 20, 1.0)])
+    lines = (folder / "scan_sums.txt").read_text().splitlines()
+    lines = [lines[0] + "\tROI2\tROI2_err"] + [l + f"\t{4 * float(l.split()[2]):.10g}\t{2 * float(l.split()[3]):.10g}"
+                                               for l in lines[1:]]
+    (folder / "scan_sums.txt").write_text("\n".join(lines) + "\n")
+    w = ProcessingWindow()
+    w.open_spec(str(spec))
+    w.open_sums_folder(str(folder))
+    w.reprocess()
+    assert [r.roi for r in w._results] == ["ROI1", "ROI1"]
+    w._table.cellWidget(0, 6).setCurrentText("ROI2")                                # scan 30's own ROI
+    w.reprocess()
+    assert [r.roi for r in w._results] == ["ROI2", "ROI1"]
+    assert "bold" in w._table.cellWidget(0, 6).styleSheet()
+    w._roi.setCurrentText("ROI2")                                                   # then ROI2 for every scan
+    w._roi.setCurrentText("ROI1")
+    w.reprocess()
+    assert [r.roi for r in w._results] == ["ROI1", "ROI1"]                          # the left side wins now
+    assert all(w._table.cellWidget(i, 6).currentText() == DEFAULT_ROI for i in range(2))
+    w._table.cellWidget(1, 6).setCurrentText("ROI2")                                # a later table pick wins again
+    w.reprocess()
+    assert [r.roi for r in w._results] == ["ROI1", "ROI2"]
+    w._roi.setCurrentText("ROI2")
+    assert "reset to (default)" not in w._status_label.text()                       # scan 31 already had ROI2
+    w._table.cellWidget(0, 6).setCurrentText("ROI2")                                # scan 30 picked in the table
+    w._roi.setCurrentText("ROI1")
+    assert "the table's own ROI of scan(s) 30 reset to (default)" in w._status_label.text()
+    out = w.save_to(str(tmp_path / "p.csv"))
+    assert [r.roi for r in w._results] == ["ROI1", "ROI1"] and out and not said
+    w.close()
+
+
 def test_plotter_divides_by_several_normalisation_columns(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
     from ctrfit.app.datatools.plotter import MainWindow

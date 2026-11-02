@@ -401,7 +401,10 @@ in a dialog):
   scale per scan is in the table; "Scale later scans of a rod to the first on their overlap" (off by
   default) multiplies a scan by its median ratio to the earlier scans of its rod where they overlap. The table lists the scans (Use, rod, L range, points, scale, ROI, notes; the ROI column picks
   the signal ROI of each scan when it changes between scans, "(default)" being the one under
-  2. Normalise, or the scan's first ROI with errors if that one is not in the scan; per-scan scale,
+  2. Normalise, or the scan's first ROI with errors if that one is not in the scan; picking a ROI
+  under 2. Normalise applies it to every scan and resets the column (the status bar names the scans
+  that had their own), and a ROI picked in the table after that overrides it for that scan (shown in
+  bold); "Process and save…" processes again first, so the files match what is shown; per-scan scale,
   Use and ROI are remembered until another SPEC file is opened); clicking one
   shows before (ROI sum) and after (normalised and corrected, then |F| with the other scans of
   its rod in grey). The Group column labels each scan's condition (potential, film thickness, ...):

@@ -1,7 +1,8 @@
 """SPEC file reader shared by the data tools (plotter, HKL appender, metadata viewer).
 
 parse_spec_file(path) -> {scan number: SpecScan}. Columns come from '#L' (split on two or more
-spaces, the SPEC convention), motor positions from '#O' names and '#P' values. Rows with the wrong
+spaces, the SPEC convention), motor positions from '#O' names and '#P' values, the scan's H K L from
+'#Q' (scan.hkl, None without one: time scans often have no H K L columns). Rows with the wrong
 number of values or text in them are skipped. A scan number that appears twice keeps the last one.
 """
 import re
@@ -11,8 +12,9 @@ import numpy as np
 
 
 class SpecScan:
-    def __init__(self, scan_number, scan_cmd, columns, data, motor_positions=None):
+    def __init__(self, scan_number, scan_cmd, columns, data, motor_positions=None, hkl=None):
         self.scan_number = scan_number
+        self.hkl = hkl                       # (H, K, L) of '#Q', or None
         self.scan_cmd = scan_cmd
         self.columns = columns
         self.data = data
@@ -32,6 +34,7 @@ def parse_spec_file(filepath):
     motor_names = {}                  # '#O<n>' index -> names (file header)
     current_scan = None
     current_columns, current_data, current_cmd, motor_positions = [], [], "", {}
+    current_hkl = None
 
     def flush():
         if current_scan is not None and current_columns and current_data:
@@ -40,7 +43,8 @@ def parse_spec_file(filepath):
             for i, col in enumerate(current_columns):
                 if i < arr.shape[1]:
                     d[col] = arr[:, i]
-            scans[current_scan] = SpecScan(current_scan, current_cmd, current_columns, d, dict(motor_positions))
+            scans[current_scan] = SpecScan(current_scan, current_cmd, current_columns, d, dict(motor_positions),
+                                           current_hkl)
 
     with open(filepath, "r", errors="replace") as f:
         for line in f:
@@ -51,6 +55,7 @@ def parse_spec_file(filepath):
                 current_scan = int(parts[1])
                 current_cmd = " ".join(parts[2:])
                 current_columns, current_data, motor_positions = [], [], {}
+                current_hkl = None
             elif re.match(r"#O\d+ ", line):
                 n = int(line[2:line.index(" ")])
                 motor_names[n] = _split_names(line[line.index(" ") + 1:])
@@ -62,6 +67,12 @@ def parse_spec_file(filepath):
                         motor_positions[name] = float(v)
                     except ValueError:
                         pass
+            elif line.startswith("#Q"):
+                try:
+                    vals = [float(v) for v in line[2:].split()[:3]]
+                except ValueError:
+                    vals = []
+                current_hkl = tuple(vals) if len(vals) == 3 else None
             elif line.startswith("#L "):
                 current_columns = _split_names(line[3:])
             elif line.startswith("#") or line.strip() == "":

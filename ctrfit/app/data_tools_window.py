@@ -1,7 +1,8 @@
 """SXRD data tools in one window, one tab per tool, in the order of the processing chain:
 
     Metadata -> Background subtraction (with the background ROI finder) -> Plotter (peak fits)
-    -> CTR fit (quick models) -> HKL appender -> Smoother -> Combiner
+    -> Scan library (film and CV / CA per scan, comparisons) -> Processing -> CTR fit (quick models)
+    -> HKL appender -> Smoother -> Combiner
 
 Each tab is the tool's own window embedded as a widget; the logic is in ctrfit.datatools. Settings
 of every tool are saved when this window closes (folder: ctrfit.datatools.paths.settings_dir()).
@@ -21,6 +22,9 @@ TOOLS = [
      "Per-scan pixel statistics, avoid bright spots, place background ROIs near the signal"),
     ("plotter", "Plotter", "plotter", "MainWindow",
      "SPEC scans with ROI sums, figure options, peak fits (rocking curves), smoothing, exports"),
+    ("library", "Scan library", "library", "LibraryWindow",
+     "Sort ROI sums scans by film and CV / CA (a library text file; data read only) and compare groups: "
+     "CVs at one H K L, CAs at one potential on one rod, ..."),
     ("processing", "Processing", "processing", "ProcessingWindow",
      "ROI sums + SPEC: normalise, correct (polarisation, rod interception, area), |F| with errors, merge and scale"),
     ("ctr_fit", "CTR fit", "ctr_fit", "CTRFitWindow", "Quick kinematic CTR models on integrated intensities"),

@@ -347,6 +347,33 @@ in a dialog):
   marker, size, left or right axis). "Refresh from plot" takes the working plot again and keeps the
   edits; the last style is reused for the next figure; "Copy image" puts it on the clipboard.
   "View options…" (the old figure options) only changes the working view.
+- **Scan library.** Sorts the background-subtracted scans for comparisons. "Add SPEC + ROI sums…" lists
+  every scan of the ROI sums files (several SPEC files, e.g. one per film or beamtime, each with one
+  or more ROI sums files) with its kind from the SPEC scan: rod (L moves), stationary (H K L fixed,
+  from the columns or `#Q` for time scans), other. Assign to the selected rows: the film, the
+  measurement (CV, nothing else to set; or CA at a potential, in the library's unit, e.g. V vs RHE),
+  the ROI, notes, use / skip; or type in the table (a film, potential or note typed with several rows
+  selected sets them all; a potential makes the scan a CA; Ctrl+Z / Ctrl+Y undo and redo). The ROI box
+  of each row picks the ROI that scan is shown with (its tooltip gives the ROI's position from the
+  sums file); a ROI name that two sums files of one SPEC file share becomes `<name> (<file>)`.
+  "Save library" (Ctrl+S) writes the library: a tab-separated text file (settings, sources with
+  paths relative to the library, one row per scan: film, mode, potential, ROI, use, then kind,
+  H K L, L range, points, SPEC command and notes), readable and editable by hand. The data files are
+  only read: the library refuses to be saved over one of them, and a data file that changed since
+  the library read it is reported. A library with a file is also saved when the window closes; one
+  that has none yet is kept as a draft and comes back the next time. "Compare" plots groups:
+  "CVs at one H K L" (stationary scans during CVs at one point, against the time from each scan's
+  start, the SPEC point or any SPEC column such as a potential counter) and "CAs on one rod" (rod
+  scans held at one potential, against L), or any mix of scans (rod or stationary), measurement,
+  rod / point, potential and films, coloured by film, potential, both, or scan; scans of one group
+  share a colour (a rod measured in two L ranges is one curve). Intensities are the ROI divided by the
+  monitor (relative to the mean monitor of the plotted scans), transmission and count time chosen
+  under Intensity (not the geometric corrections: those are the same for one rod and L at a given
+  energy and incidence angle, so comparisons on one rod are fair; use Processing for |F|); "÷ max"
+  or "÷ first point" (I / I0) compare shapes, "Stack ×" spreads groups on a log scale, the error
+  band is the ROI's `_err`. "Selected rows only" plots the table's selection. "Export data…" writes
+  the plotted traces (one `# Trace:` block per scan, readable by the in-situ CV tool), "Export
+  figure…" opens the styled figure window. Logic in `ctrfit.datatools.library`.
 - **Processing** (also "CTR processing" in the launcher, `python ctr_processing.py`). Steps 2 to 5
   after background subtraction, for stationary rods (one image per L point; no rocking scans): pick
   the SPEC file and the ROI sums folder or files; each row's image number is the SPEC point of its
@@ -385,7 +412,7 @@ in a dialog):
 - **Combiner.** Several HKL files into one `H K L I` table (drop NaN or non-positive rows, sort, dedupe).
 
 The logic is in `ctrfit.datatools` (no Qt), the windows in `ctrfit.app.datatools`; one tool alone:
-`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `processing`, `ctr_fit`, `appender`, `smoother`,
+`python -m ctrfit.app.datatools.plotter` (or `bgsub`, `bg_finder`, `library`, `processing`, `ctr_fit`, `appender`, `smoother`,
 `combiner`, `meta_viewer`). Settings are saved in `~/.ctrfit/data_tools` (or `$CTRFIT_SETTINGS_DIR`);
 copy the old `.ini` files there to keep them.
 

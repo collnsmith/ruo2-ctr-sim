@@ -234,8 +234,9 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     out = w.save_to(str(tmp_path / "one.csv"))
     assert [p.split("/")[-1] for p in out] == ["one_scans.txt", "one.csv", "one_genx.dat", "one_stationary.dat"]
     # groups: select scans 30 and 31, type a group once -> both get it; scan 31 alone in another
-    w._table.selectRow(0)
-    w._table.selectionModel().select(w._table.model().index(1, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    sm = w._table.selectionModel()          # not selectRow: it follows the keyboard state an earlier test left
+    sm.select(w._table.model().index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
+    sm.select(w._table.model().index(1, 0), QItemSelectionModel.Select | QItemSelectionModel.Rows)
     w._table.item(0, 7).setText("0.4 V")
     assert w._table.item(1, 7).text() == "0.4 V"
     w._table.clearSelection()

@@ -18,12 +18,14 @@ try:
     import h5py
     HAS_H5PY = True
 except ImportError:
+    h5py = None                 # the windows import the name; HAS_H5PY says whether it is there
     HAS_H5PY = False
 
 try:
     import tifffile
     HAS_TIFF = True
 except ImportError:
+    tifffile = None             # optional (requirements.txt): .tif images and TIFF batch output
     HAS_TIFF = False
 
 FILE_PATTERN = re.compile(

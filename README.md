@@ -395,16 +395,18 @@ in a dialog):
   and illuminated area (beam height and width, sample length); angles from H K L, energy and a fixed
   incidence angle (specular rod: alpha = beta) or from SPEC columns. 4: |F| and sigma_F from the
   propagated `_err` column (without it the counting error is a lower bound, flagged in Notes).
-  5: overlapping scans of one rod scaled together (or a hand scale in the table), ±H ±K equivalents
-  averaged with R_sym only if Equivalents is set to "±H ±K" (default none), points within a distance of integer L left out, a systematic floor written
-  for the fit. The table lists the scans (Use, rod, L range, points, scale, ROI, notes; the ROI column picks
+  5: every kept point is written as measured: nothing is merged or averaged, so overlapping scans
+  of one rod and symmetry equivalents stay separate points (each with its scan and rod); points
+  within a distance of integer L are left out and a systematic floor is written for the fit. A hand
+  scale per scan is in the table; "Scale later scans of a rod to the first on their overlap" (off by
+  default) multiplies a scan by its median ratio to the earlier scans of its rod where they overlap. The table lists the scans (Use, rod, L range, points, scale, ROI, notes; the ROI column picks
   the signal ROI of each scan when it changes between scans, "(default)" being the one under
   2. Normalise, or the scan's first ROI with errors if that one is not in the scan; per-scan scale,
   Use and ROI are remembered until another SPEC file is opened); clicking one
-  shows before (ROI sum) and after (normalised and corrected, then |F| with the merged rod).
-  The Group column labels each scan's condition (potential, film thickness, ...): overlap scaling
-  and merging stay within a group, so scans of one rod at different potentials or on different films
-  are never scaled onto each other or averaged; each group is saved as its own `<name>_<group>.csv`
+  shows before (ROI sum) and after (normalised and corrected, then |F| with the other scans of
+  its rod in grey). The Group column labels each scan's condition (potential, film thickness, ...):
+  overlap scaling, if on, stays within a group, so scans of one rod at different potentials or on
+  different films are never scaled onto each other; each group is saved as its own `<name>_<group>.csv`
   and `_genx.dat` (load them as separate datasets in the Fitting app, e.g. for a global fit). Typing
   a group with several rows selected sets it for all of them. Groups compare on the same absolute
   scale only through the normalisation, so keep the same monitor, transmission and count-time
@@ -412,7 +414,7 @@ in a dialog):
   "Process and save…" writes `<name>_scans.txt` (every point and every factor), `<name>.csv` (for
   the Fitting app) and `<name>_genx.dat`. Stationary scans (H K L fixed, e.g. during a CV) are found
   automatically ("stationary" in the Rod column): steps 2 to 4 point by point, the preview against
-  SPEC point, no merging, overlap scaling or Bragg window; they go to `<name>_stationary.dat`, a ROI
+  SPEC point, no overlap scaling or Bragg window; they go to `<name>_stationary.dat`, a ROI
   sums style file that the in-situ CV tool opens as its intensity file (pick `<ROI>_corr`, and
   switch off its monitor, transmission and per second, which are already applied). Logic in
   `ctrfit.datatools.processing`.

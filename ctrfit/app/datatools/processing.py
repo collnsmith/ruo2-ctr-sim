@@ -1,5 +1,6 @@
 """CTR processing window: ROI sums from background subtraction + the SPEC file -> normalised,
-corrected structure factors with errors, merged and scaled (steps 2 to 5). The logic is in
+corrected structure factors with errors, every point as measured (steps 2 to 5; nothing is merged or
+averaged). The logic is in
 ctrfit.datatools.processing; this file only holds the window.
 """
 import json
@@ -49,7 +50,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         self._sum_paths = []
         self._spec = {}
         self._results = []
-        self._merged = None
+        self._points = None
         self._saved_scans = ({}, {}, {}, {})       # scale, use, roi, group per scan from the settings
         self._notes = []
         self._timer = QTimer(self)
@@ -140,27 +141,25 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         for w in (self._chk_pol, self._chk_rod, self._chk_area):
             w.toggled.connect(ch)
 
-        mg, mf = group("5. Merge and scale")
-        self._equiv = QComboBox()
-        self._equiv.addItems(list(pr.EQUIVALENTS))
-        self._equiv.setToolTip("Symmetry equivalents averaged: none (each rod on its own), or (±H, ±K) at the same "
-                               "L (p2mm surface). Scans of different groups are never averaged.")
+        mg, mf = group("5. Output (every point as measured)")
         self._ltol = _spin(0.0001, 0.5, 0.01, 4, 0.005)
-        self._ltol.setToolTip("Points of the same (or equivalent) rod closer than this in L are averaged")
-        self._chk_overlap = QCheckBox("Scale scans of a rod on their overlap")
-        self._chk_overlap.setChecked(True)
+        self._ltol.setToolTip("A scan whose H, K and L all move less than this is stationary (e.g. during a CV). "
+                              "Nothing is averaged: overlapping scans and symmetry equivalents stay separate points.")
+        self._chk_scale_overlap = QCheckBox("Scale later scans of a rod to the first on their overlap")
+        self._chk_scale_overlap.setChecked(False)
+        self._chk_scale_overlap.setToolTip("Off: every scan keeps its own normalisation (and the hand scale in the "
+                                           "table). On: a scan is multiplied by the median ratio to the earlier "
+                                           "scans of its rod and group where they overlap in L (no averaging).")
         self._bragg = _spin(0, 0.5, 0.0, 3, 0.01)
         self._bragg.setToolTip("Leave out points with |L - integer| below this (0: keep all)")
         self._floor = _spin(0, 50, 5.0, 1, 0.5, " %")
-        self._floor.setToolTip("Systematic error floor written for the fit (sys_floor); set it from R_sym")
-        for w in (self._equiv,):
-            w.currentIndexChanged.connect(ch)
+        self._floor.setToolTip("Systematic error floor written for the fit (sys_floor): % of F added in quadrature "
+                               "to the counting error")
         for w in (self._ltol, self._bragg, self._floor):
             w.valueChanged.connect(ch)
-        self._chk_overlap.toggled.connect(ch)
-        mf.addRow("Equivalents", self._equiv)
-        mf.addRow("L tolerance", self._ltol)
-        mf.addRow(self._chk_overlap)
+        self._chk_scale_overlap.toggled.connect(ch)
+        mf.addRow("Stationary tolerance", self._ltol)
+        mf.addRow(self._chk_scale_overlap)
         mf.addRow("Skip near integer L", self._bragg)
         mf.addRow("Systematic floor", self._floor)
 
@@ -174,9 +173,9 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         self._table.setHorizontalHeaderLabels(["Use", "Scan", "Rod", "L range", "Points", "Scale", "ROI", "Group",
                                                "Notes"])
         self._table.horizontalHeaderItem(7).setToolTip(
-            "Condition of the scan (potential, film, ...). Scans are overlap-scaled and merged only within their "
-            "group; each group is saved as its own dataset. Typing a group with several rows selected sets it "
-            "for all of them.")
+            "Condition of the scan (potential, film, ...). Each group is saved as its own dataset (and overlap "
+            "scaling, if on, stays within a group). Typing a group with several rows selected sets it for all "
+            "of them.")
         self._table.horizontalHeader().setSectionResizeMode(8, QHeaderView.Stretch)
         self._table.verticalHeader().setVisible(False)
         self._table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -284,8 +283,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                        polarization=self._chk_pol.isChecked(), pol_fraction=self._pol.value(),
                        rod_interception=self._chk_rod.isChecked(), area=self._chk_area.isChecked(),
                        beam_h_mm=self._beam_h.value(), beam_w_mm=self._beam_w.value(), sample_mm=self._sample.value(),
-                       equivalents=self._equiv.currentText(), l_tol=self._ltol.value(),
-                       match_overlaps=self._chk_overlap.isChecked(), exclude_bragg=self._bragg.value(),
+                       l_tol=self._ltol.value(),
+                       match_overlaps=self._chk_scale_overlap.isChecked(), exclude_bragg=self._bragg.value(),
                        floor_pct=self._floor.value())
         o.scan_scale, o.scan_use, o.scan_roi, o.scan_group = self._table_state()
         return o
@@ -322,7 +321,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             return
         def go():
             opt = self.options()
-            self._results, self._merged, self._notes = pr.process(self._sums, self._spec, opt)
+            self._results, self._points, self._notes = pr.process(self._sums, self._spec, opt)
             self._fill_table(opt)
             self._write_summary()
             self._draw_preview()
@@ -417,19 +416,14 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         return sel[0] if sel else None
 
     def _write_summary(self):
-        m = self._merged
+        m = self._points
         lines = []
         if m is not None:
             for g in m.groups():
                 mg = m.select(g)
                 rods = sorted(set(mg.rod))
-                lines.append(f"{'group ' + repr(g) + ': ' if g else ''}{mg.L.size} merged points on {len(rods)} "
-                             f"rod(s): {', '.join(rods)}")
-            if m.n_multiple:
-                lines.append(f"R_sym = {100 * m.r_sym:.1f} % over {m.n_multiple} points measured more than once "
-                             f"(a guide for the systematic floor)")
-            else:
-                lines.append("R_sym: no point measured more than once (no equivalents or overlaps)")
+                lines.append(f"{'group ' + repr(g) + ': ' if g else ''}{mg.L.size} points (as measured, from "
+                             f"{len(set(mg.scan))} scan(s)) on {len(rods)} rod(s): {', '.join(rods)}")
         st = pr.stationary(self._results, self.options()) if self._results else []
         if st:
             lines.append(f"{len(st)} stationary scan(s) ({', '.join(str(r.scan) for r in st)}): normalised and "
@@ -472,13 +466,13 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         F, sF = r.F * np.sqrt(r.scale), r.sF * np.sqrt(r.scale)
         ax2.errorbar(x[k], F[k], yerr=sF[k], fmt="o", ms=3, lw=0.8, capsize=1.5, color="#1f77b4",
                      label=f"scan {r.scan}")
-        m = self._merged
+        m = self._points
         if m is not None and not r.stationary:
             key = pr._rod_key(r.rod, self.options(), r.scan)
-            sel = (np.array(m.group) == key[0]) & (m.H == key[1]) & (m.K == key[2])
+            sel = (np.array(m.group) == key[0]) & (m.H == key[1]) & (m.K == key[2]) & (m.scan != r.scan)
             if sel.any():
                 ax2.errorbar(m.L[sel], m.F[sel], yerr=m.sF[sel], fmt="s", ms=2.5, lw=0.6, capsize=1, mfc="none",
-                             color="#d62728", label="merged rod")
+                             color="#9a9a9a", label="other scans of this rod")
         ax2.set_xlabel("SPEC point" if r.stationary else "L (r.l.u.)")
         ax2.set_ylabel("|F|")
         if self._chk_logy.isChecked():
@@ -488,19 +482,20 @@ class ProcessingWindow(StatusMixin, QMainWindow):
 
     # ------------------------------------------------------------------ output
     def save_to(self, base):
-        """Write <base>_scans.txt (every point), <base>.csv and <base>_genx.dat (merged rods, for the
-        fitting app and GenX; one pair per group: <base>_<group>.csv) and <base>_stationary.dat
+        """Write <base>_scans.txt (every point and factor), <base>.csv and <base>_genx.dat (every kept
+        point as measured, for the fitting app and GenX; one pair per group: <base>_<group>.csv) and
+        <base>_stationary.dat
         (stationary scans, for the in-situ CV tool). Returns the paths."""
         if not self._results:
             raise ValueError("nothing processed yet")
         base = os.path.splitext(base)[0]
         opt = self.options()
         out = [pr.write_scans(base + "_scans.txt", self._results, opt)]
-        if self._merged is not None:
-            for g in self._merged.groups():
-                m = self._merged.select(g)
+        if self._points is not None:
+            for g in self._points.groups():
+                m = self._points.select(g)
                 b = base + (f"_{pr.safe_name(g)}" if g else "")
-                out += [pr.write_merged(b + ".csv", m, opt, os.path.basename(b)), pr.write_genx(b + "_genx.dat", m)]
+                out += [pr.write_points(b + ".csv", m, opt, os.path.basename(b)), pr.write_genx(b + "_genx.dat", m)]
         st = pr.stationary(self._results, opt)
         if st:
             out.append(pr.write_stationary(base + "_stationary.dat", st))
@@ -517,7 +512,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
     # ------------------------------------------------------------------ settings
     WIDGETS = ("_roi", "_monitor", "_transm", "_ctime", "_geometry", "_energy", "_alpha", "_alpha_col", "_beta_col",
                "_a1", "_a2", "_a3", "_chk_pol", "_pol", "_chk_rod", "_chk_area", "_beam_h", "_beam_w", "_sample",
-               "_equiv", "_ltol", "_chk_overlap", "_bragg", "_floor")
+               "_ltol", "_chk_scale_overlap", "_bragg", "_floor")
 
     def _save_settings(self):
         d = {"spec": self._spec_path.text(), "sums_folder": getattr(self, "_sums_folder", None),

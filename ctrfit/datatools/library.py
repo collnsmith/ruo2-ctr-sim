@@ -45,7 +45,7 @@ each keeps its own ROIs; the newest file's ROIs keep their names and the older f
 
 Comparisons: select() picks the scans of one kind by measurement, film, potential, rod and L, with
 symmetry equivalents together if asked (equiv = P2MM: rods (±H ±K) at the same L, the surface's
-p2mm symmetry, as the processing tool folds them);
+p2mm symmetry; only for the plot, nothing is averaged);
 traces() gives their intensity (the scan's ROI, divided by monitor / transmission / count time as
 set) against L (rod scans) or the time from the scan start, the SPEC point or a SPEC column
 (stationary scans); group_label() names the group a trace is coloured by.
@@ -60,7 +60,7 @@ import numpy as np
 
 from ..echem.external import parse_roi_sums
 from .images import read_roi_positions, roi_position
-from .processing import EQUIVALENTS, sum_files      # sum_files: .txt files that start with 'scan image'
+from .processing import sum_files                  # .txt files that start with 'scan image'
 from .specfile import parse_spec_file
 
 FORMAT = "# CTR scan library (ctrfit data tools, format 1)"
@@ -76,7 +76,8 @@ X_TIME, X_POINT, X_L = "time from scan start (s)", "SPEC point", "L"
 X_CV = "time from CV start (s)"           # t = 0 at the entry's cv_start point
 NORMS = ("as measured", "÷ max", "÷ first point")
 COLOUR_BY = ("film", "potential", "film and potential", "rod", "scan")
-P2MM = EQUIVALENTS[1]                     # (H K L) ~ (-H K L) ~ (H -K L) ~ (-H -K L), as in the processing tool
+EQUIVALENTS = ("none", "±H ±K (p2mm)")
+P2MM = EQUIVALENTS[1]                     # (H K L) ~ (-H K L) ~ (H -K L) ~ (-H -K L): the rutile (110) surface
 SETTINGS = ("roi", "monitor", "transmission", "count_time", "unit", "sys_error")
 DEFAULT_SETTINGS = {"roi": "", "monitor": "", "transmission": "", "count_time": "", "unit": "V vs RHE",
                     "sys_error": "0"}

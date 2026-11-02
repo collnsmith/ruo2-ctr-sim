@@ -4,16 +4,17 @@
       2. normalise     I_n = I / (monitor / monitor_ref) / transmission / count time
       3. correct       I_c = I_n / (P * C_rod * C_area)
       4. amplitudes    F = sqrt(I_c), sigma_F from sigma_I (ctrfit.data.io.intensities_to_F)
-      5. merge, scale  overlapping scans of a rod scaled together, symmetry equivalents averaged
-                       (R_sym), points near Bragg peaks left out; a systematic floor for the fit
+      5. output        every kept point as measured (nothing is averaged or merged: overlapping
+                       scans of a rod and symmetry equivalents stay separate points, each with its
+                       scan and rod); points near Bragg peaks left out; a systematic floor for the
+                       fit; optional (off by default): scale later scans of a rod to the first on
+                       their overlap
 
 Groups: every scan has a group label (a potential, a film, ...; blank: one group). Overlap scaling
-and merging stay inside a group, so scans at different potentials or thicknesses are never scaled
-onto each other or averaged: each group is its own dataset (merged_groups, one file per group).
-Symmetry equivalents are averaged only with equivalents = "±H ±K (p2mm)" (default: none).
+stays inside a group, and each group is its own dataset (one file per group).
 
 Stationary scans (H K L fixed, e.g. during a CV) get steps 2 to 4 point by point and only the hand
-scale: they are not merged or overlap-scaled, and the Bragg window does not apply. They are written
+scale: they are not overlap-scaled, and the Bragg window does not apply. They are written
 as their own file (write_stationary, the ROI sums format the in-situ CV tool reads) with errors.
 
 The image number of a ROI sums row is the SPEC point of its scan; H, K, L, monitor, transmission
@@ -51,7 +52,6 @@ from .specfile import parse_spec_file
 
 TIO2_SURFACE = (2.9587, 6.4964, 6.4964)        # a1 = c, a2 = a3 = sqrt(2) a of TiO2 (A)
 GEOMETRIES = ("horizontal surface", "vertical surface")
-EQUIVALENTS = ("none", "±H ±K (p2mm)")
 
 
 @dataclass
@@ -73,15 +73,14 @@ class Options:
     beam_h_mm: float = 0.05              # beam height (in the plane of incidence)
     beam_w_mm: float = 0.5
     sample_mm: float = 5.0               # sample length along the beam
-    equivalents: str = EQUIVALENTS[0]
-    l_tol: float = 0.01                  # points of equivalent rods within this L are merged
-    match_overlaps: bool = True          # scale scans of the same rod on their overlap
+    l_tol: float = 0.01                  # H K L moving less than this: a stationary scan; overlap range padding
+    match_overlaps: bool = False         # scale later scans of a rod to the first on their overlap
     exclude_bragg: float = 0.0           # leave out |L - integer| < this (0: keep all)
     floor_pct: float = 5.0               # systematic error floor for the fit (% of F)
     scan_scale: dict = field(default_factory=dict)   # scan -> extra scale factor (by hand)
     scan_use: dict = field(default_factory=dict)     # scan -> False to leave a scan out
     scan_roi: dict = field(default_factory=dict)     # scan -> its intensity column (else roi)
-    scan_group: dict = field(default_factory=dict)   # scan -> group label (merged and scaled only within it)
+    scan_group: dict = field(default_factory=dict)   # scan -> group label (one dataset each)
 
 
 @dataclass
@@ -116,7 +115,8 @@ class ScanResult:
 
 
 @dataclass
-class Merged:
+class Points:
+    """Every kept point of the rod scans, as measured (nothing averaged), in group, rod, L order."""
     H: np.ndarray
     K: np.ndarray
     L: np.ndarray
@@ -124,22 +124,20 @@ class Merged:
     sI: np.ndarray
     F: np.ndarray
     sF: np.ndarray
-    n: np.ndarray                        # points merged into each
-    rod: list
-    r_sym: float                         # sum |I - <I>| / sum I over multiply measured points (nan: none)
-    n_multiple: int
-    group: list = None                   # group label of each point
+    rod: list                            # 'h k' of each point's scan
+    group: list                          # group label of each point
+    scan: np.ndarray                     # the scan each point comes from
 
     def groups(self):
         return sorted(set(self.group or [""]))
 
     def select(self, group):
-        """The points of one group (a Merged of its own; R_sym is the whole set's)."""
+        """The points of one group (a Points of its own)."""
         g = np.array(self.group or [""] * self.L.size)
         k = g == group
         pick = lambda a: np.asarray(a)[k]
-        return Merged(pick(self.H), pick(self.K), pick(self.L), pick(self.I), pick(self.sI), pick(self.F),
-                      pick(self.sF), pick(self.n), list(pick(self.rod)), self.r_sym, self.n_multiple, list(g[k]))
+        return Points(pick(self.H), pick(self.K), pick(self.L), pick(self.I), pick(self.sI), pick(self.F),
+                      pick(self.sF), [str(x) for x in pick(self.rod)], [str(x) for x in g[k]], pick(self.scan))
 
 
 # ------------------------------------------------------------------ input
@@ -397,58 +395,34 @@ def scan_group(opt, scan):
 
 
 def _rod_key(hk, opt, scan=None):
-    """(group, h, k): equivalents fold the signs; scans of different groups never share a key."""
-    h, k = hk
-    hk = (abs(h), abs(k)) if opt.equivalents == EQUIVALENTS[1] else (h, k)
-    return (scan_group(opt, scan),) + hk
+    """(group, h, k): scans of different groups never share a key."""
+    return (scan_group(opt, scan),) + tuple(hk)
 
 
-def merge(results, opt):
-    """Average the kept points of equivalent rods (and of overlapping scans) that lie within l_tol in
-    L, weighted by 1/sigma^2. Returns Merged with R_sym over the points measured more than once."""
-    rows = {}
+def points(results, opt):
+    """Every kept point of the used rod scans, as measured (no averaging of overlaps or symmetry
+    equivalents), with the scan's scale; None if there is none."""
+    rows = []
     for r in results:
         if r.stationary or not opt.scan_use.get(r.scan, True):
             continue
-        key = _rod_key(r.rod, opt, r.scan)
-        for L, I, s, k in zip(r.L, r.I_corr * r.scale, r.s_corr * r.scale, r.keep):
-            if k and np.isfinite(I) and np.isfinite(s) and s > 0:
-                rows.setdefault(key, []).append((L, I, s))
+        h, k = r.rod
+        g = scan_group(opt, r.scan)
+        for L, I, s, kp in zip(r.L, r.I_corr * r.scale, r.s_corr * r.scale, r.keep):
+            if kp and np.isfinite(I) and np.isfinite(s) and s > 0:
+                rows.append((g, h, k, float(L), r.scan, float(I), float(s)))
     if not rows:
         return None
-    H, K, L, I, sI, n, rod_lab, grp = [], [], [], [], [], [], [], []
-    num = den = 0.0
-    n_mult = 0
-    for key in sorted(rows):
-        pts = sorted(rows[key])
-        groups, cur = [], [pts[0]]
-        for p in pts[1:]:
-            if p[0] - cur[0][0] <= opt.l_tol:
-                cur.append(p)
-            else:
-                groups.append(cur)
-                cur = [p]
-        groups.append(cur)
-        for g in groups:
-            Ls, Is, ss = (np.array(x) for x in zip(*g))
-            w = 1 / ss ** 2
-            Im = float(np.sum(w * Is) / np.sum(w))
-            H.append(key[1]); K.append(key[2]); L.append(float(np.sum(w * Ls) / np.sum(w)))
-            I.append(Im); sI.append(float(1 / np.sqrt(np.sum(w)))); n.append(len(g))
-            rod_lab.append(f"{key[1]} {key[2]}"); grp.append(key[0])
-            if len(g) > 1:
-                num += float(np.sum(np.abs(Is - Im)))
-                den += float(np.sum(np.abs(Is)))
-                n_mult += 1
-    I, sI = np.array(I), np.array(sI)
+    rows.sort()
+    g, H, K, L, scan, I, sI = (np.array(x) for x in zip(*rows))
     F, sF = intensities_to_F(I, sI)
-    return Merged(np.array(H), np.array(K), np.array(L), I, sI, F, sF, np.array(n), rod_lab,
-                  num / den if den > 0 else float("nan"), n_mult, grp)
+    return Points(H.astype(int), K.astype(int), L, I, sI, F, sF, [f"{h} {k}" for h, k in zip(H, K)],
+                  [str(x) for x in g], scan.astype(int))
 
 
 # ------------------------------------------------------------------ the whole chain
 def process(sums, spec_scans, opt):
-    """(results per scan, Merged, notes) for ROI sums {scan: columns} and SPEC scans {number: SpecScan}."""
+    """(results per scan, Points, notes) for ROI sums {scan: columns} and SPEC scans {number: SpecScan}."""
     notes, results = [], []
     missing = sorted(set(sums) - set(spec_scans))
     if missing:
@@ -477,8 +451,7 @@ def process(sums, spec_scans, opt):
     if failed and not results:
         raise ValueError(failed[0] + (f" (and {len(failed) - 1} more scan(s) failed)" if len(failed) > 1 else ""))
     notes += scale_scans(results, opt)
-    merged = merge(results, opt) if results else None
-    return results, merged, notes
+    return results, points(results, opt) if results else None, notes
 
 
 def run_files(sum_paths, spec_path, opt):
@@ -531,21 +504,22 @@ def write_stationary(path, results, roi=None):
     return path
 
 
-def merged_dataset(merged, opt, name="processed"):
-    return Dataset(merged.H, merged.K, merged.L, merged.F, merged.sF, merged.rod, name=name,
+def points_dataset(pts, opt, name="processed"):
+    return Dataset(pts.H, pts.K, pts.L, pts.F, pts.sF, pts.rod, name=name,
                    sys_floor=opt.floor_pct / 100.0, energy_kev=opt.energy_kev)
 
 
-def write_merged(path, merged, opt, name="processed"):
-    """CSV for the fitting app (H, K, L, F, sigma, rod; the systematic floor as '# sys_floor')."""
-    write_csv(merged_dataset(merged, opt, name), path)
+def write_points(path, pts, opt, name="processed"):
+    """CSV for the fitting app (H, K, L, F, sigma, rod; the systematic floor as '# sys_floor'): every
+    point as measured."""
+    write_csv(points_dataset(pts, opt, name), path)
     return path
 
 
-def write_genx(path, merged):
+def write_genx(path, pts):
     """GenX sls_sxrd style: H K L I sigma_I."""
     with open(path, "w") as f:
         f.write("# H K L I I_err\n")
-        for h, k, l, i, s in zip(merged.H, merged.K, merged.L, merged.I, merged.sI):
+        for h, k, l, i, s in zip(pts.H, pts.K, pts.L, pts.I, pts.sI):
             f.write(f"{h:d}\t{k:d}\t{l:.6g}\t{i:.6g}\t{s:.6g}\n")
     return path

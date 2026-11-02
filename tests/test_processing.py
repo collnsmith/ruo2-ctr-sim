@@ -69,13 +69,13 @@ def test_roi_sigma_matches_the_scatter_of_poisson_images():
 
 
 def test_processing_recovers_the_structure_factor(tmp_path):
-    opt = opts(match_overlaps=True, equivalents=pr.EQUIVALENTS[1])
+    opt = opts(match_overlaps=True)
     rods = [(10, 1, 0, 0.3, 2.0, 60, 1.0), (11, 1, 0, 1.8, 3.5, 60, 3.0),   # one rod in two scans, other scale
             (12, -1, 0, 0.5, 1.5, 40, 1.0), (13, 0, 0, 0.6, 2.8, 50, 1.0)]  # an equivalent, the specular rod
     spec, folder, truth = write_experiment(tmp_path, opt, rods)
     paths = pr.sum_files(folder)
     assert len(paths) == 1                                                       # notes.txt skipped
-    results, merged, notes = pr.run_files(paths, str(spec), opt)
+    results, pts, notes = pr.run_files(paths, str(spec), opt)
     assert [r.scan for r in results] == [10, 11, 12, 13]
     # every scan's F is the truth times one constant (the scale), and scan 11 is matched to scan 10
     ratios = {}
@@ -86,10 +86,15 @@ def test_processing_recovers_the_structure_factor(tmp_path):
         ratios[r.scan] = q[0]
     assert ratios[11] == pytest.approx(ratios[10], rel=5e-3) and ratios[12] == pytest.approx(ratios[10], rel=5e-3)
     assert any("scan 11 scaled" in n for n in notes)
-    # merged: (1 0) and (-1 0) are one rod, the overlap and the equivalent agree (R_sym ~ 0)
-    assert set(merged.rod) == {"1 0", "0 0"} and merged.n_multiple > 0 and merged.r_sym < 0.03   # L grids differ by < l_tol
-    sel = np.array([x == "1 0" for x in merged.rod])
-    assert np.allclose(merged.F[sel] / true_F(1, 0, merged.L[sel]), ratios[10], rtol=0.03)
+    # nothing merged: every kept point of every scan, overlaps and the (-1 0) equivalent as separate points
+    assert pts.L.size == sum(int(r.keep.sum()) for r in results) == sum(r[5] for r in rods)
+    assert set(pts.rod) == {"1 0", "-1 0", "0 0"} and [int((pts.scan == sn).sum()) for sn in (10, 11, 12, 13)] == \
+        [60, 60, 40, 50]
+    sel = np.array([x == "1 0" for x in pts.rod])
+    assert np.allclose(pts.F[sel] / true_F(1, 0, pts.L[sel]), ratios[10], rtol=5e-3)
+    overlap = sel & (pts.L >= 1.8) & (pts.L <= 2.0)
+    assert set(pts.scan[overlap]) == {10, 11}                                       # both scans kept there
+    assert not hasattr(pr, "merge") and not hasattr(pr, "EQUIVALENTS")
     # corrections: specular rod at alpha = beta, horizontal polarisation untouched there
     spec_r = results[3]
     assert np.allclose(spec_r.alpha, spec_r.beta) and np.all(spec_r.P > 0.99)          # only the 2 % vertical part
@@ -98,11 +103,12 @@ def test_processing_recovers_the_structure_factor(tmp_path):
     assert np.allclose(pr.corrections(spec_r.alpha, spec_r.beta, cos_psi, full)[0], 1.0)
     # outputs: the fitting app reads the CSV with the systematic floor
     from ctrfit.data.io import read_csv
-    out = pr.write_merged(tmp_path / "p.csv", merged, opt)
+    out = pr.write_points(tmp_path / "p.csv", pts, opt)
     ds = read_csv(out)
-    assert ds.sys_floor == pytest.approx(0.05) and ds.L.size == merged.L.size
+    assert ds.sys_floor == pytest.approx(0.05) and ds.L.size == pts.L.size
     pr.write_scans(tmp_path / "p_scans.txt", results)
-    pr.write_genx(tmp_path / "p_genx.dat", merged)
+    pr.write_genx(tmp_path / "p_genx.dat", pts)
+    assert len((tmp_path / "p_genx.dat").read_text().splitlines()) == 1 + pts.L.size
     assert len((tmp_path / "p_scans.txt").read_text().splitlines()) == 2 + sum(r[5] for r in rods)
 
 
@@ -112,7 +118,8 @@ def test_options_change_the_result(tmp_path):
     base, _, _ = pr.run_files(pr.sum_files(folder), str(spec), opt)
     off, _, _ = pr.run_files(pr.sum_files(folder), str(spec), opts(polarization=False, rod_interception=False))
     assert not np.allclose(base[0].F, off[0].F)
-    skip, merged, _ = pr.run_files(pr.sum_files(folder), str(spec), opts(exclude_bragg=0.05))
+    skip, pts, _ = pr.run_files(pr.sum_files(folder), str(spec), opts(exclude_bragg=0.05))
+    assert pts.L.size == int(skip[0].keep.sum())
     assert (~skip[0].keep).any() and np.all(np.abs(skip[0].L[~skip[0].keep] - np.round(skip[0].L[~skip[0].keep])) < 0.05)
     # no _err column: sqrt(|I|) with a note
     text = (folder / "scan_sums.txt").read_text().splitlines()
@@ -124,51 +131,52 @@ def test_options_change_the_result(tmp_path):
 
 
 def test_stationary_scans_are_processed_point_by_point(tmp_path):
-    """A CV-style scan at fixed HKL: normalised and corrected per point, not merged into one point, not
+    """A CV-style scan at fixed HKL: normalised and corrected per point, kept out of the rod points, not
     overlap-scaled against a rod scan of the same rod, not cut by the Bragg window; its file is read by
     the in-situ CV tool with the propagated sigma."""
     opt = opts(exclude_bragg=0.1)
     spec, folder, truth = write_experiment(tmp_path, opt, [(50, 1, 0, 0.3, 2.0, 40, 1.0),
                                                            (51, 1, 0, 1.0, 1.0, 30, 2.0)])
-    results, merged, notes = pr.run_files(pr.sum_files(folder), str(spec), opt)
+    results, pts, notes = pr.run_files(pr.sum_files(folder), str(spec), opt)
     rod, st = results
     assert not rod.stationary and st.stationary and st.keep.all() and st.scale == 1.0
     # monitor, transmission and count time vary point by point; the corrected intensity does not
     assert np.allclose(st.I_corr, st.I_corr[0], rtol=1e-6) and np.ptp(st.I_raw) > 0
     assert np.allclose(st.F, 2 ** 0.5 * true_F(1, 0, 1.0) * rod.F[0] / true_F(1, 0, 0.3), rtol=1e-6)
-    assert merged.L.size == int(rod.keep.sum()) and pr.stationary(results) == [st]
+    assert pts.L.size == int(rod.keep.sum()) and pr.stationary(results) == [st]
     out = pr.write_stationary(tmp_path / "cv.dat", pr.stationary(results))
     from ctrfit.echem import external as ex
     assert ex.choices(out)[1][:2] == ["ROI1_corr", "ROI1_norm"]
     y, sig, note = ex.read_intensity_sigma(str(out), 51, 30, column="ROI1_corr")
     assert np.allclose(y, st.I_corr, rtol=1e-5) and np.allclose(sig, st.s_corr, rtol=1e-5)
     assert "sigma from" in note
-    # only stationary scans: nothing to merge
+    # only stationary scans: no rod points
     (tmp_path / "b").mkdir()
     spec2, folder2, _ = write_experiment(tmp_path / "b", opt, [(52, 0, 1, 0.5, 0.5, 10, 1.0)])
-    res2, merged2, _ = pr.run_files(pr.sum_files(folder2), str(spec2), opt)
-    assert res2[0].stationary and merged2 is None
+    res2, pts2, _ = pr.run_files(pr.sum_files(folder2), str(spec2), opt)
+    assert res2[0].stationary and pts2 is None
 
 
 def test_groups_keep_conditions_apart(tmp_path):
-    """Same rod at two potentials (different structure: scale 1 and 3 stands in for it): in one group the
-    second scan is scaled onto the first and averaged; in two groups both keep their own intensity."""
+    """Same rod at two potentials (different structure: scale 1 and 3 stands in for it): by default every
+    scan keeps its own intensity; with overlap scaling in one group the second scan is scaled onto the
+    first (never averaged); in two groups both keep their own intensity."""
     opt = opts()
     spec, folder, truth = write_experiment(tmp_path, opt, [(70, 1, 0, 0.3, 2.0, 30, 1.0), (71, 1, 0, 0.3, 2.0, 30, 3.0),
                                                            (72, 1, 0, 1.8, 3.0, 20, 3.0)])
     paths = pr.sum_files(folder)
-    one, m1, _ = pr.run_files(paths, str(spec), opt)
-    assert one[1].scale == pytest.approx(1 / 3, rel=1e-3) and m1.groups() == [""] and m1.n_multiple > 0
+    plain, m0, _ = pr.run_files(paths, str(spec), opt)
+    assert [r.scale for r in plain] == [1.0, 1.0, 1.0] and m0.L.size == 80          # off by default, all points
+    one, m1, _ = pr.run_files(paths, str(spec), opts(match_overlaps=True))
+    assert one[1].scale == pytest.approx(1 / 3, rel=1e-3) and m1.groups() == [""] and m1.L.size == 80
     groups = {70: "0.4 V", 71: "1.2 V", 72: "1.2 V"}
-    two, m2, notes = pr.run_files(paths, str(spec), opts(scan_group=groups))
+    two, m2, notes = pr.run_files(paths, str(spec), opts(scan_group=groups, match_overlaps=True))
     assert two[1].scale == 1.0 and two[2].scale == pytest.approx(1.0, rel=0.05)     # 72 matched to 71 only (short overlap at a Bragg peak)
     assert m2.groups() == ["0.4 V", "1.2 V"]
     a, b = m2.select("0.4 V"), m2.select("1.2 V")
-    assert b.L.max() > 2.9 and a.L.max() < 2.01
-    common = np.intersect1d(np.round(a.L, 6), np.round(b.L, 6))
-    ia = np.isin(np.round(a.L, 6), common)
-    ib = np.isin(np.round(b.L, 6), common)
-    assert np.allclose(b.I[ib] / a.I[ia], 3.0, rtol=1e-6)                         # the difference survives
+    assert b.L.max() > 2.9 and a.L.max() < 2.01 and (a.L.size, b.L.size) == (30, 50)
+    k71 = b.scan == 71                                                               # same L grid as scan 70
+    assert np.allclose(b.L[k71], a.L) and np.allclose(b.I[k71] / a.I, 3.0, rtol=1e-6)   # the difference survives
     assert pr.safe_name("1.2 V / 5nm") == "1.2_V_5nm"
     pr.write_scans(tmp_path / "s.txt", two, opts(scan_group=groups))
     assert "1.2 V" in (tmp_path / "s.txt").read_text()
@@ -232,6 +240,10 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
     from PyQt5.QtCore import QItemSelectionModel
     from ctrfit.app.datatools.processing import ProcessingWindow
+    import json
+    from ctrfit.datatools.paths import settings_file
+    with open(settings_file("sxrd_processing_settings.json"), "w") as f:                # settings of the old layout
+        json.dump({"_chk_overlap": True, "_equiv": "±H ±K (p2mm)"}, f)
     opt = opts()
     spec, folder, truth = write_experiment(tmp_path, opt, [(30, 1, 0, 0.3, 2.0, 40, 1.0), (31, 1, 0, 1.8, 3.0, 30, 2.0),
                                                        (32, 1, 0, 0.5, 0.5, 20, 1.0)])
@@ -240,6 +252,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
                                                for l in lines[1:]]
     (folder / "scan_sums.txt").write_text("\n".join(lines) + "\n")
     w = ProcessingWindow()
+    assert not w._chk_scale_overlap.isChecked()                                     # the old 'on' is not restored
     w.show()
     w.open_spec(str(spec))
     w.open_sums_folder(str(folder))
@@ -249,7 +262,12 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     assert w._table.rowCount() == 3 and w._roi.currentText() == "ROI1" and not said
     w._table.selectRow(1)                                                          # preview of scan 31
     assert len(w._fig.axes) == 2 and "Scan 31" in w._fig.axes[0].get_title()
+    assert float(w._table.item(1, 5).text()) == 1.0                                  # not scaled by default
+    assert "other scans of this rod" in [t.get_text() for t in w._fig.axes[1].get_legend().get_texts()]
+    w._chk_scale_overlap.setChecked(True)
+    w.reprocess()
     assert float(w._table.item(1, 5).text()) == pytest.approx(0.5, rel=0.03)         # matched to scan 30
+    assert w._points.L.size == int(w._results[0].keep.sum() + w._results[1].keep.sum())   # nothing merged
     raw = w._results[0].I_raw.copy()
     combo = w._table.cellWidget(0, 6)                                               # scan 30 uses ROI2
     assert combo.currentText() == "(default)" and combo.findText("ROI2") > 0
@@ -268,14 +286,14 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w._table.clearSelection()
     w._table.item(1, 7).setText("1.2 V")
     w.reprocess()
-    assert w._merged.groups() == ["0.4 V", "1.2 V"] and w._results[1].scale == 1.0
+    assert w._points.groups() == ["0.4 V", "1.2 V"] and w._results[1].scale == 1.0
     out = w.save_to(str(tmp_path / "res.csv"))
     assert [p.split("/")[-1] for p in out] == ["res_scans.txt", "res_0.4_V.csv", "res_0.4_V_genx.dat", "res_1.2_V.csv",
                                                "res_1.2_V_genx.dat", "res_stationary.dat"]
     assert "group '1.2 V'" in w._summary.toPlainText()
     w._table.item(1, 0).setCheckState(0)                                             # leave scan 31 out
     w.reprocess()
-    assert all(L <= 2.0 + 1e-6 for L in w._merged.L) and w._merged.groups() == ["0.4 V"]
+    assert all(L <= 2.0 + 1e-6 for L in w._points.L) and w._points.groups() == ["0.4 V"]
     assert "stationary" in w._table.item(2, 2).text() and "1 stationary scan" in w._summary.toPlainText()
     w._table.selectRow(2)
     assert "stationary" in w._fig.axes[0].get_title() and w._fig.axes[1].get_xlabel() == "SPEC point"
@@ -284,7 +302,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     assert w2._spec_path.text() == str(spec)
     qapp.processEvents()
     w2.refresh()
-    assert w2._monitor.currentText() == "Monitor" and w2._table.rowCount() == 3
+    assert w2._monitor.currentText() == "Monitor" and w2._table.rowCount() == 3 and w2._chk_scale_overlap.isChecked()
     assert w2._table.cellWidget(0, 6).currentText() == "ROI2" and w2._table.item(1, 0).checkState() == 0
     assert w2._table.item(1, 7).text() == "1.2 V"
     w2.close()

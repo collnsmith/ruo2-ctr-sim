@@ -31,7 +31,7 @@ TOOLS = [
      "Sort ROI sums scans by film and CV / CA (a library text file; data read only) and compare groups: "
      "CVs at one H K L, CAs at one potential on one rod, ..."),
     ("processing", "Processing", "processing", "ProcessingWindow",
-     "ROI sums + SPEC: normalise, correct (polarisation, rod interception, area), |F| with errors, merge and scale"),
+     "ROI sums + SPEC: normalise, correct (polarisation, rod interception, area), |F| with errors, every point as measured"),
     ("ctr_fit", "CTR fit", "ctr_fit", "CTRFitWindow", "Quick kinematic CTR models on integrated intensities"),
     ("appender", "HKL appender", "appender", "MainWindow",
      "Add H, K, L from the SPEC scan to plotter exports and peak-fit tables; GenX export"),

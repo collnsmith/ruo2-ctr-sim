@@ -202,6 +202,29 @@ def test_data_tools_window(qapp, no_dialogs, tmp_path, monkeypatch):
         os.listdir(settings_dir()))
 
 
+def test_data_tools_tabs_can_be_moved_and_keep_their_order(qapp, no_dialogs, tmp_path, monkeypatch):
+    from ctrfit.app.data_tools_window import TOOLS, DataToolsWindow
+    monkeypatch.setenv("CTRFIT_SETTINGS_DIR", str(tmp_path / "settings"))
+    default = [t[0] for t in TOOLS]
+    w = DataToolsWindow()
+    assert w.tabs.isMovable() and w.tab_order() == default
+    bar = w.tabs.tabBar()
+    bar.moveTab(w.tabs.indexOf(w.tools["library"]), 0)                              # what a drag does
+    assert w.tab_order()[0] == "library" and w.tabs.widget(0) is w.tools["library"]
+    w.show_tool("processing")
+    assert w.tabs.currentWidget() is w.tools["processing"]                          # found wherever it is
+    w.close()
+    w = DataToolsWindow()                                                            # order and open tab kept
+    assert w.tab_order() == ["library"] + [k for k in default if k != "library"]
+    assert w.tabs.currentWidget() is w.tools["processing"]
+    assert [w.tabs.tabText(i) for i in range(w.tabs.count())][0] == "Scan library"
+    w.set_tab_order(["combiner", "nonsense", "meta"])                                # unknown keys skipped
+    assert w.tab_order()[:3] == ["combiner", "meta", "library"]
+    w.reset_tab_order()
+    assert w.tab_order() == default
+    w.close()
+
+
 def test_launcher_entry_point_runs_offscreen():
     root = os.path.dirname(os.path.dirname(__file__))
     code = ("import sys; sys.argv=['x']; from PyQt5.QtCore import QTimer; from PyQt5.QtWidgets import QApplication; "

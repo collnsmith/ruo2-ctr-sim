@@ -300,7 +300,8 @@ reflection before trusting the indexer at a new beamline.
 ## SXRD data tools
 
 `python ctr_data_tools.py` (or "SXRD data tools" in the launcher) opens the data processing tools
-in one window, one tab per step of the chain. Every tab is laid out like the other ctrfit windows:
+in one window, one tab per step of the chain (drag a tab to move it; the order and the open tab are
+kept, right click on the tabs to reset the order). Every tab is laid out like the other ctrfit windows:
 settings in titled groups on the left, the main action as the blue button at the bottom (Ctrl+R or
 Ctrl+S where it applies), plots and images on the right, messages in the status bar (errors also
 in a dialog):

@@ -8,11 +8,14 @@
 
 Each tab is the tool's own window embedded as a widget; the logic is in ctrfit.datatools. Settings
 of every tool are saved when this window closes (folder: ctrfit.datatools.paths.settings_dir()).
+The tabs can be dragged into another order; the order and the open tab are kept (TAB_FILE there),
+and a right click on the tab bar puts them back in the order above.
 """
+import json
 import sys
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMainWindow, QTabWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QMenu, QTabWidget
 
 
 # (key, tab title, module, window class, tooltip)
@@ -36,6 +39,9 @@ TOOLS = [
 ]
 
 
+TAB_FILE = "sxrd_data_tools_tabs.json"       # {"order": [keys], "current": key}
+
+
 class DataToolsWindow(QMainWindow):
     def __init__(self, tools=None):
         super().__init__()
@@ -44,6 +50,10 @@ class DataToolsWindow(QMainWindow):
         self.resize(1500, 950)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
+        self.tabs.setMovable(True)                 # drag a tab to move it
+        bar = self.tabs.tabBar()
+        bar.setContextMenuPolicy(Qt.CustomContextMenu)
+        bar.customContextMenuRequested.connect(self._tab_menu)
         self.setCentralWidget(self.tabs)
         self.tools = {}
         for key, title, mod, cls, tip in TOOLS:
@@ -54,7 +64,53 @@ class DataToolsWindow(QMainWindow):
             w.host = self
             self.tools[key] = w
             i = self.tabs.addTab(w, title)
-            self.tabs.setTabToolTip(i, tip)
+            self.tabs.setTabToolTip(i, tip + "\n(drag to move the tab; right click: reset the order)")
+        self._restore_tabs()
+
+    # ------------------------------------------------------------------ tab order
+    def tab_order(self):
+        """The tool keys in the order the tabs are shown."""
+        keys = {id(w): k for k, w in self.tools.items()}
+        return [keys[id(self.tabs.widget(i))] for i in range(self.tabs.count())]
+
+    def set_tab_order(self, keys):
+        """Put the tabs in this order (unknown keys skipped, tools not named keep their order after)."""
+        keys = [k for k in dict.fromkeys(keys) if k in self.tools]
+        keys += [k for k in self.tab_order() if k not in keys]
+        for target, key in enumerate(keys):
+            cur = self.tabs.indexOf(self.tools[key])
+            if cur != target:
+                self.tabs.tabBar().moveTab(cur, target)
+
+    def reset_tab_order(self):
+        self.set_tab_order([t[0] for t in TOOLS])
+
+    def _tab_menu(self, pos):
+        menu = QMenu(self)
+        menu.addAction("Reset tab order", self.reset_tab_order)
+        menu.exec_(self.tabs.tabBar().mapToGlobal(pos))
+
+    def _restore_tabs(self):
+        from ctrfit.datatools.paths import settings_file
+        try:
+            with open(settings_file(TAB_FILE)) as f:
+                d = json.load(f)
+        except (OSError, ValueError):
+            return
+        if isinstance(d.get("order"), list):
+            self.set_tab_order([str(k) for k in d["order"]])
+        if d.get("current") in self.tools:
+            self.tabs.setCurrentWidget(self.tools[d["current"]])
+
+    def _save_tabs(self):
+        from ctrfit.datatools.paths import settings_file
+        cur = self.tabs.currentWidget()
+        current = next((k for k, w in self.tools.items() if w is cur), None)
+        try:
+            with open(settings_file(TAB_FILE), "w") as f:
+                json.dump({"order": self.tab_order(), "current": current}, f, indent=1)
+        except OSError as e:
+            print(f"could not save the tab order: {e}", file=sys.stderr)
 
     def show_tool(self, key):
         """Bring one tool's tab to the front; returns its window."""
@@ -63,6 +119,7 @@ class DataToolsWindow(QMainWindow):
         return w
 
     def save_settings(self):
+        self._save_tabs()
         for w in self.tools.values():
             save = getattr(w, "_save_settings", None)
             if save is not None:

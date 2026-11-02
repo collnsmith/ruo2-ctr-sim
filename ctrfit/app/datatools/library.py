@@ -208,12 +208,17 @@ class LibraryWindow(StatusMixin, QMainWindow):
         b_ref.setToolTip("Read the data files again (new scans are added, assignments kept)")
         b_rm.clicked.connect(lambda: self.remove_source())
         b_ref.clicked.connect(lambda: self.refresh())
+        b_proc = QPushButton("Add processed file…")
+        b_proc.setToolTip("A master file of the Processing tab (<name>_master.txt): every processed scan, "
+                          "normalised and corrected, with no SPEC file or ROI sums needed")
+        b_proc.clicked.connect(lambda: self.add_processed_dialog())
         b_imp = QPushButton("Import assignments…")
         b_imp.setToolTip("Film, measurement, potential, CV start, ROI and notes from another library or "
                          "assignment file, onto the scans of the selected SPEC file (by scan number)")
         b_imp.clicked.connect(lambda: self.import_dialog())
-        dl.addWidget(row(b_add, b_more, stretch_first=False))
-        dl.addWidget(row(b_rm, b_ref, b_imp, stretch_first=False))
+        dl.addWidget(row(b_proc, b_add, stretch_first=False))
+        dl.addWidget(row(b_more, b_imp, stretch_first=False))
+        dl.addWidget(row(b_rm, b_ref, 1, stretch_first=False))
         dl.addWidget(hint("Files are opened for reading only. The library refers to them by path (relative to "
                           "the library file), so keep the folders together when moving them."))
 
@@ -280,7 +285,8 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._roi_def = QComboBox()
         self._roi_def.setToolTip("ROI of the scans whose ROI is (default) in the table")
         self._monitor, self._transm, self._ctime = QComboBox(), QComboBox(), QComboBox()
-        self._monitor.setToolTip("I is divided by monitor / (mean monitor of the plotted scans)")
+        self._monitor.setToolTip("I is divided by monitor / (mean monitor of the plotted scans). Raw ROI sums only: "
+                                 "processed files are already normalised")
         self._transm.setToolTip("Attenuator transmission per point (I is divided by it)")
         self._ctime.setToolTip("Count time per point (I is divided by it)")
         for w in (self._roi_def, self._monitor, self._transm, self._ctime):
@@ -329,8 +335,9 @@ class LibraryWindow(StatusMixin, QMainWindow):
         self._table.horizontalHeaderItem(C_KIND).setToolTip(
             "From the SPEC scan: rod (L moves), stationary (H K L fixed, e.g. during a CV or a CA hold), other "
             "(H or K moves), no SPEC (scan not in the SPEC file), missing (no ROI sums any more)")
-        self._table.horizontalHeaderItem(C_ROI).setToolTip("The ROI this scan is shown with; (default): the default "
-                                                           "ROI under Intensity")
+        self._table.horizontalHeaderItem(C_ROI).setToolTip(
+            "The ROI this scan is shown with; (default): the default ROI under Intensity. Scans of a processed "
+            "file offer I_corr (normalised and corrected, the default), F and I_norm instead")
         self._table.itemChanged.connect(self._table_edited)
         self._table.itemSelectionChanged.connect(self._selection_changed)
         top = QWidget()
@@ -586,10 +593,34 @@ class LibraryWindow(StatusMixin, QMainWindow):
             return src
         return self.guarded(go)
 
+    def add_processed_dialog(self):
+        path = QFileDialog.getOpenFileName(self, "Processed file (Processing tab: <name>_master.txt)", self._folder(),
+                                           "Master files (*_master.txt);;Text (*.txt);;All files (*)")[0]
+        return self.add_processed(path) if path else None
+
+    def add_processed(self, path, label=""):
+        def go():
+            self._checkpoint()
+            n0 = len(self.lib.entries)
+            src = self.lib.add_processed(path, label)
+            new = len(self.lib.entries) - n0
+            self._after_change()
+            msg = f"{src.id} {src.label}: {new} new processed scan(s)"
+            if self.lib.notes:
+                msg += f"; {self.lib.notes[0]}" + (f" (+{len(self.lib.notes) - 1} more)" if len(self.lib.notes) > 1
+                                                   else "")
+            self.say(msg)
+            return src
+        return self.guarded(go)
+
     def more_sums_dialog(self):
         src = self._current_source()
         if src is None:
             self.say("Pick the SPEC file in the Data list first", error=True)
+            return None
+        if src.processed:
+            self.say("A processed file has no ROI sums of its own: process the scans again in the Processing tab "
+                     "and Refresh (F5)", error=True)
             return None
         if not src.spec:
             return self.add_source_dialog()               # an assignment file's source: pick its SPEC file too
@@ -655,6 +686,14 @@ class LibraryWindow(StatusMixin, QMainWindow):
             it.setData(Qt.UserRole, s.id)
             it.setFlags(it.flags() | Qt.ItemIsEditable)
             files = s.sum_paths()
+            if s.processed:
+                head = self.lib._headers.get(s.id, {})
+                it.setToolTip(f"{s.id}: {n} processed scans\nfile: {s.master}\nfrom SPEC: {head.get('spec', '?')}\n"
+                              f"{head.get('normalise', '')}\n{head.get('correct', '')}")
+                self._sources.addItem(it)
+                if cur is not None and cur.id == s.id:
+                    self._sources.setCurrentItem(it)
+                continue
             it.setToolTip(f"{s.id}: {n} scans\nSPEC: {s.spec or '(not set yet)'}\n"
                           + "".join(f"ROI sums folder: {d}\n" for d in s.folders)
                           + f"{len(files)} ROI sums file(s):\n" + "\n".join(os.path.basename(p) for p in files[:40])

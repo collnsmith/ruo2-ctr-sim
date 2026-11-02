@@ -108,6 +108,8 @@ class ScanResult:
     notes: list = field(default_factory=list)
     stationary: bool = False             # H K L fixed over the scan (e.g. during a CV)
     roi: str = "I"                       # the ROI sums column used
+    monitor_ref: float = None            # I_norm = I * monitor_ref / monitor (None: no monitor)
+    monitor_mean: float = None           # mean monitor of the scan's points
 
     @property
     def rod(self):
@@ -294,11 +296,13 @@ def process_scan(number, cols, scan, opt, monitor_ref=None):
     H, K, L = (x[img] for x in scan_hkl(scan))
     # 2. normalise
     f = np.ones_like(I)
+    ref = mon_mean = None
     if opt.monitor:
         mon = _col(scan, opt.monitor)[img]
         if np.any(mon <= 0):
             raise ValueError(f"scan {number}: monitor '{opt.monitor}' has zero or negative values")
         ref = monitor_ref if monitor_ref else float(np.mean(mon))
+        mon_mean = float(np.mean(mon))
         f = f * ref / mon
     if opt.transmission:
         tr = _col(scan, opt.transmission)[img]
@@ -337,7 +341,7 @@ def process_scan(number, cols, scan, opt, monitor_ref=None):
         keep &= ~near
     F, sF = intensities_to_F(np.nan_to_num(I_c), np.nan_to_num(s_c, nan=1.0))
     return ScanResult(number, img, H, K, L, I, s, I_n, s_n, I_c, s_c, F, sF, a_deg, b_deg, P, C_rod, C_area,
-                      keep, 1.0, notes, stationary, roi)
+                      keep, 1.0, notes, stationary, roi, ref, mon_mean)
 
 
 # ------------------------------------------------------------------ step 5
@@ -459,22 +463,176 @@ def run_files(sum_paths, spec_path, opt):
 
 
 # ------------------------------------------------------------------ output
-def write_scans(path, results, opt=None):
-    """Every point of every scan: raw, normalised and corrected intensities, corrections, F."""
-    cols = ("scan", "group", "image", "H", "K", "L", "I_raw", "sigma_raw", "I_norm", "sigma_norm", "P", "C_rod", "C_area",
-            "alpha", "beta", "scale", "I_corr", "sigma_corr", "F", "sigma_F", "used")
+MASTER_FORMAT = "# CTR processing master file (ctrfit data tools, format 1)"
+MASTER_SCAN_COLUMNS = ("scan", "kind", "H", "K", "L", "L_min", "L_max", "points", "roi", "scale", "monitor_ref",
+                       "monitor_mean", "group", "use", "command", "notes")
+MASTER_POINT_COLUMNS = ("scan", "group", "image", "H", "K", "L", "t", "I_raw", "sigma_raw", "I_norm", "sigma_norm",
+                        "P", "C_rod", "C_area", "alpha", "beta", "scale", "I_corr", "sigma_corr", "F", "sigma_F",
+                        "used")
+TIME_COLUMNS = ("epoch", "time", "elapsed", "elapsed_time", "time_s", "t")
+
+
+def time_axis(scan, count_time=None):
+    """(seconds from the scan's first point at every point, how) from a time column (Epoch, Time,
+    ...), else the summed count times, else (None, None)."""
+    if scan is None:
+        return None, None
+    cols = {c.lower(): c for c in scan.columns}
+    for name in TIME_COLUMNS:
+        if name in cols:
+            t = scan.data[cols[name]].astype(float)
+            if np.isfinite(t).any():
+                return t - t[np.isfinite(t)][0], cols[name]
+    if count_time and count_time.lower() in cols:
+        ct = scan.data[cols[count_time.lower()]].astype(float)
+        return np.concatenate([[0.0], np.cumsum(ct)[:-1]]), f"summed {count_time}"
+    return None, None
+
+
+def scan_kind(r, tol=0.01):
+    """'stationary', 'rod' (H and K fixed, L moves) or 'other' (H or K moves) of a ScanResult."""
+    if r.stationary:
+        return "stationary"
+    span = lambda x: float(np.nanmax(x) - np.nanmin(x)) if x.size else 0.0
+    return "rod" if span(r.H) <= tol and span(r.K) <= tol else "other"
+
+
+def _clean(text):
+    return re.sub(r"[\t\r\n]+", " ", str(text or "")).strip()
+
+
+def write_master(path, results, opt=None, spec_scans=None, spec_path="", sum_paths=()):
+    """The master file: every processed scan (rod and stationary) and every point of it, for the
+    scan library and for any table program. '#' lines hold what was processed and how, and the list
+    of scans ('# [scans]': kind, rod, L range, ROI, scale, monitor reference and mean, group, use, SPEC
+    command, notes); then
+    one tab-separated table of every point: H K L, t (s from the scan's first point), the raw,
+    normalised and corrected intensities with their errors, the corrections, F and sigma_F (scaled
+    by the scan's scale) and 'used' (0: left out, e.g. near a Bragg peak)."""
+    opt = opt or Options()
+    spec_scans = spec_scans or {}
+    lines = [MASTER_FORMAT,
+             "# I_norm = I / (monitor / monitor_ref) / transmission / count time; I_corr = I_norm / "
+             "(P C_rod C_area) * scale; F = sqrt(I_corr); nothing is merged or averaged",
+             f"# spec: {spec_path}",
+             f"# sums: {' | '.join(str(p) for p in sum_paths)}",
+             f"# normalise: roi={opt.roi or '(first with errors)'} monitor={opt.monitor or '-'} "
+             f"transmission={opt.transmission or '-'} count_time={opt.count_time or '-'}",
+             f"# correct: energy={opt.energy_kev:g} keV geometry={opt.geometry} alpha={opt.alpha_deg:g} deg "
+             f"(column {opt.alpha_column or '-'}) beta column {opt.beta_column or '-'} "
+             f"polarisation={'%g' % opt.pol_fraction if opt.polarization else 'off'} "
+             f"rod_interception={'on' if opt.rod_interception else 'off'} area={'on' if opt.area else 'off'} "
+             f"lattice={' '.join('%g' % a for a in opt.lattice)}",
+             f"# output: skip |L - integer| < {opt.exclude_bragg:g}, overlap scaling "
+             f"{'on' if opt.match_overlaps else 'off'}, systematic floor {opt.floor_pct:g} %, stationary "
+             f"tolerance {opt.l_tol:g}",
+             "#", "# [scans]", "# " + "\t".join(MASTER_SCAN_COLUMNS)]
+    fmt = lambda v: "" if v is None or not np.isfinite(v) else f"{v:.6g}"
+    fmt10 = lambda v: "" if v is None or not np.isfinite(v) else f"{v:.10g}"
+    for r in results:
+        kind = scan_kind(r, opt.l_tol)
+        sc = spec_scans.get(r.scan)
+        lines.append("# " + "\t".join([str(r.scan), kind, fmt(float(np.nanmedian(r.H))), fmt(float(np.nanmedian(r.K))),
+                                       fmt(float(np.nanmedian(r.L))), fmt(float(np.nanmin(r.L))),
+                                       fmt(float(np.nanmax(r.L))), str(r.L.size), r.roi, f"{r.scale:.6g}",
+                                       fmt10(r.monitor_ref), fmt10(r.monitor_mean),
+                                       _clean(scan_group(opt, r.scan)), "1" if opt.scan_use.get(r.scan, True) else "0",
+                                       _clean(sc.scan_cmd if sc is not None else ""), _clean("; ".join(r.notes))]))
+    lines += ["#", "# [points]", "\t".join(MASTER_POINT_COLUMNS)]
+    for r in results:
+        t_all, _ = time_axis(spec_scans.get(r.scan), opt.count_time)
+        t = t_all[r.image] if t_all is not None else np.full(r.L.size, np.nan)
+        g = _clean(scan_group(opt, r.scan)) or "-"
+        for i in range(r.L.size):
+            vals = (r.scan, g, int(r.image[i]), r.H[i], r.K[i], r.L[i], t[i], r.I_raw[i], r.s_raw[i], r.I_norm[i],
+                    r.s_norm[i], r.P[i], r.C_rod[i], r.C_area[i], r.alpha[i], r.beta[i], r.scale,
+                    r.I_corr[i] * r.scale, r.s_corr[i] * r.scale, r.F[i] * math.sqrt(r.scale),
+                    r.sF[i] * math.sqrt(r.scale), int(bool(r.keep[i])))
+            lines.append("\t".join(f"{v:.8g}" if isinstance(v, (float, np.floating)) else str(v) for v in vals))
     with open(path, "w") as f:
-        f.write("# CTR processing: I_norm = I / monitor / transmission / count time, I_corr = I_norm / "
-                "(P C_rod C_area) * scale, F = sqrt(I_corr)\n")
-        f.write("\t".join(cols) + "\n")
-        for r in results:
-            for i in range(r.L.size):
-                vals = (r.scan, (scan_group(opt, r.scan) if opt else "") or "-", r.image[i], r.H[i], r.K[i], r.L[i], r.I_raw[i], r.s_raw[i], r.I_norm[i], r.s_norm[i],
-                        r.P[i], r.C_rod[i], r.C_area[i], r.alpha[i], r.beta[i], r.scale, r.I_corr[i] * r.scale,
-                        r.s_corr[i] * r.scale, r.F[i] * math.sqrt(r.scale), r.sF[i] * math.sqrt(r.scale),
-                        int(bool(r.keep[i])))
-                f.write("\t".join(f"{v:.6g}" if isinstance(v, float) else str(v) for v in vals) + "\n")
+        f.write("\n".join(lines) + "\n")
     return path
+
+
+@dataclass
+class MasterScan:
+    scan: int
+    kind: str
+    H: float
+    K: float
+    L: float
+    L_min: float
+    L_max: float
+    points: int
+    roi: str
+    scale: float
+    group: str
+    use: bool
+    command: str
+    notes: str
+    data: dict = field(default_factory=dict)     # point column -> array (MASTER_POINT_COLUMNS)
+    monitor_ref: float = math.nan        # I_norm = I * monitor_ref / monitor (nan: no monitor)
+    monitor_mean: float = math.nan
+
+
+def read_master(path):
+    """(header {key: text}, {scan: MasterScan}) of a master file (raises ValueError if it is not one)."""
+    with open(path, "r", errors="replace") as f:
+        text = f.read()
+    if not text.startswith(MASTER_FORMAT[:36]):
+        raise ValueError(f"{os.path.basename(path)} is not a processing master file")
+    header, scans, section, scan_cols, point_cols, rows = {}, {}, None, MASTER_SCAN_COLUMNS, None, []
+    for line in text.splitlines():
+        m = re.match(r"#\s*\[(\w+)\]", line)
+        if m:
+            section = m.group(1)
+            continue
+        if section is None:
+            m = re.match(r"#\s*(\w+):\s*(.*)", line)
+            if m:
+                header[m.group(1)] = m.group(2).strip()
+            continue
+        if section == "scans" and line.startswith("#"):
+            parts = line[1:].strip("\r\n").lstrip(" ").split("\t")
+            if parts[0] == "scan":
+                scan_cols = tuple(parts)
+                continue
+            if len(parts) < 3:
+                continue
+            d = dict.fromkeys(MASTER_SCAN_COLUMNS, "")
+            d.update(zip(scan_cols, parts))
+            num = lambda k: float(d[k]) if d[k].strip() else math.nan
+            try:
+                scans[int(d["scan"])] = MasterScan(int(d["scan"]), d["kind"], num("H"), num("K"), num("L"),
+                                                   num("L_min"), num("L_max"), int(d["points"] or 0), d["roi"],
+                                                   float(d["scale"] or 1), d["group"], d["use"] != "0",
+                                                   d["command"], d["notes"], {}, num("monitor_ref"),
+                                                   num("monitor_mean"))
+            except ValueError:
+                continue
+        elif section == "points" and line.strip() and not line.startswith("#"):
+            parts = line.split("\t")
+            if point_cols is None:
+                point_cols = parts
+                continue
+            rows.append(parts)
+    if point_cols is None:
+        raise ValueError(f"{os.path.basename(path)}: no point table")
+    by = {}
+    for parts in rows:
+        if len(parts) != len(point_cols):
+            continue
+        by.setdefault(int(parts[0]), []).append(parts)
+    for sn, rs in by.items():
+        ms = scans.get(sn) or MasterScan(sn, "rod", *(math.nan,) * 5, len(rs), "", 1.0, "", True, "", "")
+        cols = list(zip(*rs))
+        for name, col in zip(point_cols, cols):
+            if name == "group":
+                continue
+            ms.data[name] = np.array([float(v) if v not in ("", "nan") else math.nan for v in col])
+        ms.data["image"] = ms.data["image"].astype(int)
+        scans[sn] = ms
+    return header, {sn: scans[sn] for sn in sorted(scans) if scans[sn].data}
 
 
 def stationary(results, opt=None):

@@ -23,8 +23,10 @@ Library file (tab separated; '#' lines are comments; a section starts with a '# 
                    with its size and time, so that new and changed ones are reported); paths
                    relative to the library file's folder; size
                    and mtime of each file when it was read (a changed file is reported on opening).
-                   A source with no spec row is a placeholder (an assignment file written before the
-                   data were processed): the first SPEC file added to the library fills it.
+                   'master' is a processing master file instead of SPEC + ROI sums (Add processed
+                   file). A source with no spec or master row is a placeholder (an assignment file
+                   written before the data were processed): the first SPEC file or processed file
+                   added to the library fills it.
     # [scans]      source scan film mode potential cv_start roi use | kind H K L L_min L_max points
                    command | notes; the '# source ...' header line names the columns (files of an
                    older layout still read). roi blank: the default ROI; the columns from 'kind' to
@@ -38,6 +40,11 @@ Kinds, from the SPEC scan at the images that have ROI sums: rod (L moves, H and 
 
 apply_assignments() copies film, measurement, potential, CV start, ROI, use and notes from another
 library (e.g. an assignment file) onto the scans of one source, by scan number.
+
+A processed source (the Processing tab's <name>_master.txt) needs no SPEC file: its scans offer the
+quantities I_corr (normalised and corrected, the default), F and I_norm instead of ROIs, against L
+(rod scans) or the time from the scan start / the CV start / the SPEC point (stationary scans); the
+library's monitor / transmission / count time apply to raw ROI sums only (Processing applied them).
 
 Two ROI sums files of one SPEC file can both have a scan (the background subtraction run twice):
 each keeps its own ROIs; the newest file's ROIs keep their names and the older files' become
@@ -60,7 +67,8 @@ import numpy as np
 
 from ..echem.external import parse_roi_sums
 from .images import read_roi_positions, roi_position
-from .processing import sum_files                  # .txt files that start with 'scan image'
+from .processing import read_master, sum_files     # sum_files: .txt files that start with 'scan image'
+from .processing import time_axis                  # noqa: F401  (seconds from a scan's first point)
 from .specfile import parse_spec_file
 
 FORMAT = "# CTR scan library (ctrfit data tools, format 1)"
@@ -71,7 +79,6 @@ KINDS = ("rod", "stationary", "other", "no SPEC", "missing")
 TOL = 0.01                                # H, K, L spans at or below this: the index is fixed
 E_TOL = 5e-4                              # potentials closer than this are the same (V)
 STATIONARY_COMMANDS = ("loopscan", "timescan", "tscan", "loop", "ctscan")
-TIME_COLUMNS = ("epoch", "time", "elapsed", "elapsed_time", "time_s", "t")
 X_TIME, X_POINT, X_L = "time from scan start (s)", "SPEC point", "L"
 X_CV = "time from CV start (s)"           # t = 0 at the entry's cv_start point
 NORMS = ("as measured", "÷ max", "÷ first point")
@@ -96,6 +103,20 @@ class Source:
     label: str = ""
     stamps: dict = field(default_factory=dict)   # path -> (size, mtime) when last read
     folders: list = field(default_factory=list)  # folders: every ROI sums file in them
+    master: str = ""                             # a processing master file instead of SPEC + ROI sums
+
+    @property
+    def processed(self):
+        return bool(self.master)
+
+    @property
+    def placeholder(self):
+        """No data yet (an assignment file): the first SPEC or processed file added fills it."""
+        return not self.spec and not self.master and not self.sums and not self.folders
+
+    def files(self):
+        """Every data file of the source: SPEC or master file, then the ROI sums."""
+        return [p for p in (self.spec, self.master) if p] + self.sum_paths()
 
     def sum_paths(self):
         """The ROI sums files: those picked, then those found in the folders now (each once)."""
@@ -155,10 +176,17 @@ class Entry:
         return "no condition"
 
 
+QUANTITIES = (("I_corr", "sigma_corr", "normalised and corrected (polarisation, rod interception, area) x scale"),
+              ("F", "sigma_F", "|F| = sqrt(I_corr)"),
+              ("I_norm", "sigma_norm", "normalised only (monitor, transmission, count time)"))
+
+
 @dataclass
 class ScanData:
     spec: object = None                   # SpecScan, or None if the SPEC file does not have the scan
     rois: dict = field(default_factory=dict)     # name -> (images, I, sigma or None, path of the sums file)
+    points: dict = None                   # processed: the master file's point columns of the scan
+    master: object = None                 # processed: its MasterScan
 
 
 @dataclass
@@ -276,6 +304,7 @@ class Library:
         self._data = {}                   # (source, scan) -> ScanData
         self._spec = {}                   # source id -> {scan: SpecScan}
         self._positions = {}              # sums path -> ROI positions section
+        self._headers = {}                # source id -> header of its master file
 
     # -------------------------------------------------------------- sources
     def source(self, sid):
@@ -311,7 +340,7 @@ class Library:
         src = next((s for s in self.sources if s.spec and os.path.normcase(s.spec) == os.path.normcase(spec)),
                    None)
         if src is None:
-            src = next((s for s in self.sources if not s.spec), None)        # a placeholder: fill it
+            src = next((s for s in self.sources if s.placeholder), None)     # a placeholder: fill it
             if src is not None:
                 src.spec = spec
                 src.label = label or os.path.splitext(os.path.basename(spec))[0]
@@ -333,11 +362,32 @@ class Library:
         self.sources = [s for s in self.sources if s.id != sid]
         self.entries = [e for e in self.entries if e.source != sid]       # the read data stay cached (undo)
 
+    def add_processed(self, path, label=""):
+        """Add a processing master file (<name>_master.txt of the Processing tab): every processed scan,
+        normalised and corrected, without the SPEC file or the ROI sums. The same file again is read
+        again; a placeholder (an assignment file's source) is filled. Returns the Source."""
+        path = os.path.abspath(str(path))
+        read_master(path)                 # a master file, before anything is changed
+        src = next((s for s in self.sources if s.master and os.path.normcase(s.master) == os.path.normcase(path)),
+                   None)
+        stem = re.sub(r"_master$", "", os.path.splitext(os.path.basename(path))[0])
+        if src is None:
+            src = next((s for s in self.sources if s.placeholder), None)
+            if src is not None:
+                src.master, src.label = path, label or stem
+        if src is None:
+            src = Source(self._next_id(), "", [], label or stem, master=path)
+            self.sources.append(src)
+        elif label:
+            src.label = label
+        self.load([src.id])
+        return src
+
     def changed_files(self):
         """Data files whose size or time differ from when the library last read them."""
         out = []
         for s in self.sources:
-            for p in [s.spec] + s.sum_paths():
+            for p in s.files():
                 old = s.stamps.get(p)
                 if old is not None and _stamp(p) != tuple(old):
                     out.append(p)
@@ -351,8 +401,11 @@ class Library:
         for s in self.sources:
             if ids is not None and s.id not in ids:
                 continue
+            if s.processed:
+                notes += self._load_master(s, changed)
+                continue
             if not s.spec:
-                notes.append(f"{s.id} {s.label}: no SPEC file yet (Add SPEC + ROI sums fills it)")
+                notes.append(f"{s.id} {s.label}: no data yet (Add SPEC + ROI sums or Add processed file fills it)")
                 continue
             files = newest_first([p for p in s.sum_paths() if os.path.isfile(p)])
             for p in [s.spec] + files:
@@ -408,6 +461,39 @@ class Library:
         self.notes = notes
         return notes
 
+    def _load_master(self, s, changed):
+        """Read a processed source's master file into entries (assignments kept). Returns notes."""
+        notes = []
+        if s.master in changed:
+            notes.append(f"{os.path.basename(s.master)} changed since it was last read")
+        if not os.path.isfile(s.master):
+            notes.append(f"{s.id}: not found: {s.master}")
+            mscans = {}
+        else:
+            header, mscans = read_master(s.master)
+            self._headers[s.id] = header
+            s.stamps = {s.master: _stamp(s.master)}
+        self._spec[s.id] = {}
+        have = {e.scan: e for e in self.entries if e.source == s.id}
+        for sn in sorted(set(mscans) | set(have)):
+            ms = mscans.get(sn)
+            e = have.get(sn)
+            if e is None:
+                e = Entry(s.id, sn, use=ms.use)
+                self.entries.append(e)
+            if ms is None:
+                e.kind = "missing"
+                self._data[e.key] = ScanData()
+                notes.append(f"{s.id} scan {sn}: not in {os.path.basename(s.master)} (yet, or any more; its "
+                             "assignments are kept)")
+                continue
+            d = ms.data
+            rois = {name: (d["image"], d[name], d[err], s.master) for name, err, _ in QUANTITIES if name in d}
+            self._data[e.key] = ScanData(None, rois, d, ms)
+            e.kind, e.H, e.K, e.L, e.L_min, e.L_max = ms.kind, ms.H, ms.K, ms.L, ms.L_min, ms.L_max
+            e.points, e.command, e.rois = int(d["image"].size), ms.command, list(rois)
+        return notes
+
     # -------------------------------------------------------------- entries
     def entry(self, source, scan):
         return next((e for e in self.entries if e.source == source and e.scan == int(scan)), None)
@@ -458,9 +544,14 @@ class Library:
 
     def roi_description(self, entry, name):
         """'signal ROI 40 x 30 px at (512, 300)' from the ROI positions section, or ''."""
-        d = self.data(entry).rois.get(name)
+        data = self.data(entry)
+        d = data.rois.get(name)
         if d is None:
             return ""
+        if data.master is not None:
+            what = next((w for q, _, w in QUANTITIES if q == name), name)
+            return (f"{name}: {what}, from {os.path.basename(d[3])} (Processing ROI {data.master.roi}, "
+                    f"scale {data.master.scale:g})")
         base = re.sub(r" \(.*\)$", "", name)
         pos = self._positions.get(d[3], {})
         p = roi_position(pos, entry.scan, "all", base)
@@ -529,7 +620,7 @@ def write_library(lib, path=None, remember=True):
     if not path or os.path.isdir(path):
         raise ValueError("pick a file name for the library")
     for s in lib.sources:
-        for p in [s.spec] + s.sum_paths():
+        for p in s.files():
             if os.path.normcase(os.path.abspath(p)) == os.path.normcase(path):
                 raise ValueError(f"{os.path.basename(path)} is one of the library's data files; the data are "
                                  "read only, save the library under another name")
@@ -546,11 +637,12 @@ def write_library(lib, path=None, remember=True):
         lines.append(f"{s.id}\tlabel\t{_clean(s.label)}")
         for d in s.folders:
             lines.append(f"{s.id}\tfolder\t{_rel(d, base)}")
-        for what, p in ([("spec", s.spec)] if s.spec else []) + [("sums", q) for q in s.sums]:
+        for what, p in ([("spec", s.spec)] if s.spec else []) + ([("master", s.master)] if s.master else []) + \
+                [("sums", q) for q in s.sums]:
             st = s.stamps.get(p) or _stamp(p)
             extra = f"\t{st[0]}\t{st[1]:.3f}" if st else ""
             lines.append(f"{s.id}\t{what}\t{_rel(p, base)}{extra}")
-        listed = {os.path.normcase(p) for p in [s.spec] + list(s.sums)}
+        listed = {os.path.normcase(p) for p in [s.spec, s.master] + list(s.sums) if p}
         for p, st in sorted(s.stamps.items()):
             if os.path.normcase(p) not in listed and st:
                 lines.append(f"{s.id}\tseen\t{_rel(p, base)}\t{st[0]}\t{st[1]:.3f}")
@@ -605,7 +697,7 @@ def read_library(path, load=True):
                 lib.sources.append(src)
             if what == "label":
                 src.label = value
-            elif what in ("spec", "sums", "folder", "seen") and value.strip():
+            elif what in ("spec", "sums", "folder", "seen", "master") and value.strip():
                 p = os.path.normpath(value if os.path.isabs(value) else os.path.join(base, value))
                 if what == "folder":
                     src.folders.append(p)
@@ -616,7 +708,9 @@ def read_library(path, load=True):
                     except (IndexError, ValueError):
                         pass
                     continue
-                if what == "spec":
+                if what == "master":
+                    src.master = p
+                elif what == "spec":
                     src.spec = p
                 else:
                     src.sums.append(p)
@@ -791,17 +885,49 @@ def group_key(lib, e, colour_by):
     return (film, cond)
 
 
-def time_axis(scan, count_time=None):
-    """(seconds from the scan's first point at every point, how) from a time column (Epoch, Time,
-    ...), else the summed count times, else None."""
-    for name in TIME_COLUMNS:
-        t = _column(scan, name)
-        if t is not None and np.isfinite(t).any():
-            return t - t[np.isfinite(t)][0], name
-    ct = _column(scan, count_time)
-    if ct is not None:
-        return np.concatenate([[0.0], np.cumsum(ct)[:-1]]), f"summed {count_time}"
-    return None, None
+def _processed_trace(lib, e, d, roi, x, mon_ref=None):
+    """Trace of a scan of a processing master file (already normalised and corrected). mon_ref puts
+    it on that monitor reference (Processing normalised each run to its own mean monitor)."""
+    P, notes = d.points, []
+    img = P["image"]
+    y, s = d.rois[roi][1].copy(), d.rois[roi][2]
+    s = s.copy() if s is not None else None
+    own = d.master.monitor_ref
+    if mon_ref and np.isfinite(own) and own > 0:
+        f = mon_ref / own if roi != "F" else np.sqrt(mon_ref / own)
+        y = y * f
+        s = s * f if s is not None else None
+    used = (P["used"] > 0) & np.isfinite(y)
+    try:
+        pct = float(lib.settings.get("sys_error") or 0)
+    except ValueError:
+        pct = 0.0
+    if pct > 0:
+        floor = np.abs(y) * pct / 100
+        s = np.sqrt(s ** 2 + floor ** 2) if s is not None else floor
+    t = P.get("t")
+    has_t = t is not None and np.isfinite(t).any()
+    if e.kind == "rod":
+        xs, xlabel = P["L"], "L (r.l.u.)"
+    elif x == X_POINT:
+        xs, xlabel = img.astype(float), "SPEC point"
+    elif not has_t:
+        xs, xlabel = img.astype(float), "SPEC point"
+        notes.append("no times in the processed file: plotted against the SPEC point")
+    elif x == X_CV:
+        xs, xlabel = t.copy(), X_CV
+        at = np.flatnonzero(img == e.cv_start) if e.cv_start is not None else []
+        if len(at) and np.isfinite(t[at[0]]):
+            xs = xs - t[at[0]]
+        else:
+            notes.append("no CV start point: t = 0 at the scan start")
+    else:
+        if x != X_TIME:
+            notes.append(f"'{x}' is not in a processed file: plotted against the time from the scan start")
+        xs, xlabel = t, "time from scan start (s)"
+    order = np.argsort(xs, kind="stable") if e.kind == "rod" else np.arange(xs.size)
+    order = order[used[order] & np.isfinite(xs[order])]
+    return Trace(e, xs[order], y[order], s[order] if s is not None else None, roi, xlabel, notes=notes)
 
 
 def trace(lib, e, x=X_TIME, mon_ref=None):
@@ -812,6 +938,8 @@ def trace(lib, e, x=X_TIME, mon_ref=None):
     roi = lib.effective_roi(e)
     if roi is None:
         raise ValueError(f"{e.source} scan {e.scan}: no ROI sums")
+    if d.points is not None:
+        return _processed_trace(lib, e, d, roi, x, mon_ref)
     img, I, sig, _ = d.rois[roi]
     notes = []
     scan = d.spec
@@ -881,12 +1009,18 @@ def trace(lib, e, x=X_TIME, mon_ref=None):
 
 
 def monitor_reference(lib, entries):
-    """Mean monitor over the entries (so normalised intensities stay in counts), or None."""
+    """Mean monitor over the entries (so normalised intensities stay in counts and every scan, raw
+    or processed, is on one reference), or None."""
     name = lib.settings.get("monitor")
-    if not name:
-        return None
     vals = []
     for e in entries:
+        ms = lib.data(e).master
+        if ms is not None:                                 # processed: the mean monitor Processing saw
+            if np.isfinite(ms.monitor_mean) and ms.monitor_mean > 0:
+                vals.append(float(ms.monitor_mean))
+            continue
+        if not name:
+            continue
         col = _column(lib.data(e).spec, name)
         if col is not None and np.any(col > 0):
             vals.append(float(np.mean(col[col > 0])))

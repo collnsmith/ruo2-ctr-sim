@@ -507,7 +507,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
 
     # ------------------------------------------------------------------ output
     def save_to(self, base):
-        """Write <base>_scans.txt (every point and factor), <base>.csv and <base>_genx.dat (every kept
+        """Write <base>_master.txt (every processed scan and point with every factor, for the scan
+        library: Add processed file), <base>.csv and <base>_genx.dat (every kept
         point as measured, for the fitting app and GenX; one pair per group: <base>_<group>.csv) and
         <base>_stationary.dat
         (stationary scans, for the in-situ CV tool). Returns the paths. Processes first, so the files
@@ -518,7 +519,8 @@ class ProcessingWindow(StatusMixin, QMainWindow):
             raise ValueError("nothing processed yet")
         base = os.path.splitext(base)[0]
         opt = self.options()
-        out = [pr.write_scans(base + "_scans.txt", self._results, opt)]
+        out = [pr.write_master(base + "_master.txt", self._results, opt, self._spec, self._spec_path.text(),
+                               self._sum_paths)]
         if self._points is not None:
             for g in self._points.groups():
                 m = self._points.select(g)

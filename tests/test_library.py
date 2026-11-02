@@ -323,7 +323,7 @@ def test_assignment_file_before_the_data(tmp_path):
     path = lb.write_library(notes, tmp_path / "assignments.txt")
     assert "S1\tspec" not in open(path).read()
     lib = lb.read_library(path)
-    assert any("no SPEC file yet" in n for n in lib.notes) and len(lib.entries) == 4
+    assert any("no data yet" in n for n in lib.notes) and len(lib.entries) == 4
     assert (lib.entry("S1", 9).kind, lib.entry("S1", 9).rod) == ("rod", (1, 1))          # H K L from the file
     src = lib.add_source(sa, [ua])
     assert src.id == "S1" and src.label == "a" and len(lib.sources) == 1                 # the placeholder is filled
@@ -414,6 +414,82 @@ def test_symmetry_equivalents_together(tmp_path):
     assert sorted({t.group for t in trs}) == ["rod 0 -1", "rod 0 1"]
     t = {tr.entry.key: tr for tr in lb.traces(lib, both)[0]}
     assert np.allclose(t[(src.id, 1)].y / t[("S1", 1)].y, 3.0, rtol=1e-6)            # the same rod, 3 x film A
+
+
+def master_of(spec, sums, out):
+    """Process a beamtime in the Processing tool and write its master file."""
+    from ctrfit.datatools import processing as pr
+    from ctrfit.datatools.specfile import parse_spec_file
+    opt = pr.Options(roi="ROI1", monitor="Monitor", transmission="transm", count_time="Seconds")
+    scans = parse_spec_file(str(spec))
+    results, _, _ = pr.process(pr.load_sums([str(sums)]), scans, opt)
+    return pr.write_master(out, results, opt, scans, str(spec), [str(sums)]), {r.scan: r for r in results}
+
+
+def test_processed_master_files(tmp_path):
+    """The Processing tab's master file as a source: no SPEC file or ROI sums needed, the corrected
+    intensities compared as they are (the library's normalisation is not applied again)."""
+    (sa, ua, _), (sb, ub, _) = two_films(tmp_path)
+    ma, ra = master_of(sa, ua, tmp_path / "a_master.txt")
+    mb, rb = master_of(sb, ub, tmp_path / "b_master.txt")
+    lib = lb.Library()
+    src = lib.add_processed(ma)
+    lib.add_processed(mb, "film B")
+    assert (src.label, src.processed, src.spec) == ("a", True, "") and lib.notes == []
+    by = {e.scan: e for e in lib.entries if e.source == "S1"}
+    assert [(e.scan, e.kind) for e in by.values()] == [(1, "rod"), (2, "rod"), (3, "stationary"), (4, "rod"),
+                                                       (5, "stationary"), (6, "other")]
+    assert by[3].rod == (0, 1) and by[3].L == 0.5 and by[1].rois == ["I_corr", "F", "I_norm"]
+    assert lib.effective_roi(by[1]) == "I_corr"
+    assert "from a_master.txt (Processing ROI ROI1" in lib.roi_description(by[1], "I_corr")
+    lib.assign([e for e in lib.entries if e.source == "S1"], film="7 nm")
+    lib.assign([e for e in lib.entries if e.source == "S2"], film="4.1 nm")
+    lib.assign([lib.entry("S1", 1), lib.entry("S2", 1)], mode="CA", potential=0.7)
+    lib.assign([lib.entry("S1", 3), lib.entry("S2", 3)], mode="CV", cv_start=5)
+    t7 = lb.trace(lib, lib.entry("S1", 1))                                          # as Processing wrote it
+    k = ra[1].keep
+    assert np.allclose(t7.x, ra[1].L[k]) and np.allclose(t7.y, ra[1].I_corr[k] * ra[1].scale)
+    assert ra[1].monitor_ref != rb[1].monitor_ref                                    # two runs, two references
+    trs, notes = lb.traces(lib, lb.select(lib, "rod", {"CA"}, potential=0.7, rod=(0, 1)))
+    t47, t7c = trs
+    assert notes == [] and np.allclose(t47.y / t7c.y, 2.0, rtol=1e-6)                # one reference: film B = 2 x A
+    lib.settings.update(monitor="Monitor", transmission="transm")                   # not applied again
+    assert np.allclose(lb.trace(lib, lib.entry("S1", 1)).y, t7.y)
+    lib.entry("S1", 1).roi = "F"
+    assert np.allclose(lb.trace(lib, lib.entry("S1", 1)).y, np.sqrt(t7.y))
+    cv = lb.trace(lib, lib.entry("S1", 3), lb.X_CV)
+    assert cv.x[5] == 0 and cv.x[0] == -10                                           # loopscan: 2 s per point
+    assert lb.trace(lib, lib.entry("S1", 3), lb.X_POINT).x[7] == 7
+    assert "not in a processed file" in lb.trace(lib, lib.entry("S1", 3), "Monitor").notes[0]
+    # the library file keeps the master file; it is never written over
+    path = lb.write_library(lib, tmp_path / "lib.txt")
+    assert "S1\tmaster\ta_master.txt\t" in open(path).read()
+    back = lb.read_library(path)
+    assert back.source("S1").master == str(ma) and back.entry("S1", 3).cv_start == 5 and back.notes == []
+    with pytest.raises(ValueError, match="read only"):
+        lb.write_library(back, ma)
+    # processed again (another ROI): the library reads the new numbers on refresh
+    from ctrfit.datatools import processing as pr
+    from ctrfit.datatools.specfile import parse_spec_file
+    opt = pr.Options(roi="ROI2", monitor="Monitor", transmission="transm", count_time="Seconds")
+    scans = parse_spec_file(str(sa))
+    results, _, _ = pr.process(pr.load_sums([str(ua)]), scans, opt)
+    pr.write_master(ma, results, opt, scans)
+    os.utime(ma, ns=(1, 1))
+    notes = back.load()
+    assert any("a_master.txt changed" in n for n in notes)
+    back.entry("S1", 1).roi = ""
+    assert np.allclose(lb.trace(back, back.entry("S1", 1)).y, 2 * t7.y, rtol=1e-6)  # ROI2 = 2 x ROI1
+    # an assignment file's empty source is filled by a processed file
+    notes_lib = lb.Library()
+    notes_lib.sources.append(lb.Source("S1", "", [], "beamtime"))
+    notes_lib.entries = [lb.Entry("S1", 3, "7 nm", "CV", cv_start=5, kind="stationary")]
+    p2 = lb.write_library(notes_lib, tmp_path / "assign.txt")
+    fresh = lb.read_library(p2)
+    assert fresh.add_processed(mb).id == "S1" and len(fresh.sources) == 1
+    assert (fresh.entry("S1", 3).cv_start, fresh.entry("S1", 3).points) == (5, 40)
+    with pytest.raises(ValueError, match="not a processing master"):
+        lib.add_processed(sa)
 
 
 # ------------------------------------------------------------------ the tab
@@ -629,6 +705,18 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     assert w.import_assignments(str(tmp_path / "imp.txt")) == (1, 1)
     assert w.lib.entry("S1", 2).mode == "OCV" and w.lib.entry("S1", 99).kind == "missing"
     assert "1 scan(s) in the data, 1 not (yet)" in w._status_label.text()
+    # a processed file (the Processing tab's master file) as a source
+    mc, _ = master_of(sb, ub, tmp_path / "b_master.txt")
+    n0 = w._table.rowCount()
+    src = w.add_processed(str(mc), "film B processed")
+    assert src.processed and w._table.rowCount() == n0 + 6
+    assert "6 new processed scan(s)" in w._status_label.text()
+    roi = w._table.cellWidget(w._row_of[(src.id, 1)], ui.C_ROI)
+    assert [roi.itemText(i) for i in range(roi.count())] == ["(default)", "I_corr", "F", "I_norm"]
+    w._sources.setCurrentRow(w._sources.count() - 1)
+    assert w.more_sums_dialog() is None and said[-1][0] == "warning"
+    said.clear()
+    w.remove_source(src.id)
     # the add dialog: a folder of ROI sums
     folder = tmp_path / "sums_folder"
     folder.mkdir()

@@ -106,10 +106,8 @@ def test_processing_recovers_the_structure_factor(tmp_path):
     out = pr.write_points(tmp_path / "p.csv", pts, opt)
     ds = read_csv(out)
     assert ds.sys_floor == pytest.approx(0.05) and ds.L.size == pts.L.size
-    pr.write_scans(tmp_path / "p_scans.txt", results)
     pr.write_genx(tmp_path / "p_genx.dat", pts)
     assert len((tmp_path / "p_genx.dat").read_text().splitlines()) == 1 + pts.L.size
-    assert len((tmp_path / "p_scans.txt").read_text().splitlines()) == 2 + sum(r[5] for r in rods)
 
 
 def test_options_change_the_result(tmp_path):
@@ -157,6 +155,35 @@ def test_stationary_scans_are_processed_point_by_point(tmp_path):
     assert res2[0].stationary and pts2 is None
 
 
+def test_master_file_has_every_scan_and_point(tmp_path):
+    """The master file: every processed scan (rod and stationary) and every point, with the time from the
+    scan start; read back exactly, and its point table reads as a plain table (numpy, Origin, ...)."""
+    from ctrfit.datatools.specfile import parse_spec_file
+    opt = opts(exclude_bragg=0.05, scan_use={61: False})
+    spec, folder, truth = write_experiment(tmp_path, opt, [(60, 1, 0, 0.3, 2.0, 40, 1.0), (61, 0, 1, 0.5, 1.5, 20, 2.0),
+                                                       (62, 1, 0, 1.0, 1.0, 25, 1.0)])
+    scans = parse_spec_file(str(spec))
+    results, pts, notes = pr.process(pr.load_sums(pr.sum_files(folder)), scans, opt)
+    out = pr.write_master(tmp_path / "m_master.txt", results, opt, scans, str(spec), pr.sum_files(folder))
+    header, ms = pr.read_master(out)
+    assert header["spec"] == str(spec) and "monitor=Monitor" in header["normalise"]
+    assert [(m.scan, m.kind, m.points, m.use) for m in ms.values()] == [(60, "rod", 40, True), (61, "rod", 20, False),
+                                                                         (62, "stationary", 25, True)]
+    assert all(m.monitor_ref == pytest.approx(results[0].monitor_ref) for m in ms.values())   # one per run
+    assert ms[61].monitor_mean == pytest.approx(results[1].monitor_mean) and 9e4 < ms[61].monitor_mean < 1.1e5
+    for r in results:
+        d = ms[r.scan].data
+        assert np.array_equal(d["image"], r.image) and np.allclose(d["L"], r.L)
+        assert np.allclose(d["I_corr"], r.I_corr * r.scale, rtol=1e-7) and np.allclose(d["F"], r.F * np.sqrt(r.scale))
+        assert np.array_equal(d["used"] > 0, r.keep) and np.allclose(d["t"], r.image)  # Epoch = point number here
+    assert (ms[60].data["used"] == 0).any()                                          # near a Bragg peak: kept, used 0
+    skip = next(i for i, l in enumerate(open(out)) if l.startswith("scan\t"))       # the table's header line
+    table = np.genfromtxt(out, names=True, skip_header=skip, delimiter="\t", dtype=None, encoding=None)
+    assert table.size == 85 and set(table["scan"]) == {60, 61, 62}
+    with pytest.raises(ValueError, match="not a processing master"):
+        pr.read_master(spec)
+
+
 def test_groups_keep_conditions_apart(tmp_path):
     """Same rod at two potentials (different structure: scale 1 and 3 stands in for it): by default every
     scan keeps its own intensity; with overlap scaling in one group the second scan is scaled onto the
@@ -178,8 +205,8 @@ def test_groups_keep_conditions_apart(tmp_path):
     k71 = b.scan == 71                                                               # same L grid as scan 70
     assert np.allclose(b.L[k71], a.L) and np.allclose(b.I[k71] / a.I, 3.0, rtol=1e-6)   # the difference survives
     assert pr.safe_name("1.2 V / 5nm") == "1.2_V_5nm"
-    pr.write_scans(tmp_path / "s.txt", two, opts(scan_group=groups))
-    assert "1.2 V" in (tmp_path / "s.txt").read_text()
+    pr.write_master(tmp_path / "s.txt", two, opts(scan_group=groups))
+    assert [m.group for m in pr.read_master(tmp_path / "s.txt")[1].values()] == ["0.4 V", "1.2 V", "1.2 V"]
 
 
 def test_roi_per_scan(tmp_path):
@@ -276,7 +303,8 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     assert w._results[0].roi == "ROI2" and np.allclose(w._results[0].I_raw, 4 * raw)
     assert w._results[1].roi == "ROI1" and w._table.cellWidget(0, 6).currentText() == "ROI2"
     out = w.save_to(str(tmp_path / "one.csv"))
-    assert [p.split("/")[-1] for p in out] == ["one_scans.txt", "one.csv", "one_genx.dat", "one_stationary.dat"]
+    assert [p.split("/")[-1] for p in out] == ["one_master.txt", "one.csv", "one_genx.dat", "one_stationary.dat"]
+    assert sorted(pr.read_master(out[0])[1]) == [30, 31, 32]                         # every scan in the master
     # groups: select scans 30 and 31, type a group once -> both get it; scan 31 alone in another
     sm = w._table.selectionModel()          # not selectRow: it follows the keyboard state an earlier test left
     sm.select(w._table.model().index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows)
@@ -288,7 +316,7 @@ def test_processing_window(qapp, tmp_path, monkeypatch):
     w.reprocess()
     assert w._points.groups() == ["0.4 V", "1.2 V"] and w._results[1].scale == 1.0
     out = w.save_to(str(tmp_path / "res.csv"))
-    assert [p.split("/")[-1] for p in out] == ["res_scans.txt", "res_0.4_V.csv", "res_0.4_V_genx.dat", "res_1.2_V.csv",
+    assert [p.split("/")[-1] for p in out] == ["res_master.txt", "res_0.4_V.csv", "res_0.4_V_genx.dat", "res_1.2_V.csv",
                                                "res_1.2_V_genx.dat", "res_stationary.dat"]
     assert "group '1.2 V'" in w._summary.toPlainText()
     w._table.item(1, 0).setCheckState(0)                                             # leave scan 31 out

@@ -163,6 +163,8 @@ class SafeCanvas(FigureCanvasQTAgg):
             super().draw()
             return
         except Exception as exc:                  # matplotlib raises while laying out ticks
+            if _deleted(self):                    # torn down while drawing (window closed meanwhile)
+                return
             err = exc
         fixed = []
         for ax in self.figure.axes:
@@ -197,6 +199,8 @@ def _report(widget, msg):
     """Status-bar message on the nearest tool window (no dialog: this can run inside a paint)."""
     w = widget
     while w is not None:
+        if _deleted(w):                           # the window is gone: nowhere to show it
+            return
         if isinstance(w, StatusMixin) and hasattr(w, "statusBar"):
             if w._status_label is None:
                 w.say("")

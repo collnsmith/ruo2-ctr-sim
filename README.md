@@ -348,7 +348,11 @@ in a dialog):
   marker, size, left or right axis). "Refresh from plot" takes the working plot again and keeps the
   edits; the last style is reused for the next figure; "Copy image" puts it on the clipboard.
   "View options…" (the old figure options) only changes the working view.
-- **Scan library.** Sorts the background-subtracted scans for comparisons. "Add SPEC + ROI sums…" takes
+- **Scan library.** Sorts the scans for comparisons. "Add processed file…" takes a Processing master
+  file (`<name>_master.txt`): every processed scan, normalised and corrected, with no SPEC file or
+  ROI sums needed; its scans show I_corr (the default), F or I_norm in the ROI column, against L or
+  the time from the scan / CV start, and scans of several master files are put on one monitor
+  reference (Processing normalises each run to its own mean monitor). "Add SPEC + ROI sums…" takes
   a SPEC file and its ROI sums: a folder (every ROI sums `.txt` file in it, one scan or several per
   file; other `.txt` files are skipped; the folder is listed again on Refresh, so sums written later
   appear) or files picked one by one; several SPEC files can be added (e.g. one per beamtime). A scan
@@ -414,8 +418,13 @@ in a dialog):
   a group with several rows selected sets it for all of them. Groups compare on the same absolute
   scale only through the normalisation, so keep the same monitor, transmission and count-time
   columns for every scan.
-  "Process and save…" writes `<name>_scans.txt` (every point and every factor), `<name>.csv` (for
-  the Fitting app) and `<name>_genx.dat`. Stationary scans (H K L fixed, e.g. during a CV) are found
+  "Process and save…" writes `<name>_master.txt`, `<name>.csv` (for the Fitting app) and
+  `<name>_genx.dat`. The master file holds every processed scan (rod and stationary) and every
+  point: '#' lines say what was processed and how and list the scans (kind, rod, L range, ROI, scale,
+  monitor reference, group, SPEC command, notes), then one tab-separated table has H K L, t (s from
+  the scan's first point), the raw, normalised and corrected intensities with errors, every
+  correction, F and sigma_F and `used` (0: left out, e.g. near a Bragg peak); the scan library opens
+  it with "Add processed file…" (pandas: `read_csv(path, sep="\t", comment="#")` reads the table). Stationary scans (H K L fixed, e.g. during a CV) are found
   automatically ("stationary" in the Rod column): steps 2 to 4 point by point, the preview against
   SPEC point, no overlap scaling or Bragg window; they go to `<name>_stationary.dat`, a ROI
   sums style file that the in-situ CV tool opens as its intensity file (pick `<ROI>_corr`, and

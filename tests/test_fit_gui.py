@@ -357,3 +357,14 @@ def test_tick_and_untick_many_scans_and_parameters(win, tmp_path):
     win.group.setCurrentText("film")
     pb["Fit shown"].click()
     assert not P["thickness_mean_tl"].fit and P["ds1.thickness_mean_tl"].fit and P["ds2.thickness_mean_tl"].fit
+
+
+def test_run_on_several_cores(win):
+    """The Cores setting: a fit from the window runs DE and the Jacobian on worker processes."""
+    assert 1 <= win.cores.value() <= win.cores.maximum()
+    win.cores.setValue(2)
+    win.maxiter.setValue(4)
+    win.run_or_stop()
+    assert not win.cores.isEnabled()                     # not changed during a run
+    assert win.wait(120)
+    assert win.result is not None and win.result.stages[0]["cores"] == 2 and win.cores.isEnabled()

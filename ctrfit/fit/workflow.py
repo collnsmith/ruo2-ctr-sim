@@ -50,10 +50,10 @@ def _free(model, names, datasets):
     return out
 
 
-def _run(model, datasets, names, de, profile=None, progress=None, fit_hook=None, starts=3, hops=1):
+def _run(model, datasets, names, de, profile=None, progress=None, fit_hook=None, starts=3, hops=1, cores=1):
     before = model.params.free_names
     model.params.fit_only(_free(model, names, datasets))
-    fit = Fit(model, datasets)
+    fit = Fit(model, datasets, cores=cores)
     fit.progress = progress
     if fit_hook:
         fit_hook(fit)
@@ -93,13 +93,13 @@ def step_surface(model, datasets, de=None, extra=(), **kw):
     return _run(model, _subsets(datasets, 1), SURFACE_PARAMS + list(extra), de, **kw)
 
 
-def step_all(model, datasets, names=None, progress=None, fit_hook=None, hops=1, **_):
+def step_all(model, datasets, names=None, progress=None, fit_hook=None, hops=1, cores=1, **_):
     """Refine everything listed (default: film + surface parameters) on all rods of all datasets, also
     from the film thickness `hops` trilayers up and down (Fit.refine)."""
     datasets = datasets if isinstance(datasets, (list, tuple)) else [datasets]
     _prepare_scales(model, datasets)
     model.params.fit_only(_free(model, names or FILM_PARAMS + SURFACE_PARAMS, datasets))
-    fit = Fit(model, datasets)
+    fit = Fit(model, datasets, cores=cores)
     fit.progress = progress
     if fit_hook:
         fit_hook(fit)

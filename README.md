@@ -191,6 +191,13 @@ python -m ctrfit fit model.json data.csv --out fit_results
     `--hops`, use them too). On synthetic data over wide bounds (thickness 5 to 40 TL, scale 0.05 to
     20, start at 30 TL and scale 0.2 for a truth of 19.4 TL and 2.7), DE plus a single refinement
     found the right fringe for 2 of 6 seeds; with the scales solved and the hops, 6 of 6.
+  - Cores (window, default half the logical CPUs; `Fit(..., cores=4)`; `--cores 4` on the command
+    line): differential evolution evaluates each generation's trials, and least squares its Jacobian
+    columns, on that many worker processes (numpy single-threaded in each; threads do not help). The
+    workers start once, about a second, and are kept for later fits. About 3x faster DE on 4 cores;
+    least squares gains less (short refinements). With several cores DE updates once per generation,
+    so its path differs from one core's, but it is reproducible for a seed; least squares gives the
+    same result on any number of cores.
   - Sample L finely enough for the thickness: with an L step dL, N and N + 2/(2 dL) = N + 1/dL
     trilayers give the same fringes at the measured points (dL = 0.1 cannot tell 19 from 39 TL), so
     keep the thickness bounds narrower than 1/dL or measure on a finer grid.

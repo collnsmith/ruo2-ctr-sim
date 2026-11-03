@@ -42,8 +42,9 @@ class FitCancelled(Exception):
 
 
 class Fit:
-    def __init__(self, model, datasets, fom="chi2", rod_scale_penalty=0.05):
+    def __init__(self, model, datasets, fom="chi2", rod_scale_penalty=0.05, cores=1):
         self.model = model
+        self.cores = int(cores)       # > 1: model evaluations of DE and of the Jacobian on worker processes
         self.datasets = list(datasets) if isinstance(datasets, (list, tuple)) else [datasets]
         if fom not in F_.FOMS:
             raise ValueError(f"fom must be one of {F_.FOMS}")
@@ -226,16 +227,34 @@ class Fit:
         tried_f, tried_x = [], []
         where = [names.index(n) if n in names else None for n in all_names]
 
-        def objective(x):
-            if self.cancelled:
-                raise FitCancelled()
-            out = safe(x)
+        def record(x, out):
             f, sc = (BAD, {}) if out is None or not np.isfinite(out[0]) else out
             tried_f.append(f)
             tried_x.append([x[j] if j is not None else sc.get(n, P[n].value) for n, j in zip(all_names, where)])
             if f < best["f"]:
                 best["f"], best["x"], best["scales"] = f, np.array(x, float), sc
             return f
+
+        def objective(x):
+            if self.cancelled:
+                raise FitCancelled()
+            return record(x, safe(x))
+
+        par = None
+        if self.cores > 1 and names:
+            from .parallel import ParallelFit
+            par = ParallelFit(self, self.cores)
+
+        def workers(_func, population):     # one generation's trials on the worker processes, kept in order
+            X = np.array(list(population), float)
+            try:
+                outs = par.map("de", X, (names, fom, groups), lambda: self.cancelled)
+            except Exception as ex:
+                from .parallel import Cancelled
+                if isinstance(ex, Cancelled):
+                    raise FitCancelled() from None
+                raise
+            return [record(x, o) for x, o in zip(X, outs)]
 
         gen = [0]
 
@@ -246,14 +265,14 @@ class Fit:
             self._notify_best("de", gen[0], float(best["f"]), best["x"], names, best["scales"])
 
         t0 = time.perf_counter()
-        n0 = self._n_eval
         msg = ""
         try:
             if names:
                 res = differential_evolution(objective, list(zip(lo, hi)), maxiter=maxiter, popsize=popsize,
                                              seed=seed, tol=tol, mutation=mutation, recombination=recombination,
                                              init=init, polish=False, x0=x0 if include_start else None,
-                                             updating="immediate", callback=callback, strategy=strategy)
+                                             updating="deferred" if par else "immediate", callback=callback,
+                                             strategy=strategy, workers=workers if par else 1)
                 msg, nit = str(res.message), int(res.nit)
             else:                            # only scales free: solved directly
                 objective(x0)
@@ -264,9 +283,9 @@ class Fit:
         for n, v in best["scales"].items():
             P[n].value = v
         self._archive = (all_names, np.array(tried_f, float), np.array(tried_x, float).reshape(len(tried_f), -1))
-        self.stages.append(dict(method="de", nfev=int(self._n_eval - n0), nit=nit, fom=float(best["f"]),
+        self.stages.append(dict(method="de", nfev=len(tried_f), nit=nit, fom=float(best["f"]),
                                 fom_name=fom, seconds=time.perf_counter() - t0, message=msg,
-                                solved_scales=list(groups)))
+                                solved_scales=list(groups), cores=self.cores if par else 1))
         self._jac = None
         return self.stages[-1]
 
@@ -354,12 +373,14 @@ class Fit:
         safe = self._safe(lambda x: self.residuals(x, names))
         step = [step0]
         best = dict(f=np.inf, x=x0.copy())
+        last = {}
 
         def resid(x):
             if self.cancelled:
                 raise FitCancelled()
             r = safe(x)
             r = np.full(n_res, 1e10) if r is None or not np.all(np.isfinite(r)) else r
+            last["x"], last["r"] = np.array(x, float), r
             step[0] += 1
             self._lsq_step = step[0]
             f = float(np.sum(r ** 2))
@@ -372,10 +393,30 @@ class Fit:
                 self._notify_best("lsq", step[0], f, x, names)
             return r
 
+        par = None
+        if self.cores > 1 and len(names) > 1:
+            from .parallel import ParallelFit
+            par = ParallelFit(self, self.cores)
+
+        def jac(x):
+            """Forward differences with scipy's '2-point' step, the columns on the worker processes."""
+            from .parallel import Cancelled
+            x = np.asarray(x, float)
+            r0 = last["r"] if "x" in last and np.array_equal(last["x"], x) else resid(x)
+            h = np.finfo(float).eps ** 0.5 * np.where(x >= 0, 1.0, -1.0) * np.maximum(1.0, np.abs(x))
+            h = np.where((x + h > hi) | (x + h < lo), -h, h)
+            h = (x + h) - x
+            try:
+                rs = par.map("resid", x + np.diag(h), names, lambda: self.cancelled)
+            except Cancelled:
+                raise FitCancelled() from None
+            return np.column_stack([((r if r is not None else np.full(n_res, 1e10)) - r0) / hi_
+                                    for r, hi_ in zip(rs, h)])
+
         t0 = time.perf_counter()
         try:
-            res = least_squares(resid, x0, bounds=(lo, hi), method="trf", x_scale="jac", ftol=ftol, xtol=xtol,
-                                gtol=gtol, max_nfev=max_nfev)
+            res = least_squares(resid, x0, jac=jac if par else "2-point", bounds=(lo, hi), method="trf",
+                                x_scale="jac", ftol=ftol, xtol=xtol, gtol=gtol, max_nfev=max_nfev)
         except FitCancelled:
             self.set_x(best["x"], names)
             self._jac = None

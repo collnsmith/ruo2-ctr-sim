@@ -28,6 +28,8 @@ def build_parser():
                    "the global search, keeping the lowest chi2 (default 3)")
     f.add_argument("--hops", type=int, default=1, help="also refine from the film thickness 1 ... hops trilayers "
                    "up and down (the neighbouring fringe minima); 0: off (default 1)")
+    f.add_argument("--cores", type=int, default=1, help="model evaluations of DE and of the least-squares "
+                   "Jacobian on this many worker processes (default 1)")
     f.add_argument("--search-scales", action="store_true", help="search the dataset scales in DE instead of "
                    "solving them exactly for every trial")
     f.add_argument("--floor", type=float, default=None, help="systematic error floor (relative) for all data")
@@ -338,9 +340,9 @@ def cmd_fit(a):
     per_film = [n.strip() for n in a.per_film.split(",") if n.strip()]
     if per or per_film:
         from .fit.global_fit import global_fit
-        fit = global_fit(model, datasets, per_dataset=per, per_film=per_film, fom=a.fom)
+        fit = global_fit(model, datasets, per_dataset=per, per_film=per_film, fom=a.fom, cores=a.cores)
     else:
-        fit = Fit(model, datasets, fom=a.fom)
+        fit = Fit(model, datasets, fom=a.fom, cores=a.cores)
     print(f"{len(fit.names)} free parameters: {', '.join(fit.names)}")
     print(f"{fit.n_data} data points in {len(datasets)} dataset(s)")
     if "de" in a.method:

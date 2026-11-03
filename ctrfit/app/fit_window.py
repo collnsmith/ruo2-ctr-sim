@@ -30,6 +30,7 @@ from .widgets import FLAG, LINK, ElidedLabel, muted_text, text_color, tint
 from ..data.dataset import Dataset
 from ..fit import workflow
 from ..fit.fit import Fit, FitResult
+from ..fit import parallel
 from ..fit.global_fit import series, shadowed
 from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
@@ -402,6 +403,11 @@ class FitWindow(QtWidgets.QMainWindow):
         self.starts = QtWidgets.QSpinBox(minimum=1, maximum=10, value=3)
         self.starts.setToolTip("Least squares from this many best distinct points of the global search (not only "
                                "the best one); the lowest chi2 is kept")
+        self.cores = QtWidgets.QSpinBox(minimum=1, maximum=parallel.available_cores(), value=parallel.default_cores())
+        self.cores.setToolTip("Model evaluations of differential evolution and of the least-squares Jacobian on "
+                              "this many processes (1: all in this process, as before). The workers start once, "
+                              "about a second, and are kept for later fits. Several cores give the same kind "
+                              "of result but not the identical DE path as one core (fixed seed: reproducible).")
         self.hops = QtWidgets.QSpinBox(minimum=0, maximum=3, value=1)
         self.hops.setSuffix(" TL")
         self.hops.setToolTip("Also refine from the film thickness 1 ... n trilayers up and down (per film): the "
@@ -429,6 +435,7 @@ class FitWindow(QtWidgets.QMainWindow):
         form.addRow(self.solve_scales)
         form.addRow("Refine starts", self.starts)
         form.addRow("Fringe hops", self.hops)
+        form.addRow("Cores", self.cores)
         form.addRow("Per dataset", self.per_dataset)
         form.addRow("Per film", self.per_film)
         right = QtWidgets.QWidget()
@@ -1007,7 +1014,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.run_button.setText("Stop" if on else "Run fit")
         for b in self.step_buttons:
             b.setEnabled(not on)
-        for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del,
+        for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del, self.cores,
                   *self.scan_buttons, *self.param_buttons):
             w.setEnabled(not on)
 
@@ -1054,8 +1061,10 @@ class FitWindow(QtWidgets.QMainWindow):
                          self._per_film() if len(self.datasets) > 1 else [])
         self._refresh_all()
 
+        cores = self.cores.value()
+
         def job(worker):
-            fit = Fit(self.model, self.datasets, fom=fom)
+            fit = Fit(self.model, self.datasets, fom=fom, cores=cores)
             worker.hook(fit)
             if method != "refine only":
                 fit.run("de", **de)
@@ -1068,7 +1077,7 @@ class FitWindow(QtWidgets.QMainWindow):
         if self.worker is not None or not self._check_ready():
             return
         de = self._de_settings()
-        ref = self._refine_settings()
+        ref = dict(self._refine_settings(), cores=self.cores.value())
         if len(self.datasets) > 1:
             workflow.prepare(self.model, self.datasets, self._per_dataset() if step != "film" else (),
                              self._per_film())
@@ -1079,7 +1088,8 @@ class FitWindow(QtWidgets.QMainWindow):
                 return workflow.step_film(self.model, self.datasets, de=de, fit_hook=worker.hook, **ref)
             if step == "surface":
                 return workflow.step_surface(self.model, self.datasets, de=de, fit_hook=worker.hook, **ref)
-            return workflow.step_all(self.model, self.datasets, fit_hook=worker.hook, hops=ref["hops"])
+            return workflow.step_all(self.model, self.datasets, fit_hook=worker.hook, hops=ref["hops"],
+                                     cores=ref["cores"])
         self._start(job, {"film": "Step 1: film", "surface": "Step 2: surface", "all": "Step 3: everything"}[step])
 
     def _start(self, job, label):
@@ -1127,6 +1137,7 @@ class FitWindow(QtWidgets.QMainWindow):
         if self.worker is not None:
             self.worker.stop()
         self.pool.waitForDone(10000)
+        parallel.shutdown()                     # the worker processes of a parallel fit
         super().closeEvent(ev)
 
 

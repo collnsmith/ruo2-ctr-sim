@@ -665,7 +665,7 @@ def test_library_tab(qapp, tmp_path, monkeypatch):
     settle()
     e4 = w.lib.entry("S1", 4)
     assert e4.mode == "CA" and e4.potential is None
-    assert w._table.item(w._row_of[("S1", 4)], ui.C_E).background().color() == ui.BAD    # potential missing
+    assert w._table.item(w._row_of[("S1", 4)], ui.C_E).background().color() == ui.bad_color()    # potential missing
     roi = w._table.cellWidget(w._row_of[("S1", 3)], ui.C_ROI)
     assert [roi.itemText(i) for i in range(roi.count())] == ["(default)", "ROI1", "ROI2"]
     assert "40 x 30 px" in roi.itemData(1, Qt.ToolTipRole)

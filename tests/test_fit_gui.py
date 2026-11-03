@@ -261,3 +261,41 @@ def test_scan_table_leave_out_and_groups(win, tmp_path):
     win.set_scan_use(win.scan_keys(), True)
     win.remove_data(["B"])
     assert [r.source for r in win.project.scans.rows()].count("B") == 0 and len(win.datasets) == 2
+
+
+def _palette(base, text):
+    from PyQt5 import QtGui
+    pal = QtGui.QPalette()
+    for role in (QtGui.QPalette.Base, QtGui.QPalette.Window):
+        pal.setColor(role, QtGui.QColor(base))
+    for role in (QtGui.QPalette.Text, QtGui.QPalette.WindowText):
+        pal.setColor(role, QtGui.QColor(text))
+    return pal
+
+
+@pytest.mark.parametrize("base, text", [("#ffffff", "#000000"), ("#2a2a2a", "#f0f0f0"), ("#1e1e1e", "#dcdcdc")])
+def test_table_colours_readable_in_light_and_dark_themes(win, base, text):
+    """Flagged and linked rows (and the library's to-fill / wrong cells) take their background from the
+    theme: the theme's text stays readable on them (contrast >= 4.5), in light and dark themes."""
+    from PyQt5 import QtCore
+    from ctrfit.app import widgets as W
+    app = QtWidgets.QApplication.instance()
+    old = app.palette()
+    try:
+        app.setPalette(_palette(base, text))
+        win.model.params.link("z_H2O", "z_OH + 0.5")
+        win.table.flagged = {"z_OH"}
+        win.table.refresh()
+        for name in ("z_OH", "z_H2O"):
+            row = win.table.params.names.index(name)
+            bg = win.table.data(win.table.index(row, 1), QtCore.Qt.BackgroundRole)
+            fg = win.table.data(win.table.index(row, 1), QtCore.Qt.ForegroundRole)
+            assert W.contrast(bg, fg) >= 4.5 and W.contrast(bg, text) >= 4.5, (name, bg.name())
+            assert (bg.lightness() < 128) == W.is_dark()
+        for accent, amount in ((W.TODO, 0.14), (W.BAD, 0.155), (W.FLAG, 0.4)):
+            assert W.contrast(W.tint(accent, amount), text) >= 4.5
+        assert W.contrast(W.alert_text(), base) >= 4.5 and W.contrast(W.muted_text(), base) > 1.5
+        if base == "#ffffff":                                       # light theme: the colours as before
+            assert W.tint(W.FLAG, 0.245).name() == "#fff0c2" and W.tint(W.LINK, 0.085).name() == "#eef3fb"
+    finally:
+        app.setPalette(old)

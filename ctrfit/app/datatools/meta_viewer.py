@@ -16,6 +16,7 @@ from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QLabel, QPushBut
                              QListWidgetItem)
 
 from ctrfit.app.datatools.common import StatusMixin, group, hint, mono_font, row, run_tool
+from ctrfit.app.widgets import FLAG, accent_text, tint
 from ctrfit.datatools.h5meta import describe_h5, scan_h5_dir_with_masters
 from ctrfit.datatools.images import HAS_H5PY, h5py
 from ctrfit.datatools.specfile import parse_spec_file
@@ -33,15 +34,15 @@ def populate_tree(parent_item, h5_obj, max_depth=10, depth=0):
         except Exception as e:
             val_str = f"<error: {e}>"
         item = QTreeWidgetItem(parent_item, [f"@{attr_name}", f"attr = {val_str}"])
-        item.setForeground(0, QColor(30, 90, 160))
-        item.setForeground(1, QColor(30, 90, 160))
+        item.setForeground(0, accent_text("#1e5aa0", "#7fb2f0"))
+        item.setForeground(1, accent_text("#1e5aa0", "#7fb2f0"))
     if isinstance(h5_obj, h5py.Group):
         for name in h5_obj:
             try:
                 child = h5_obj[name]
                 item = QTreeWidgetItem(parent_item, [name, describe_h5(child)])
                 if isinstance(child, h5py.Group):
-                    item.setForeground(0, QColor(140, 90, 0))
+                    item.setForeground(0, accent_text("#8c5a00", "#e0a84a"))
                 populate_tree(item, child, max_depth, depth + 1)
             except Exception as e:
                 QTreeWidgetItem(parent_item, [name, f"<error: {e}>"])
@@ -166,7 +167,7 @@ class MainWindow(StatusMixin, QMainWindow):
             name = os.path.basename(f['path'])
             if f.get('is_master'):
                 item = QListWidgetItem(f"[MASTER] S{f['scan']:03d}  {name}")
-                item.setForeground(QColor(170, 90, 0))
+                item.setForeground(accent_text("#aa5a00", "#e0a84a"))
             else:
                 item = QListWidgetItem(f"S{f['scan']:03d} I{f['image']:03d}  {name}")
             self._h5_list.addItem(item)
@@ -181,7 +182,7 @@ class MainWindow(StatusMixin, QMainWindow):
         try:
             with h5py.File(path, 'r') as f:
                 root = QTreeWidgetItem(self._h5_tree, ["/", f"root ({len(f)} children)"])
-                root.setForeground(0, QColor(140, 90, 0))
+                root.setForeground(0, accent_text("#8c5a00", "#e0a84a"))
                 populate_tree(root, f)
                 self._h5_tree.expandItem(root)
         except Exception as e:
@@ -199,8 +200,8 @@ class MainWindow(StatusMixin, QMainWindow):
                 if recurse(item.child(i)):
                     child_matched = True
             if matched:
-                item.setBackground(0, QColor(255, 236, 150))
-                item.setBackground(1, QColor(255, 236, 150))
+                item.setBackground(0, tint(FLAG, 0.4))
+                item.setBackground(1, tint(FLAG, 0.4))
             else:
                 item.setBackground(0, QColor(0, 0, 0, 0))
                 item.setBackground(1, QColor(0, 0, 0, 0))

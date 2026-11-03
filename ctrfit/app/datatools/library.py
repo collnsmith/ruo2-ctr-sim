@@ -11,7 +11,7 @@ import numpy as np
 from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from PyQt5.QtCore import QItemSelectionModel, Qt, QTimer
-from PyQt5.QtGui import QBrush, QColor, QKeySequence
+from PyQt5.QtGui import QBrush, QKeySequence
 from PyQt5.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                              QDoubleSpinBox, QFileDialog, QFormLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                              QListWidgetItem, QMainWindow, QMessageBox, QPushButton, QRadioButton, QShortcut, QSpinBox,
@@ -19,6 +19,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QButtonGroup, QCheckBox, QComboB
 
 from ctrfit.app.datatools.common import (SafeCanvas, StatusMixin, group, hint, primary_button, row, run_tool,
                                          sidebar)
+from ctrfit.app.widgets import BAD as BAD_ACCENT, TODO as TODO_ACCENT, alert_text, muted_text, tint
 from ctrfit.datatools import library as lb
 from ctrfit.datatools.paths import settings_file
 
@@ -43,9 +44,17 @@ COLUMNS = ("Use", "Source", "Scan", "Kind", "H K", "L", "Points", "Film", "Thick
 (C_USE, C_SRC, C_SCAN, C_KIND, C_HK, C_L, C_PTS, C_FILM, C_THICK, C_MODE, C_E, C_START, C_ROI, C_NOTES,
  C_CMD) = range(len(COLUMNS))
 TYPED = (C_FILM, C_THICK, C_E, C_START, C_NOTES)      # typed with several rows selected: set for all of them
-TODO = QColor("#fff1db")                     # a field still to fill
-BAD = QColor("#fde2e4")
 ROD_STYLES = (("-", "o"), ("--", "s"), (":", "^"), ("-.", "D"))   # one per rod of a set of equivalents
+
+
+def todo_color():
+    """Background of a field still to fill (from the theme: readable in a dark theme too)."""
+    return tint(TODO_ACCENT, 0.14)
+
+
+def bad_color():
+    """Background of a field that is wrong (e.g. a CA without a potential)."""
+    return tint(BAD_ACCENT, 0.155)
 PALETTE = ("#1f77b4", "#d62728", "#2ca02c", "#ff7f0e", "#9467bd", "#8c564b", "#e377c2", "#17becf", "#7f7f7f",
            "#bcbd22")
 
@@ -860,18 +869,18 @@ class LibraryWindow(StatusMixin, QMainWindow):
                                      "makes the scan a CV"),
                  C_ROI: self._item(""), C_NOTES: self._item(e.notes, True), C_CMD: self._item(e.command)}
         if e.thickness_nm is None:
-            cells[C_THICK].setForeground(QBrush(QColor("#888")))     # taken from the film name
+            cells[C_THICK].setForeground(QBrush(muted_text()))     # taken from the film name
         if not e.film:
-            cells[C_FILM].setBackground(QBrush(TODO))
+            cells[C_FILM].setBackground(QBrush(todo_color()))
             cells[C_FILM].setToolTip("No film yet")
         if e.mode == "CA" and e.potential is None:
-            cells[C_E].setBackground(QBrush(BAD))
+            cells[C_E].setBackground(QBrush(bad_color()))
             cells[C_E].setToolTip("CA without a potential: type the held potential")
         elif e.mode != "CA":
             cells[C_E].setToolTip("Typing a potential makes the scan a CA")
         if e.kind in ("missing", "no SPEC"):
             for c in (C_KIND, C_HK, C_L):
-                cells[c].setForeground(QBrush(QColor("#b00020")))
+                cells[c].setForeground(QBrush(alert_text()))
         for c, it in cells.items():
             t.setItem(r, c, it)
         # the two boxes of a row are made once and updated after (replaced widgets linger until deleted)

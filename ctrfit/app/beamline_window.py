@@ -24,6 +24,7 @@ from ..beamline.psic import (DEFAULT_LIMITS, LATTICES, MODES, MOTORS, Lattice, P
                              energy_to_wavelength, mode_with_alpha, parse_angle_lines, ub_from_two_reflections)
 from ..beamline.refine import REFLEX_HELP, ReflectionList, parse_reflection_lines, refine_ub
 from ..core.settings import DEFAULTS, parse_points, parse_rods
+from .widgets import alert_text
 
 PEAK_HELP = ("One Bragg peak per line, angles in SPEC psic order:  del eta chi phi nu mu  [H K L]\n"
              "or as name=value pairs (del= eta= chi= phi= nu= mu=). The optional [H K L] tag fixes what that peak\n"
@@ -347,7 +348,7 @@ class BeamlineWindow(QtWidgets.QMainWindow):
                 if j >= len(self.COLS) - 2:
                     it.setFlags(QtCore.Qt.ItemIsEnabled | QtCore.Qt.ItemIsSelectable)
                     if f and f.outlier:
-                        it.setForeground(QtGui.QColor("#c0392b"))
+                        it.setForeground(alert_text())
                 t.setItem(i, j, it)
         t.blockSignals(False)
 

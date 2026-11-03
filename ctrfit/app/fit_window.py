@@ -26,7 +26,7 @@ import numpy as np
 from matplotlib.figure import Figure
 
 from ..core.settings import DEFAULTS, read_ini
-from .widgets import ElidedLabel
+from .widgets import FLAG, LINK, ElidedLabel, muted_text, text_color, tint
 from ..data.dataset import Dataset
 from ..fit import workflow
 from ..fit.fit import Fit, FitResult
@@ -93,12 +93,14 @@ class ParamTable(QtCore.QAbstractTableModel):
             return QtCore.Qt.Checked if p.fit else QtCore.Qt.Unchecked
         if role == QtCore.Qt.ToolTipRole:
             return f"{p.name} ({p.group}): {p.description}" + (f"\nlinked: {p.expr}" if p.linked else "")
-        if role == QtCore.Qt.BackgroundRole:
+        if role == QtCore.Qt.BackgroundRole:            # from the palette: readable in a dark theme too
             if p.name in self.flagged:
-                return QtGui.QColor("#fff0c2")
+                return tint(FLAG, 0.245)
             if p.linked:
-                return QtGui.QColor("#eef3fb")
+                return tint(LINK, 0.085)
             return None
+        if role == QtCore.Qt.ForegroundRole and (p.name in self.flagged or p.linked):
+            return text_color()
         if role == QtCore.Qt.UserRole:          # for the group filter
             return "free " + p.group if p.free else p.group
         if role not in (QtCore.Qt.DisplayRole, QtCore.Qt.EditRole):
@@ -575,7 +577,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self._filling = True
         t.clearSelection()
         t.setRowCount(len(self._scan_rows))
-        grey = QtGui.QBrush(QtGui.QColor(128, 128, 128))
+        grey = QtGui.QBrush(muted_text())
         for i, r in enumerate(self._scan_rows):
             cond = r.condition or (f"{r.potential_V:g} V" if r.potential_V is not None else "")
             vals = ("", r.scan, ", ".join(r.rods), str(r.n), f"{r.L_min:.2f}–{r.L_max:.2f}", r.film or "", cond,

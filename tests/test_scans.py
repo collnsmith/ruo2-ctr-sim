@@ -188,3 +188,14 @@ def test_unknown_scan_is_refused():
     sel = ScanSelection([_file("A", 0.5, 1)])
     with pytest.raises(KeyError):
         sel.set_use(["nope\t#1"], False)
+
+
+def test_shared_parameters_every_dataset_overrides():
+    from ctrfit.fit.global_fit import shadowed
+    model = truth_model()
+    a, b = _file("A", 0.5, 1), _file("B", 0.9, 2, film="4 nm")
+    assert shadowed(model.params, [a, b]) == {}                      # no scopes yet
+    workflow.prepare(model, [a, b], ["x_OH"], ["thickness_mean_tl"])
+    sh = shadowed(model.params, [a, b])
+    assert sh["x_OH"] == ["ds1.x_OH", "ds2.x_OH"] and "thickness_mean_tl" in sh and "scale" in sh
+    assert "z_OH" not in sh                                          # shared: used by both

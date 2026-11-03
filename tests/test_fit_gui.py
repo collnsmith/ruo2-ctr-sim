@@ -299,3 +299,61 @@ def test_table_colours_readable_in_light_and_dark_themes(win, base, text):
             assert W.tint(W.FLAG, 0.245).name() == "#fff0c2" and W.tint(W.LINK, 0.085).name() == "#eef3fb"
     finally:
         app.setPalette(old)
+
+
+def test_tick_and_untick_many_scans_and_parameters(win, tmp_path):
+    """Fit all / none for the scans and for the parameters the Show filter lists, the selected rows,
+    Space toggles the selection; shared parameters every dataset overrides are greyed and skipped."""
+    from PyQt5 import QtCore, QtGui
+    from ctrfit.fit import workflow
+    from test_scans import _file
+    win.clear_data()
+    paths = []
+    for i, (nm, film) in enumerate((("A", "7 nm"), ("B", "4 nm"))):
+        d = _file(nm, 0.5 + 0.4 * i, 800 + i, film=film, scans=(f"#{2 * i}", f"#{2 * i + 1}"))
+        d.meta["thickness_nm"] = float(film.split()[0])
+        d.save(tmp_path / f"t{i}.csv")
+        paths.append(str(tmp_path / f"t{i}.csv"))
+    win.add_datasets(paths)
+    names = [b.text() for b in win.scan_buttons]
+    win.scan_buttons[names.index("Leave all out")].click()
+    assert "0 of 4" in win.scan_info.text() and not win.datasets
+    win.scan_buttons[names.index("Fit all")].click()
+    assert "4 of 4" in win.scan_info.text() and len(win.datasets) == 2
+    win.scan_table.selectRow(0)
+    win.scan_table.setFocus()
+    QtWidgets.QApplication.sendEvent(win.scan_table, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Space,
+                                                                      QtCore.Qt.NoModifier))
+    assert "3 of 4" in win.scan_info.text()                                  # Space: the selected scan out
+    win.scan_buttons[names.index("Fit selected")].click()
+    assert "4 of 4" in win.scan_info.text()
+    # parameters: the Show filter's rows
+    P = win.model.params
+    pb = {b.text(): b for b in win.param_buttons}
+    win.group.setCurrentText("free")
+    pb["Fix shown"].click()
+    assert not P.free_names
+    win.group.setCurrentText("surface")
+    shown = win.shown_params()
+    pb["Fit shown"].click()
+    assert {n for n in shown if not P[n].linked} == set(P.free_names)
+    assert all(P[n].group == "surface" for n in P.free_names)
+    win.group.setCurrentText("all")
+    for name in ("theta", "x_OH"):
+        win.view.selectionModel().select(win.proxy.mapFromSource(win.table.index(P.names.index(name), 0)),
+                                         QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows)
+    pb["Fix selected"].click()
+    assert not P["theta"].fit and not P["x_OH"].fit and set(win.selected_params()) == {"theta", "x_OH"}
+    QtWidgets.QApplication.sendEvent(win.view, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Space,
+                                                                QtCore.Qt.NoModifier))
+    assert P["theta"].fit and P["x_OH"].fit                                  # Space: both back on
+    # once each film has its own thickness, the shared one is greyed and skipped by Fit all
+    workflow.prepare(win.model, win.datasets, ["x_OH"], win._per_film())
+    win._refresh_all()
+    assert "thickness_mean_tl" in win.table.inactive and "x_OH" in win.table.inactive
+    row = P.names.index("thickness_mean_tl")
+    assert win.table.data(win.table.index(row, 1), QtCore.Qt.ForegroundRole) is not None
+    assert "Not used" in win.table.data(win.table.index(row, 1), QtCore.Qt.ToolTipRole)
+    win.group.setCurrentText("film")
+    pb["Fit shown"].click()
+    assert not P["thickness_mean_tl"].fit and P["ds1.thickness_mean_tl"].fit and P["ds2.thickness_mean_tl"].fit

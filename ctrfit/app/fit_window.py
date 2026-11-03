@@ -30,7 +30,7 @@ from .widgets import FLAG, LINK, ElidedLabel, muted_text, text_color, tint
 from ..data.dataset import Dataset
 from ..fit import workflow
 from ..fit.fit import Fit, FitResult
-from ..fit.global_fit import series
+from ..fit.global_fit import series, shadowed
 from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
 from ..model.parameters import scoped_view
@@ -55,6 +55,7 @@ class ParamTable(QtCore.QAbstractTableModel):
         super().__init__()
         self.params = params
         self.errors, self.flagged = {}, set()
+        self.inactive = {}             # global name -> its copies, when every dataset uses its own copy
         self.locked = False
         self.live = {}                 # best values during a running fit (shown instead of the parameters)
 
@@ -66,6 +67,11 @@ class ParamTable(QtCore.QAbstractTableModel):
     def refresh(self):
         self.beginResetModel()
         self.endResetModel()
+
+    def refresh_cells(self):
+        """Redraw every cell, keeping the selection (a reset would clear it)."""
+        if self.rowCount():
+            self.dataChanged.emit(self.index(0, 0), self.index(self.rowCount() - 1, self.columnCount() - 1))
 
     def refresh_values(self):
         col = self.COLS.index("Value")
@@ -92,15 +98,21 @@ class ParamTable(QtCore.QAbstractTableModel):
         if role == QtCore.Qt.CheckStateRole and col == "Fit":
             return QtCore.Qt.Checked if p.fit else QtCore.Qt.Unchecked
         if role == QtCore.Qt.ToolTipRole:
-            return f"{p.name} ({p.group}): {p.description}" + (f"\nlinked: {p.expr}" if p.linked else "")
+            return f"{p.name} ({p.group}): {p.description}" + (f"\nlinked: {p.expr}" if p.linked else "") + \
+                (f"\nNot used: every dataset has its own copy ({', '.join(self.inactive[p.name])}); edit those"
+                 if p.name in self.inactive else "")
         if role == QtCore.Qt.BackgroundRole:            # from the palette: readable in a dark theme too
             if p.name in self.flagged:
                 return tint(FLAG, 0.245)
             if p.linked:
                 return tint(LINK, 0.085)
             return None
-        if role == QtCore.Qt.ForegroundRole and (p.name in self.flagged or p.linked):
-            return text_color()
+        if role == QtCore.Qt.ForegroundRole:
+            if p.name in self.inactive:
+                return muted_text()
+            if p.name in self.flagged or p.linked:
+                return text_color()
+            return None
         if role == QtCore.Qt.UserRole:          # for the group filter
             return "free " + p.group if p.free else p.group
         if role not in (QtCore.Qt.DisplayRole, QtCore.Qt.EditRole):
@@ -303,10 +315,12 @@ class FitWindow(QtWidgets.QMainWindow):
                                    "select rows and use Group…); by default a file is one group.")
         self._scan_rows = []
         self._filling = False
-        self.scan_buttons = [QtWidgets.QPushButton(t) for t in ("Fit", "Leave out", "Group…", "Own file")]
-        tips = ("Fit the selected scans", "Leave the selected scans out of the fit",
+        self.scan_buttons = [QtWidgets.QPushButton(t) for t in ("Fit all", "Leave all out", "Group…",
+                                                                "Fit selected", "Leave out selected", "Own file")]
+        tips = ("Tick Fit for every scan", "Untick Fit for every scan (then tick the few you want)",
                 "Fit the selected scans together as one dataset (type a group name)",
-                "Put the selected scans back in their file's own group")
+                "Fit the selected scans (Space toggles them)", "Leave the selected scans out of the fit (Space "
+                "toggles them)", "Put the selected scans back in their file's own group")
         for b, t in zip(self.scan_buttons, tips):
             b.setToolTip(t)
         self.scan_info = ElidedLabel("No data loaded")
@@ -321,12 +335,21 @@ class FitWindow(QtWidgets.QMainWindow):
         self.group = QtWidgets.QComboBox()
         self.group.addItems(GROUPS)
         self.n_free = ElidedLabel()            # one line: a long list of free parameters never widens the window
+        self.param_buttons = [QtWidgets.QPushButton(t) for t in ("Fit shown", "Fix shown", "Fit selected",
+                                                                 "Fix selected")]
+        tips = ("Tick Fit for every parameter the Show filter lists (not linked ones, nor shared ones that every "
+                "dataset overrides with its own copy)", "Untick Fit for every parameter the Show filter lists",
+                "Tick Fit for the selected rows (Space toggles them)", "Untick Fit for the selected rows (Space "
+                "toggles them)")
+        for b, t in zip(self.param_buttons, tips):
+            b.setToolTip(t)
 
         top = QtWidgets.QWidget()
         tl = QtWidgets.QVBoxLayout(top)
         tl.setContentsMargins(0, 0, 0, 0)
         tl.addWidget(QtWidgets.QLabel("<b>Datasets</b> (fitted)"))
-        tl.addWidget(self.data_list, 1)
+        self.data_list.setMaximumHeight(96)        # a few rows (it scrolls): room for the scan table
+        tl.addWidget(self.data_list)
         row = QtWidgets.QHBoxLayout()
         row.addWidget(b_add)
         row.addWidget(b_del)
@@ -336,11 +359,12 @@ class FitWindow(QtWidgets.QMainWindow):
         info = QtWidgets.QLabel("<b>Scans</b>: untick to leave out; the same group is fitted together")
         info.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         tl.addWidget(info)
-        tl.addWidget(self.scan_table, 3)
-        row = QtWidgets.QHBoxLayout()
-        for b in self.scan_buttons:
-            row.addWidget(b)
-        tl.addLayout(row)
+        self.scan_table.setMinimumHeight(110)
+        tl.addWidget(self.scan_table, 1)
+        grid = QtWidgets.QGridLayout()
+        for i, b in enumerate(self.scan_buttons):
+            grid.addWidget(b, i // 3, i % 3)
+        tl.addLayout(grid)
         tl.addWidget(self.scan_info)
         left = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         left.addWidget(top)
@@ -348,7 +372,7 @@ class FitWindow(QtWidgets.QMainWindow):
         ll = QtWidgets.QVBoxLayout(bottom)
         ll.setContentsMargins(0, 0, 0, 0)
         left.addWidget(bottom)
-        left.setSizes([440, 420])
+        left.setSizes([540, 380])
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("<b>Parameters</b>"))
         row.addStretch(1)
@@ -356,6 +380,10 @@ class FitWindow(QtWidgets.QMainWindow):
         row.addWidget(self.group)
         ll.addLayout(row)
         ll.addWidget(self.view, 1)
+        row = QtWidgets.QHBoxLayout()
+        for b in self.param_buttons:
+            row.addWidget(b)
+        ll.addLayout(row)
         ll.addWidget(self.n_free)
 
         # ---------------- right: fit controls and guided workflow
@@ -460,11 +488,20 @@ class FitWindow(QtWidgets.QMainWindow):
         self.data_list.itemClicked.connect(lambda *_: self._on_dataset_picked())
         self.scan_table.itemChanged.connect(self._on_scan_item)
         self.scan_table.currentCellChanged.connect(lambda r, *_: self._show_scan(r))
-        for b, fn in zip(self.scan_buttons, (lambda: self.set_scan_use(self.selected_scans(), True),
+        for b, fn in zip(self.scan_buttons, (lambda: self.set_scan_use(self.scan_keys(), True),
+                                             lambda: self.set_scan_use(self.scan_keys(), False),
+                                             lambda: self.group_selected(),
+                                             lambda: self.set_scan_use(self.selected_scans(), True),
                                              lambda: self.set_scan_use(self.selected_scans(), False),
-                                             lambda: self.group_selected(), lambda: self.set_scan_group(
-                                                 self.selected_scans(), ""))):
+                                             lambda: self.set_scan_group(self.selected_scans(), ""))):
             b.clicked.connect(lambda _=False, f=fn: f())
+        for b, fn in zip(self.param_buttons, (lambda: self.set_param_fit(self.shown_params(), True),
+                                              lambda: self.set_param_fit(self.shown_params(), False),
+                                              lambda: self.set_param_fit(self.selected_params(), True),
+                                              lambda: self.set_param_fit(self.selected_params(), False))):
+            b.clicked.connect(lambda _=False, f=fn: f())
+        self.scan_table.installEventFilter(self)          # Space toggles the selected rows
+        self.view.installEventFilter(self)
         self.group.currentTextChanged.connect(self.proxy.set_group)
         self.table.edited.connect(self._on_edit)
         self.rod_pick.currentIndexChanged.connect(lambda *_: self.show_rod())
@@ -522,8 +559,14 @@ class FitWindow(QtWidgets.QMainWindow):
         if msg:
             self.warn("Parameter not changed", msg)
         else:
+            self.table.inactive = shadowed(self.model.params, self.datasets) if len(self.datasets) > 1 else {}
             self._update_free()
             self.show_rod()
+            row = self.proxy.mapToSource(self.view.currentIndex()).row()
+            name = self.table.params.names[row] if 0 <= row < len(self.table.params.names) else None
+            if name in self.table.inactive:
+                self.say(f"{name} is not used: every dataset has its own copy "
+                         f"({', '.join(self.table.inactive[name])}); change those instead")
 
     def _size_columns(self):
         cols = self.table.COLS
@@ -535,7 +578,49 @@ class FitWindow(QtWidgets.QMainWindow):
         names = self.model.params.free_names
         self.n_free.setText(f"{len(names)} free: {', '.join(names) or 'none'}")
 
+    # ------------------------------------------------------------------ fit flags of many rows at once
+    def shown_params(self):
+        """Names of the parameters the Show filter lists, in table order."""
+        names = self.table.params.names
+        return [names[self.proxy.mapToSource(self.proxy.index(r, 0)).row()] for r in range(self.proxy.rowCount())]
+
+    def selected_params(self):
+        names = self.table.params.names
+        rows = {self.proxy.mapToSource(i).row() for i in self.view.selectionModel().selectedRows()}
+        return [names[r] for r in sorted(rows) if 0 <= r < len(names)]
+
+    def set_param_fit(self, names, fit=True):
+        """Tick (fit=True) or untick Fit for these parameters. Ticking skips linked parameters (a link
+        sets their value) and shared ones that every dataset overrides with its own copy."""
+        if self.worker is not None or not names:
+            return
+        P = self.model.params
+        skip = [n for n in names if fit and (P[n].linked or n in self.table.inactive)]
+        changed = [n for n in names if n not in skip and P[n].fit != fit]
+        for n in changed:
+            P[n].fit = fit
+        self.table.refresh_cells()
+        self._update_free()
+        self.say(f"{'Fitting' if fit else 'Fixed'} {len(changed)} parameter(s)"
+                 + (f"; skipped {len(skip)} linked or not used ({', '.join(skip[:4])}"
+                    f"{', …' if len(skip) > 4 else ''})" if skip else "") + f": {len(P.free_names)} free")
+
+    def eventFilter(self, obj, ev):
+        """Space in the scan or parameter table toggles Fit of all selected rows (ticked if any was not)."""
+        if ev.type() == QtCore.QEvent.KeyPress and ev.key() == QtCore.Qt.Key_Space and self.worker is None:
+            if obj is self.scan_table and self.selected_scans():
+                keys = self.selected_scans()
+                use = {r.key: r.use for r in self._scan_rows}
+                self.set_scan_use(keys, not all(use.get(k, True) for k in keys))
+                return True
+            if obj is self.view and self.selected_params():
+                names = self.selected_params()
+                self.set_param_fit(names, not all(self.model.params[n].fit for n in names))
+                return True
+        return super().eventFilter(obj, ev)
+
     def _refresh_all(self):
+        self.table.inactive = shadowed(self.model.params, self.datasets) if len(self.datasets) > 1 else {}
         self.table.set_params(self.model.params)
         if self.result is not None:
             self.table.errors = dict(self.result.errors)
@@ -923,7 +1008,7 @@ class FitWindow(QtWidgets.QMainWindow):
         for b in self.step_buttons:
             b.setEnabled(not on)
         for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del,
-                  *self.scan_buttons):
+                  *self.scan_buttons, *self.param_buttons):
             w.setEnabled(not on)
 
     def _per_dataset(self):

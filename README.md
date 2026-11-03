@@ -140,7 +140,12 @@ that mixes potentials or films is allowed and noted in the log (one surface stru
 it; a mixed film is a film of its own). A group keeps its parameter copies, scale and floor while
 its name stays; a new group starts from the copies of the dataset its scans came from. Clicking a
 dataset selects its scans; clicking a scan shows its rod, one colour per scan. The project file
-keeps the files and the choices. Right: fit settings,
+keeps the files and the choices. Many rows at once: Fit all / Leave all out and Fit selected / Leave
+out selected for the scans; Fit shown / Fix shown (the rows the Show filter lists, e.g. Show
+surface, then Fit shown) and Fit selected / Fix selected for the parameters; Space toggles Fit of
+the selected rows in either table. A shared parameter that every dataset overrides with its own copy
+(e.g. `thickness_mean_tl` once each film has `ds1.thickness_mean_tl`, ...) is greyed: it is not used,
+edit the copies; Fit shown skips it and linked parameters. Right: fit settings,
 Run / Stop (Solve scales exactly, Refine starts and Fringe hops: see "Less starting guess" below; during a fit the model curve of the shown rod and the Value column follow the best
 parameters after every differential-evolution generation and as least squares improves; the rod
 plot keeps the data's axes meanwhile and the residuals stay within ±10 σ, so the view does not jump

@@ -64,6 +64,19 @@ def make_per_dataset(model, datasets, names):
     return model
 
 
+def shadowed(params, datasets):
+    """{global parameter: [its copies]} for the global parameters that no dataset uses, because every
+    dataset has its own scoped copy (e.g. thickness_mean_tl once each film has ds1.thickness_mean_tl,
+    ...). Changing or fitting such a global parameter has no effect on the fit."""
+    datasets = list(datasets)
+    scopes = [ds.scope for ds in datasets]
+    if not datasets or not all(scopes):
+        return {}
+    have = [{p.base for p in params if p.scope == s} for s in scopes]
+    common = set.intersection(*have)
+    return {n: [f"{s}.{n}" for s in scopes] for n in sorted(common) if n in params}
+
+
 def film_of(ds):
     """The film of a dataset: its 'film' and thickness_nm metadata (scans of one film name but another
     thickness are another film), else None (one film)."""

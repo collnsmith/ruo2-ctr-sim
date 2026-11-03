@@ -154,7 +154,7 @@ def test_several_datasets_at_once_with_film_and_potential(win, tmp_path):
 
 
 def test_window_keeps_its_size_while_a_fit_runs(win, qapp=None):
-    """Messages that change during a fit (progress, the free-parameter list, the assistant's counts) and
+    """Messages that change during a fit (progress, the free-parameter list) and
     the live rod plot must not resize the window or rescale the axes from one trial to the next."""
     from PyQt5.QtWidgets import QApplication
     from ctrfit.project import plots
@@ -166,8 +166,6 @@ def test_window_keeps_its_size_while_a_fit_runs(win, qapp=None):
     names = [f"ds{i}.{n}" for i in range(1, 9) for n in ("theta", "x_OH", "z_OH", "thickness_mean_tl", "scale")]
     win.n_free.setText(f"{len(names)} free: {', '.join(names)}")
     win.status.setText("differential evolution, generation 12: figure of merit 1.23456 " + "long " * 80)
-    win.assistant.cost.setText("Tokens: " + "9" * 400)
-    win.assistant.send.setText("Claude is working… (Stop: Run fit button)")
     app.processEvents()
     assert (win.width(), win.height()) == size
     assert win.n_free.text().startswith("40 free: ds1.theta") and win.n_free.toolTip() == win.n_free.text()

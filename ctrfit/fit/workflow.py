@@ -1,12 +1,17 @@
 """The guided fitting workflow of the scan plan, as plain functions (the GUI calls these).
 
 Step 1  film on the even rods (H + K even): thickness, roughness, eps_perp and the scale, with a
-        global search, a thickness profile (fringe minima about one trilayer apart) and refinement.
+        global search, a thickness profile (fringe minima about one trilayer apart) around the value
+        the search found (not the starting value) and refinement.
 Step 2  surface on the odd rods (H + K odd): CUS coverage, OH share, OH height and the scale.
 Step 3  everything free at once (all rods, all datasets), refined from steps 1 and 2.
 
 Each step frees its parameters (plus whatever the caller lists in `extra`), runs, and leaves the
 model at the result. The free set before the step is restored afterwards, except in step 3.
+Steps 1 and 2 solve the scales exactly in the global search and refine from its `starts` best
+distinct points, and every step also refines from the film thickness `hops` trilayers up and down
+(the neighbouring fringe minima), keeping the lowest chi2 (Fit.refine). So they need no close
+starting guess, only bounds that bracket the answer.
 """
 import numpy as np
 
@@ -45,7 +50,7 @@ def _free(model, names, datasets):
     return out
 
 
-def _run(model, datasets, names, de, profile=None, progress=None, fit_hook=None):
+def _run(model, datasets, names, de, profile=None, progress=None, fit_hook=None, starts=3, hops=1):
     before = model.params.free_names
     model.params.fit_only(_free(model, names, datasets))
     fit = Fit(model, datasets)
@@ -56,9 +61,10 @@ def _run(model, datasets, names, de, profile=None, progress=None, fit_hook=None)
         if de:
             fit.run("de", **de)
         if profile and profile[0] in fit.names and not fit.cancelled:
-            fit.profile(profile[0], profile[1])
+            grid = profile[1] if profile[1] is not None else thickness_window(model, profile[0])
+            fit.profile(profile[0], grid)
         if not fit.cancelled:
-            fit.refine()
+            fit.refine(starts=starts if de else 1, hops=hops)
         return fit, fit.report()
     finally:
         model.params.fit_only([n for n in before if n in model.params])
@@ -67,13 +73,17 @@ def _run(model, datasets, names, de, profile=None, progress=None, fit_hook=None)
 def step_film(model, datasets, de=None, thickness_grid=None, extra=(), **kw):
     datasets = datasets if isinstance(datasets, (list, tuple)) else [datasets]
     de = dict(maxiter=30, popsize=10, seed=1) if de is None else de
-    if thickness_grid is None:
-        p = model.params["thickness_mean_tl"]
-        lo, hi = max(p.min, p.value - 3), min(p.max, p.value + 3)
-        thickness_grid = np.arange(lo, hi + 1e-9, 0.5)
     _prepare_scales(model, datasets)
     return _run(model, _subsets(datasets, 0), FILM_PARAMS + list(extra), de,
                 ("thickness_mean_tl", thickness_grid), **kw)
+
+
+def thickness_window(model, name="thickness_mean_tl", half=3.0, step=0.5):
+    """Profile grid +-half (TL) around the parameter's current value (after the global search), within
+    its bounds."""
+    p = model.params[name]
+    lo, hi = max(p.min, p.value - half), min(p.max, p.value + half)
+    return np.arange(lo, hi + 1e-9, step)
 
 
 def step_surface(model, datasets, de=None, extra=(), **kw):
@@ -83,8 +93,9 @@ def step_surface(model, datasets, de=None, extra=(), **kw):
     return _run(model, _subsets(datasets, 1), SURFACE_PARAMS + list(extra), de, **kw)
 
 
-def step_all(model, datasets, names=None, progress=None, fit_hook=None):
-    """Refine everything listed (default: film + surface parameters) on all rods of all datasets."""
+def step_all(model, datasets, names=None, progress=None, fit_hook=None, hops=1, **_):
+    """Refine everything listed (default: film + surface parameters) on all rods of all datasets, also
+    from the film thickness `hops` trilayers up and down (Fit.refine)."""
     datasets = datasets if isinstance(datasets, (list, tuple)) else [datasets]
     _prepare_scales(model, datasets)
     model.params.fit_only(_free(model, names or FILM_PARAMS + SURFACE_PARAMS, datasets))
@@ -92,7 +103,7 @@ def step_all(model, datasets, names=None, progress=None, fit_hook=None):
     fit.progress = progress
     if fit_hook:
         fit_hook(fit)
-    fit.refine()
+    fit.refine(hops=hops)
     return fit, fit.report()
 
 

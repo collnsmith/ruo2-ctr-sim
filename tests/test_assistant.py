@@ -189,38 +189,3 @@ def test_guided_step_and_per_dataset_tools():
     assert "surface step done" in out and "ds2.x_OH" in out
     v = agent.model.params.values()
     assert v["ds1.x_OH"] < v["ds2.x_OH"]
-
-
-def test_ask_claude_panel(monkeypatch):
-    pytest.importorskip("PyQt5")
-    from PyQt5 import QtWidgets
-    from ctrfit.app.fit_window import FitWindow
-    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: None))
-    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    win = FitWindow()
-    win.show()
-    model, data = surface_setup()
-    win.project.model = model
-    win.datasets.append(data)
-    win._refresh_all()
-    script = [response(call(1, "set_parameters", changes=[dict(name="z_OH", value=None, min=1.6, max=2.5, fit=True),
-                                                          dict(name="scale", value=None, min=None, max=None,
-                                                               fit=True)])),
-              response(call(2, "run_global_search", maxiter=8, popsize=6, seed=1, fom="chi2")),
-              response(call(3, "refine")),
-              response(text("Done: z_OH fitted."))]
-    panel = win.assistant
-    panel.agent = FitAgent(win.model, win.datasets, client=FakeClient(script))
-    seen = []
-    orig = win._on_best
-    monkeypatch.setattr(win, "_on_best", lambda *a: (seen.append(a[0]), orig(*a)))
-    panel.ask("Fit z_OH please")
-    assert win.worker is not None and win.table.locked
-    assert win.wait(120)
-    assert "Done: z_OH fitted." in panel.chat.toPlainText() and "run_global_search" in panel.chat.toPlainText()
-    assert abs(win.model.params["z_OH"].value - 2.05) < 0.01 and win.result is not None   # applied
-    assert "de" in seen                                                                      # live curve updates
-    assert "Tokens:" in panel.cost.text() and panel.undo.isEnabled()
-    panel.undo_changes()
-    assert win.model.params["z_OH"].value == 1.9
-    win.close()

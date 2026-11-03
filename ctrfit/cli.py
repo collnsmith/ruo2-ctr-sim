@@ -24,6 +24,12 @@ def build_parser():
     f.add_argument("--maxiter", type=int, default=50, help="DE generations")
     f.add_argument("--popsize", type=int, default=12, help="DE population size per free parameter")
     f.add_argument("--seed", type=int, default=1, help="DE random seed")
+    f.add_argument("--starts", type=int, default=3, help="least squares from this many best distinct points of "
+                   "the global search, keeping the lowest chi2 (default 3)")
+    f.add_argument("--hops", type=int, default=1, help="also refine from the film thickness 1 ... hops trilayers "
+                   "up and down (the neighbouring fringe minima); 0: off (default 1)")
+    f.add_argument("--search-scales", action="store_true", help="search the dataset scales in DE instead of "
+                   "solving them exactly for every trial")
     f.add_argument("--floor", type=float, default=None, help="systematic error floor (relative) for all data")
     f.add_argument("--intensities", action="store_true", help="data files hold I and sigma_I, not F")
     f.add_argument("--rods", default=None, help="only these rods, e.g. '0 1; 1 0'")
@@ -338,7 +344,7 @@ def cmd_fit(a):
     print(f"{len(fit.names)} free parameters: {', '.join(fit.names)}")
     print(f"{fit.n_data} data points in {len(datasets)} dataset(s)")
     if "de" in a.method:
-        st = fit.run("de", maxiter=a.maxiter, popsize=a.popsize, seed=a.seed)
+        st = fit.run("de", maxiter=a.maxiter, popsize=a.popsize, seed=a.seed, solve_scales=not a.search_scales)
         print(f"DE: {st['nfev']} evaluations in {st['seconds']:.1f} s, {st['fom_name']} = {st['fom']:.6g}")
     if a.profile:
         import numpy as np
@@ -346,8 +352,9 @@ def cmd_fit(a):
         prof = fit.profile(name, np.arange(float(lo), float(hi) + 1e-9, float(step)))
         print(f"profile of {name}: best grid point {min(prof, key=lambda d: d['chi2'])['value']:g}")
     if "lsq" in a.method:
-        st = fit.refine()
-        print(f"least squares: {st['nfev']} evaluations, chi2 = {st['fom']:.6g}")
+        st = fit.refine(starts=a.starts if "de" in a.method else 1, hops=a.hops)
+        print(f"least squares: {st['nfev']} evaluations, chi2 = {st['fom']:.6g}"
+              + (f" ({st['method']})" if "starts" in st else ""))
     res = fit.report()
     out = Path(a.out)
     if a.no_plots:

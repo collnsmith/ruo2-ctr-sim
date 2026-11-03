@@ -364,6 +364,19 @@ class FitWindow(QtWidgets.QMainWindow):
         self.maxiter = QtWidgets.QSpinBox(minimum=1, maximum=10000, value=40)
         self.popsize = QtWidgets.QSpinBox(minimum=4, maximum=200, value=12)
         self.seed = QtWidgets.QSpinBox(minimum=0, maximum=10 ** 6, value=1)
+        self.solve_scales = QtWidgets.QCheckBox("Solve scales exactly")
+        self.solve_scales.setChecked(True)
+        self.solve_scales.setToolTip("Differential evolution does not search the dataset scales: for every trial "
+                                     "structure their best values are computed directly (|F| is proportional to the "
+                                     "scale). The search then needs no starting scale and converges faster.")
+        self.starts = QtWidgets.QSpinBox(minimum=1, maximum=10, value=3)
+        self.starts.setToolTip("Least squares from this many best distinct points of the global search (not only "
+                               "the best one); the lowest chi2 is kept")
+        self.hops = QtWidgets.QSpinBox(minimum=0, maximum=3, value=1)
+        self.hops.setSuffix(" TL")
+        self.hops.setToolTip("Also refine from the film thickness 1 ... n trilayers up and down (per film): the "
+                             "thickness fringes give separate minima about one trilayer apart that a global search "
+                             "often confuses. 0: off.")
         self.per_dataset = QtWidgets.QLineEdit("theta, x_OH, z_OH")
         self.per_dataset.setToolTip("With several datasets (e.g. one per potential): what the potential changes, "
                                     "fitted separately per dataset: the CUS coverage and species (theta, x_OH, "
@@ -383,6 +396,9 @@ class FitWindow(QtWidgets.QMainWindow):
         form.addRow("DE generations", self.maxiter)
         form.addRow("DE population", self.popsize)
         form.addRow("Seed", self.seed)
+        form.addRow(self.solve_scales)
+        form.addRow("Refine starts", self.starts)
+        form.addRow("Fringe hops", self.hops)
         form.addRow("Per dataset", self.per_dataset)
         form.addRow("Per film", self.per_film)
         right = QtWidgets.QWidget()
@@ -433,16 +449,6 @@ class FitWindow(QtWidgets.QMainWindow):
         self.status = ElidedLabel("Ready")     # progress text changes every generation: fixed width
         self.statusBar().addWidget(self.status, 1)
         self._menus()
-        from .assistant_panel import AssistantPanel
-        self.assistant = AssistantPanel(self)
-        dock = QtWidgets.QDockWidget("Ask Claude", self)
-        dock.setObjectName("assistant")
-        dock.setWidget(self.assistant)
-        dock.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable | QtWidgets.QDockWidget.DockWidgetFloatable
-                         | QtWidgets.QDockWidget.DockWidgetClosable)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
-        self.assistant_dock = dock
-        self.menuBar().addMenu("&View").addAction(dock.toggleViewAction())
 
         # ---------------- signals
         b_add.clicked.connect(lambda: self.add_data())
@@ -937,7 +943,11 @@ class FitWindow(QtWidgets.QMainWindow):
         return True
 
     def _de_settings(self):
-        return dict(maxiter=self.maxiter.value(), popsize=self.popsize.value(), seed=self.seed.value())
+        return dict(maxiter=self.maxiter.value(), popsize=self.popsize.value(), seed=self.seed.value(),
+                    solve_scales=self.solve_scales.isChecked())
+
+    def _refine_settings(self, after_de=True):
+        return dict(starts=self.starts.value() if after_de else 1, hops=self.hops.value())
 
     def run_or_stop(self):
         if self.worker is not None:
@@ -950,6 +960,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.warn("Nothing to fit", "Tick the Fit box of at least one parameter.")
             return
         method, fom, de = self.method.currentText(), self.fom.currentText(), self._de_settings()
+        ref = self._refine_settings(after_de=method != "refine only")
         per = self._per_dataset() if len(self.datasets) > 1 else []
 
         workflow.prepare(self.model, self.datasets, per,      # on this thread: the table shows the new rows
@@ -962,7 +973,7 @@ class FitWindow(QtWidgets.QMainWindow):
             if method != "refine only":
                 fit.run("de", **de)
             if method != "DE only" and not fit.cancelled:
-                fit.refine()
+                fit.refine(**ref)
             return fit, fit.report()
         self._start(job, "Fitting")
 
@@ -970,6 +981,7 @@ class FitWindow(QtWidgets.QMainWindow):
         if self.worker is not None or not self._check_ready():
             return
         de = self._de_settings()
+        ref = self._refine_settings()
         if len(self.datasets) > 1:
             workflow.prepare(self.model, self.datasets, self._per_dataset() if step != "film" else (),
                              self._per_film())
@@ -977,10 +989,10 @@ class FitWindow(QtWidgets.QMainWindow):
 
         def job(worker):
             if step == "film":
-                return workflow.step_film(self.model, self.datasets, de=de, fit_hook=worker.hook)
+                return workflow.step_film(self.model, self.datasets, de=de, fit_hook=worker.hook, **ref)
             if step == "surface":
-                return workflow.step_surface(self.model, self.datasets, de=de, fit_hook=worker.hook)
-            return workflow.step_all(self.model, self.datasets, fit_hook=worker.hook)
+                return workflow.step_surface(self.model, self.datasets, de=de, fit_hook=worker.hook, **ref)
+            return workflow.step_all(self.model, self.datasets, fit_hook=worker.hook, hops=ref["hops"])
         self._start(job, {"film": "Step 1: film", "surface": "Step 2: surface", "all": "Step 3: everything"}[step])
 
     def _start(self, job, label):

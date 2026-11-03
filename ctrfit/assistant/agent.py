@@ -95,8 +95,8 @@ TOOLS = [
                                                       "seed": {"type": "integer"},
                                                       "fom": {"type": "string", "enum": ["chi2", "log", "R1"]}},
                            required=["maxiter", "popsize", "seed", "fom"], additionalProperties=False)),
-    dict(name="refine", description="Least-squares refinement of the free parameters from their current values; gives "
-         "errors and correlations.",
+    dict(name="refine", description="Least-squares refinement of the free parameters from their current values (and "
+         "from the film thickness one trilayer up and down, keeping the lowest chi2); gives errors and correlations.",
          input_schema=dict(type="object", properties={}, required=[], additionalProperties=False)),
     dict(name="profile", description="chi2 profile of one free parameter: fixed at each grid value (start to stop, step) "
          "while the others are refined; keeps the best minimum. Use it for the film thickness.",
@@ -354,7 +354,7 @@ class FitAgent:
         fit = self._new_fit()
         if not fit.names:
             raise ValueError("no free parameters")
-        st = fit.refine()
+        st = fit.refine(hops=1)
         return f"least squares: {st['nfev']} evaluations, {st['message']}\n" + self._finish(fit)
 
     def tool_profile(self, name, start, stop, step):

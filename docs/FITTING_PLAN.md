@@ -20,7 +20,11 @@ Open issues found while building phases 0 to 5:
   the film step is DE, then `Fit.profile("thickness_mean_tl", grid)`, then refinement. The
   profile also re-refines its best few grid points with the thickness free (`polish=3`), because
   a coarse grid point next to the narrow true minimum can score worse than one in a wrong basin.
-  The guided workflow (Phase 6) should do this automatically.
+  The guided workflow (Phase 6) should do this automatically. Now: the film step's profile is centred
+  on the DE result (not the starting value), DE solves the dataset scales exactly for every trial,
+  and `Fit.refine(starts=3, hops=1)` refines from the best distinct DE points and from the thickness
+  one trilayer up and down (`tests/test_search.py`: 6 of 6 seeds from a poor start over wide bounds,
+  2 of 6 before).
 - Global fits share the fixed settings (energy, lattice, anomalous terms) across datasets; only
   parameters can differ per dataset. Datasets at different energies need per-dataset settings.
 - With the thickness spread at its 0.3 TL floor, the mean thickness acts in steps (smooth but

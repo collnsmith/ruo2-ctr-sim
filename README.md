@@ -119,7 +119,8 @@ data.sys_floor = 0.03                          # systematic error floor, added i
 
 fit = Fit(model, data)
 fit.run("de", maxiter=40, popsize=12, seed=1)  # global search
-fit.refine()                                   # least squares, errors from the Jacobian
+fit.refine(starts=3, hops=1)                   # least squares from 3 DE points and the neighbouring
+                                               # thickness fringes; errors from the Jacobian
 res = fit.report()
 print(res.summary)                             # values, errors, correlations, warnings
 res.save("result.json")
@@ -140,7 +141,7 @@ it; a mixed film is a film of its own). A group keeps its parameter copies, scal
 its name stays; a new group starts from the copies of the dataset its scans came from. Clicking a
 dataset selects its scans; clicking a scan shows its rod, one colour per scan. The project file
 keeps the files and the choices. Right: fit settings,
-Run / Stop (during a fit the model curve of the shown rod and the Value column follow the best
+Run / Stop (Solve scales exactly, Refine starts and Fringe hops: see "Less starting guess" below; during a fit the model curve of the shown rod and the Value column follow the best
 parameters after every differential-evolution generation and as least squares improves; the rod
 plot keeps the data's axes meanwhile and the residuals stay within ±10 σ, so the view does not jump
 between trials, and progress messages never resize the window), and the guided workflow (1. film on the even rods with a thickness scan, 2. surface on
@@ -148,15 +149,12 @@ the odd rods, 3. everything together). Tabs: data vs model with residuals per ro
 merit, report with warnings, correlation matrix, per-dataset series for global fits. File menu:
 models, data, project files (`*.ctrproj.json`: model, data and results together) and a report folder.
 
-**Ask Claude** (dock on the right of the fitting window, View menu to show it): type a request ("fit
-the film first, then tell me whether x_OH is determined") or use a quick button. Claude
-(claude-opus-5-5) runs the fit with the same tools the window has (state, set values/bounds/fit
-flags, links, per-dataset copies, guided steps, DE, refine, thickness profile, report, per-rod
-residuals, AIC/BIC model comparison) on a copy of the model, while the rod plot follows its best
-parameters live. When it answers, its result is applied; "Undo Claude's changes" restores the
-previous model. Stop with the Run fit button. The panel shows the token use and an approximate cost;
-the transcript can be saved. Needs `pip install anthropic` and an API key (`ANTHROPIC_API_KEY`, or
-`ant auth login`). Headless: `python -m ctrfit ask model.json data.csv -r "..."`.
+Fitting assistant (command line only; the fitting window has no Claude panel): `python -m ctrfit
+ask model.json data.csv -r "fit the film first, then tell me whether x_OH is determined"`. Claude
+runs the fit with the fitting tools (state, set values/bounds/fit flags, links, per-dataset copies,
+guided steps, DE, refine, thickness profile, report, per-rod residuals, AIC/BIC model comparison)
+and writes the result. Needs `pip install anthropic` and an API key (`ANTHROPIC_API_KEY`, or `ant
+auth login`).
 
 Command line (headless; writes result.json, summary.txt and PNG plots per rod):
 
@@ -172,7 +170,25 @@ python -m ctrfit fit model.json data.csv --out fit_results
   relative errors above 100 %. The OH vs H2O ratio with free heights and B factors is the known
   degenerate case.
 - Thickness fringes give separate chi2 minima about one trilayer apart (traded against eps_perp).
-  Run `fit.profile("thickness_mean_tl", grid)` after the global search to pick the right one.
+  Run `fit.profile("thickness_mean_tl", grid)` after the global search to pick the right one, or
+  `fit.refine(hops=1)` (below).
+- Less starting guess. The global search only needs bounds that bracket the answer:
+  - The dataset scales are solved exactly for every trial of differential evolution (on by default,
+    `run_de(solve_scales=False)` / "Solve scales exactly" in the window to search them instead).
+    |F| is proportional to the scale, so the best value has a closed form (chi2: weighted least
+    squares; log: the median log ratio; R1: a weighted median). A poor starting scale then no longer
+    makes every trial structure look bad, and the search has one dimension less per dataset.
+  - `fit.refine(starts=3)` runs least squares from the 3 best distinct points the search evaluated
+    and keeps the lowest chi2 ("Refine starts" in the window, default 3).
+  - `fit.refine(hops=1)` also refines from the film thickness one trilayer up and down (each film's
+    thickness in a global fit): the neighbouring fringe minima, which the search often confuses
+    ("Fringe hops" in the window, default 1; the guided steps and the command line, `--starts`,
+    `--hops`, use them too). On synthetic data over wide bounds (thickness 5 to 40 TL, scale 0.05 to
+    20, start at 30 TL and scale 0.2 for a truth of 19.4 TL and 2.7), DE plus a single refinement
+    found the right fringe for 2 of 6 seeds; with the scales solved and the hops, 6 of 6.
+  - Sample L finely enough for the thickness: with an L step dL, N and N + 2/(2 dL) = N + 1/dL
+    trilayers give the same fringes at the measured points (dL = 0.1 cannot tell 19 from 39 TL), so
+    keep the thickness bounds narrower than 1/dL or measure on a finer grid.
 - Beyond the covariance errors: `ctrfit.fit.bootstrap(fit, n=100)`, `ctrfit.fit.mcmc(fit)` (needs
   `emcee`), and `ctrfit.fit.compare_models([res_a, res_b], labels)` for AIC / BIC between surface
   models (e.g. OH only vs OH + H2O vs an extra water layer).

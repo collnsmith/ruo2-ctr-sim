@@ -145,7 +145,14 @@ out selected for the scans; Fit shown / Fix shown (the rows the Show filter list
 surface, then Fit shown) and Fit selected / Fix selected for the parameters; Space toggles Fit of
 the selected rows in either table. A shared parameter that every dataset overrides with its own copy
 (e.g. `thickness_mean_tl` once each film has `ds1.thickness_mean_tl`, ...) is greyed: it is not used,
-edit the copies; Fit shown skips it and linked parameters. Right: fit settings,
+edit the copies; Fit shown skips it and linked parameters. "Colour by selected parameter" (above the
+rod plot, on by default; untick for the plain red curve): the model curve is coloured by how much
+|F| changes when the parameter selected in the table moves by ±1σ (its fit error; before a fit, a
+small step: 2 % of the value, at most 1 % of its range), red for no change to blue for the largest
+change over all rods of the dataset, so a rod the parameter hardly touches stays red; the colour bar
+gives the change in %. It shows where the data constrain a parameter (e.g. x_OH on the odd rods,
+the thickness around the fringes). A linked parameter, or one that this dataset replaces with its
+own copy, leaves the curve red and says why in the status bar. Right: fit settings,
 Run / Stop (Solve scales exactly, Refine starts and Fringe hops: see "Less starting guess" below; during a fit the model curve of the shown rod and the Value column follow the best
 parameters after every differential-evolution generation and as least squares improves; the rod
 plot keeps the data's axes meanwhile and the residuals stay within ±10 σ, so the view does not jump

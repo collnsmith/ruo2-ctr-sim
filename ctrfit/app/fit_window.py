@@ -32,6 +32,7 @@ from ..fit import workflow
 from ..fit.fit import Fit, FitResult
 from ..fit import parallel
 from ..fit.global_fit import series, shadowed
+from ..fit.sensitivity import curve_effect
 from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
 from ..model.parameters import scoped_view
@@ -459,6 +460,17 @@ class FitWindow(QtWidgets.QMainWindow):
         self.rod_pick.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.rod_pick.setMinimumContentsLength(24)
         self.p_rod = PlotPanel("Add data to see the rods.")
+        self.sens_box = QtWidgets.QCheckBox("Colour by selected parameter")
+        self.sens_box.setChecked(True)
+        self.sens_box.setToolTip("Colour the model curve by how much |F| changes when the parameter selected in the "
+                                 "table moves by ±1σ (its fit error; before a fit, a small step): red = no change, "
+                                 "blue = the largest change on this rod (the colour bar gives it in %). Untick for "
+                                 "the plain red curve.")
+        rod_row = QtWidgets.QWidget()
+        rl_ = QtWidgets.QHBoxLayout(rod_row)
+        rl_.setContentsMargins(0, 0, 0, 0)
+        rl_.addWidget(self.rod_pick, 1)
+        rl_.addWidget(self.sens_box)
         self.p_fom = PlotPanel("The figure of merit appears here during a fit.")
         self.p_corr = PlotPanel("Run a fit to see the correlation matrix.")
         self.series_pick = QtWidgets.QComboBox()
@@ -469,7 +481,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.report.setFont(QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.FixedFont))
         self.log = QtWidgets.QPlainTextEdit(readOnly=True)
         self.tabs = QtWidgets.QTabWidget()
-        self.tabs.addTab(self._stack(self.rod_pick, self.p_rod), "Data and model")
+        self.tabs.addTab(self._stack(rod_row, self.p_rod), "Data and model")
         self.tabs.addTab(self.p_fom, "Figure of merit")
         self.tabs.addTab(self.report, "Report")
         self.tabs.addTab(self.p_corr, "Correlations")
@@ -512,6 +524,9 @@ class FitWindow(QtWidgets.QMainWindow):
         self.group.currentTextChanged.connect(self.proxy.set_group)
         self.table.edited.connect(self._on_edit)
         self.rod_pick.currentIndexChanged.connect(lambda *_: self.show_rod())
+        self.sens_box.toggled.connect(lambda *_: self.show_rod())
+        self.view.selectionModel().currentRowChanged.connect(
+            lambda *_: self.show_rod() if self.sens_box.isChecked() else None)
         self.series_pick.currentIndexChanged.connect(lambda *_: self.show_series())
         self.run_button.clicked.connect(self.run_or_stop)
         for i, b in enumerate(self.step_buttons):
@@ -590,6 +605,14 @@ class FitWindow(QtWidgets.QMainWindow):
         """Names of the parameters the Show filter lists, in table order."""
         names = self.table.params.names
         return [names[self.proxy.mapToSource(self.proxy.index(r, 0)).row()] for r in range(self.proxy.rowCount())]
+
+    def _current_param(self):
+        """The parameter the table's current row shows, if that row is selected (else the first selected)."""
+        names = self.table.params.names
+        rows = self.selected_params()
+        idx = self.view.currentIndex()
+        cur = names[self.proxy.mapToSource(idx).row()] if idx.isValid() else None
+        return cur if cur in rows else (rows[0] if rows else None)
 
     def selected_params(self):
         names = self.table.params.names
@@ -926,7 +949,7 @@ class FitWindow(QtWidgets.QMainWindow):
         """(data-point evaluator, dense-curve evaluator, L of the dense curve) for one rod, cached.
         Built on the GUI thread; called with explicit values, so a running fit is never read."""
         ds = self.datasets[i]
-        scope = ds.scope if len(self.datasets) > 1 else ""
+        scope = ds.scope                     # what the fit uses for this dataset
         key = (id(self.model), id(ds), lab, scope)
         hit = self._rod_cache.get(key)
         if hit is None:
@@ -944,6 +967,14 @@ class FitWindow(QtWidgets.QMainWindow):
             self._rod_cache = {key: hit}
         return hit
 
+    def _dataset_evaluator(self, i):
+        """|F| at every point of dataset i (for the sensitivity colour scale), cached."""
+        ds = self.datasets[i]
+        key = (id(self.model), id(ds), ds.scope)
+        if getattr(self, "_ds_eval", (None,))[0] != key:
+            self._ds_eval = (key, self.model.evaluator(ds.H, ds.K, ds.L, scope=ds.scope))
+        return self._ds_eval[1]
+
     def show_rod(self, values=None, note=""):
         """Draw the selected rod. values: all parameter values (e.g. the live best of a running fit)."""
         data = self.rod_pick.currentData()
@@ -960,10 +991,26 @@ class FitWindow(QtWidgets.QMainWindow):
         except (ValueError, KeyError) as ex:
             self.say(f"Model not evaluated: {ex}", error=True)
             return
+        sens, sens_label, sens_max = None, "", None
+        name = self._current_param() if values is None and self.sens_box.isChecked() else None
+        if name is not None:                   # not during a fit: it moves the parameter for a moment
+            err = self.result.errors.get(name) if self.result is not None else None
+            try:
+                sens, step, sens_label = curve_effect(self.model.params, name, ev_dense, scope, error=err)
+                if sens is not None:           # one colour scale for every rod of the dataset
+                    every, _, _ = curve_effect(self.model.params, name, self._dataset_evaluator(i), scope, step=step)
+                    sens_max = float(np.nanmax(every)) if every is not None and every.size else None
+                    sens_label += " (scale: all rods)"
+            except (ValueError, KeyError) as ex:
+                sens, sens_label = None, str(ex)
+            if sens is None:
+                self.status.setText(f"Colour: {sens_label}")
+                sens_label = ""
         self.p_rod.draw(plots.draw_fit_rod, ds.L[idx], ds.F[idx], ds.sigma_eff[idx], Fc,
                         f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd,
                         hold=values is not None,       # a running fit: the axes stay with the data
-                        scans=ds.point_scans()[idx], left_out=left)
+                        scans=ds.point_scans()[idx], left_out=left, sensitivity=sens, sensitivity_label=sens_label,
+                        sensitivity_max=sens_max)
 
     def show_series(self):
         name = self.series_pick.currentText()

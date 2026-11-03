@@ -368,3 +368,27 @@ def test_run_on_several_cores(win):
     assert not win.cores.isEnabled()                     # not changed during a run
     assert win.wait(120)
     assert win.result is not None and win.result.stages[0]["cores"] == 2 and win.cores.isEnabled()
+
+
+def test_model_colour_follows_the_selected_parameter(win):
+    """Selecting a parameter colours the model curve by its effect (a colour bar appears); the box turns it
+    off; a linked parameter says so."""
+    P = win.model.params
+
+    def select(name):
+        idx = win.proxy.mapFromSource(win.table.index(P.names.index(name), 1))
+        win.view.setCurrentIndex(idx)
+        win.view.selectRow(idx.row())
+        QtWidgets.QApplication.processEvents()
+
+    assert win.sens_box.isChecked()
+    select("x_OH")
+    assert len(win.p_rod.figure.axes) == 3 and "x_OH" in win.p_rod.figure.axes[2].get_ylabel()
+    win.sens_box.setChecked(False)
+    assert len(win.p_rod.figure.axes) == 2
+    win.sens_box.setChecked(True)
+    assert len(win.p_rod.figure.axes) == 3
+    P.link("z_H2O", "z_OH + 0.4")
+    win._refresh_all()
+    select("z_H2O")
+    assert len(win.p_rod.figure.axes) == 2 and "linked" in win.status.text()

@@ -1,6 +1,7 @@
 """Matplotlib drawing for the CTR GUI. Every function draws into an existing Figure."""
 import numpy as np
-from matplotlib.colors import LogNorm, Normalize
+from matplotlib.collections import LineCollection
+from matplotlib.colors import LinearSegmentedColormap, LogNorm, Normalize
 from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 import matplotlib.cm as cm
@@ -309,13 +310,20 @@ SCAN_COLOURS = ("tab:blue", "tab:green", "tab:orange", "tab:purple", "tab:brown"
                 "tab:cyan", "0.35")           # one per scan on a rod (red is the model)
 
 
+SENSITIVITY_CMAP = LinearSegmentedColormap.from_list("sensitivity", ["#d62728", "#9467bd", "#1f4fd8"])
+
+
 def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hold=False, scans=None,
-                 left_out=None):
+                 left_out=None, sensitivity=None, sensitivity_label="", sensitivity_max=None):
     """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma.
     hold: the axes keep the data's range (|F|) and +-LIVE_RESIDUAL_RANGE (residuals) instead of
     following the model, so a live view of a running fit does not jump from one trial to the next.
     scans: each point's scan; several scans on the rod get one colour each (named in the legend).
-    left_out: (L, F, sigma) of scans left out of the fit, drawn hollow in grey (no residuals)."""
+    left_out: (L, F, sigma) of scans left out of the fit, drawn hollow in grey (no residuals).
+    sensitivity: one value per point of the model curve (L_model), e.g. the relative change of |F| for a
+    parameter: the curve is coloured red (no change) to blue (sensitivity_max, e.g. the largest change over
+    all rods of the dataset, so a rod the parameter hardly touches stays red; default: this curve's
+    largest), with a colour bar in % and sensitivity_label."""
     fig.clear()
     a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
     L, F, sigma, Fc = (np.asarray(x, float) for x in (L, F, sigma, Fc))
@@ -337,11 +345,30 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
     if has_out:
         a.errorbar(left_out[0], left_out[1], yerr=left_out[2], fmt="o", ms=3.5, mfc="none", color="0.6",
                    ecolor="0.8", elinewidth=0.7, label="left out")
-    if L_model is not None:
+    sens = None if sensitivity is None or L_model is None else np.asarray(sensitivity, float)
+    if sens is not None and sens.shape == np.shape(L_model) and sens.size > 1:
+        Lm, Fm = np.asarray(L_model, float), np.asarray(F_model, float)
+        pts = np.column_stack([Lm, Fm])
+        top = float(np.nanmax(sens)) if np.isfinite(sens).any() else 0.0
+        if sensitivity_max is not None and np.isfinite(sensitivity_max) and sensitivity_max > 0:
+            top = float(sensitivity_max)
+        mid = 0.5 * (sens[:-1] + sens[1:])
+        lc = LineCollection(np.stack([pts[:-1], pts[1:]], axis=1), cmap=SENSITIVITY_CMAP, norm=Normalize(0, 1),
+                            linewidths=2.2)
+        lc.set_array(np.clip(np.nan_to_num(mid / top), 0, 1) if top > 0 else np.zeros(mid.size))
+        a.add_collection(lc)
+        a.plot([], [], color=SENSITIVITY_CMAP(1.0), lw=2.2, label="model (colour: effect)")
+        a.update_datalim(pts[np.isfinite(pts).all(axis=1) & (pts[:, 1] > 0)])
+        bar = fig.colorbar(cm.ScalarMappable(norm=Normalize(0, 1), cmap=SENSITIVITY_CMAP), ax=[a, b], pad=0.01,
+                           fraction=0.035, ticks=[0, 0.5, 1])
+        bar.ax.set_yticklabels(["0", f"{50 * top:.2g} %", f"{100 * top:.2g} %"], fontsize=7)
+        bar.set_label(("change of |F|" + (f": {sensitivity_label}" if sensitivity_label else "")), fontsize=8)
+    elif L_model is not None:
         a.plot(L_model, F_model, color="tab:red", lw=1.2, label="model")
     else:
         a.plot(L, Fc, color="tab:red", lw=1.2, label="model")
     a.set_yscale("log")
+    a.autoscale_view()
     a.set_ylabel("|F| (e)")
     a.set_title(title, fontsize=10)
     a.legend(fontsize=7 if len(names) > 3 else 8, ncol=2 if len(names) > 5 else 1)

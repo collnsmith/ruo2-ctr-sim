@@ -305,13 +305,38 @@ def draw_study(fig, out, points, thick, relax, coherent_nm):
 LIVE_RESIDUAL_RANGE = 10.0                    # residual axis while a fit runs: +-this (sigma)
 
 
-def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hold=False):
+SCAN_COLOURS = ("tab:blue", "tab:green", "tab:orange", "tab:purple", "tab:brown", "tab:pink", "tab:olive",
+                "tab:cyan", "0.35")           # one per scan on a rod (red is the model)
+
+
+def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hold=False, scans=None,
+                 left_out=None):
     """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma.
     hold: the axes keep the data's range (|F|) and +-LIVE_RESIDUAL_RANGE (residuals) instead of
-    following the model, so a live view of a running fit does not jump from one trial to the next."""
+    following the model, so a live view of a running fit does not jump from one trial to the next.
+    scans: each point's scan; several scans on the rod get one colour each (named in the legend).
+    left_out: (L, F, sigma) of scans left out of the fit, drawn hollow in grey (no residuals)."""
     fig.clear()
     a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
-    a.errorbar(L, F, yerr=sigma, fmt="o", ms=3, color="0.25", ecolor="0.6", elinewidth=0.8, label="data")
+    L, F, sigma, Fc = (np.asarray(x, float) for x in (L, F, sigma, Fc))
+    r = (F - Fc) / sigma
+    labels = None if scans is None else np.asarray(scans, str)
+    names = [] if labels is None else list(dict.fromkeys(labels.tolist()))
+    if len(names) > 1:
+        for j, nm in enumerate(names):
+            k = labels == nm
+            c = SCAN_COLOURS[j % len(SCAN_COLOURS)]
+            a.errorbar(L[k], F[k], yerr=sigma[k], fmt="o", ms=3, color=c, ecolor=c, elinewidth=0.7, alpha=0.85,
+                       label=nm)
+            b.plot(L[k], r[k], "o", ms=3, color=c)
+    else:
+        a.errorbar(L, F, yerr=sigma, fmt="o", ms=3, color="0.25", ecolor="0.6", elinewidth=0.8,
+                   label=names[0] if names and not names[0].startswith("rod ") else "data")
+        b.plot(L, r, "o", ms=3, color="tab:blue")
+    has_out = left_out is not None and len(left_out[0])
+    if has_out:
+        a.errorbar(left_out[0], left_out[1], yerr=left_out[2], fmt="o", ms=3.5, mfc="none", color="0.6",
+                   ecolor="0.8", elinewidth=0.7, label="left out")
     if L_model is not None:
         a.plot(L_model, F_model, color="tab:red", lw=1.2, label="model")
     else:
@@ -319,18 +344,17 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
     a.set_yscale("log")
     a.set_ylabel("|F| (e)")
     a.set_title(title, fontsize=10)
-    a.legend(fontsize=8)
-    r = (np.asarray(F) - np.asarray(Fc)) / np.asarray(sigma)
+    a.legend(fontsize=7 if len(names) > 3 else 8, ncol=2 if len(names) > 5 else 1)
     b.axhline(0, color="k", lw=0.6)
     for y in (-2, 2):
         b.axhline(y, color="0.6", lw=0.6, ls="--")
-    b.plot(L, r, "o", ms=3, color="tab:blue")
     b.set_ylabel("(F - Fc) / σ")
     b.set_xlabel("L (r.l.u.)")
     if hold:
-        F, s = np.asarray(F, float), np.asarray(sigma, float)
-        top = F + s
-        low = np.where(F - s > 0, F - s, F)
+        Fh, s = (np.concatenate([F, np.asarray(left_out[1], float)]), np.concatenate([sigma, np.asarray(left_out[2], float)])) \
+            if has_out else (F, sigma)
+        top = Fh + s
+        low = np.where(Fh - s > 0, Fh - s, Fh)
         pos = low[np.isfinite(low) & (low > 0)]
         if pos.size and np.isfinite(top).any():
             a.set_ylim(pos.min() / 2, np.nanmax(top) * 2)

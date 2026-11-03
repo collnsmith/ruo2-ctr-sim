@@ -663,13 +663,14 @@ def write_stationary(path, results, roi=None):
 
 
 def points_dataset(pts, opt, name="processed"):
-    return Dataset(pts.H, pts.K, pts.L, pts.F, pts.sF, pts.rod, name=name,
+    scan = None if pts.scan is None or not len(pts.scan) else [f"#{int(s)}" for s in np.asarray(pts.scan)]
+    return Dataset(pts.H, pts.K, pts.L, pts.F, pts.sF, pts.rod, name=name, scan=scan,
                    sys_floor=opt.floor_pct / 100.0, energy_kev=opt.energy_kev)
 
 
 def write_points(path, pts, opt, name="processed"):
-    """CSV for the fitting app (H, K, L, F, sigma, rod; the systematic floor as '# sys_floor'): every
-    point as measured."""
+    """CSV for the fitting app (H, K, L, F, sigma, rod, scan; the systematic floor as '# sys_floor'):
+    every point as measured."""
     write_csv(points_dataset(pts, opt, name), path)
     return path
 

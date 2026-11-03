@@ -31,6 +31,7 @@ from ..data.dataset import Dataset
 from ..fit import workflow
 from ..fit.fit import Fit, FitResult
 from ..fit.global_fit import series
+from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
 from ..model.parameters import scoped_view
 from ..model.model import Model
@@ -39,6 +40,7 @@ from ..project.project import Project
 from ..project.report import per_dataset_names, write_report
 
 GROUPS = ("all", "film", "surface", "scale", "instrument", "free")
+SCAN_COLS = ("Fit", "Scan", "Rod", "Points", "L", "Film", "Condition", "File", "Group")
 
 
 # ==============================================================================================
@@ -276,12 +278,36 @@ class FitWindow(QtWidgets.QMainWindow):
         self.pool = QtCore.QThreadPool()
         self.pool.setMaxThreadCount(1)
 
-        # ---------------- left: datasets and parameters
+        # ---------------- left: datasets, their scans, parameters
         self.data_list = QtWidgets.QListWidget()
-        self.data_list.setMaximumHeight(110)
+        self.data_list.setToolTip("The fitted datasets: one per group of scans (by default one per file), each with "
+                                  "its own scale and its own copy of the Per dataset parameters")
         self.floor = QtWidgets.QDoubleSpinBox(decimals=3, maximum=1.0, singleStep=0.005)
-        self.floor.setToolTip("Systematic error floor (relative), added in quadrature to every point's sigma")
-        b_add, b_del = QtWidgets.QPushButton("Add data…"), QtWidgets.QPushButton("Remove")
+        self.floor.setToolTip("Systematic error floor (relative) of the selected dataset, added in quadrature to "
+                              "every point's sigma")
+        b_add, b_del = QtWidgets.QPushButton("Add data…"), QtWidgets.QPushButton("Remove file")
+        b_del.setToolTip("Remove the loaded file(s) of the selected scans (or of the selected dataset)")
+        self.b_add, self.b_del = b_add, b_del
+        self.scan_table = QtWidgets.QTableWidget(0, len(SCAN_COLS))
+        self.scan_table.setHorizontalHeaderLabels(SCAN_COLS)
+        self.scan_table.verticalHeader().setVisible(False)
+        self.scan_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.scan_table.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
+        self.scan_table.setEditTriggers(QtWidgets.QAbstractItemView.DoubleClicked
+                                        | QtWidgets.QAbstractItemView.EditKeyPressed)
+        self.scan_table.horizontalHeader().setStretchLastSection(True)
+        self.scan_table.setToolTip("Every scan of the loaded files. Untick Fit to leave a scan out. Scans with the same "
+                                   "Group are fitted together as one dataset (double-click a Group to type one, or "
+                                   "select rows and use Group…); by default a file is one group.")
+        self._scan_rows = []
+        self._filling = False
+        self.scan_buttons = [QtWidgets.QPushButton(t) for t in ("Fit", "Leave out", "Group…", "Own file")]
+        tips = ("Fit the selected scans", "Leave the selected scans out of the fit",
+                "Fit the selected scans together as one dataset (type a group name)",
+                "Put the selected scans back in their file's own group")
+        for b, t in zip(self.scan_buttons, tips):
+            b.setToolTip(t)
+        self.scan_info = ElidedLabel("No data loaded")
         self.table = ParamTable(self.model.params)
         self.proxy = GroupFilter()
         self.proxy.setSourceModel(self.table)
@@ -294,16 +320,33 @@ class FitWindow(QtWidgets.QMainWindow):
         self.group.addItems(GROUPS)
         self.n_free = ElidedLabel()            # one line: a long list of free parameters never widens the window
 
-        left = QtWidgets.QWidget()
-        ll = QtWidgets.QVBoxLayout(left)
-        ll.addWidget(QtWidgets.QLabel("<b>Datasets</b>"))
-        ll.addWidget(self.data_list)
+        top = QtWidgets.QWidget()
+        tl = QtWidgets.QVBoxLayout(top)
+        tl.setContentsMargins(0, 0, 0, 0)
+        tl.addWidget(QtWidgets.QLabel("<b>Datasets</b> (fitted)"))
+        tl.addWidget(self.data_list, 1)
         row = QtWidgets.QHBoxLayout()
         row.addWidget(b_add)
         row.addWidget(b_del)
         row.addWidget(QtWidgets.QLabel("Error floor"))
         row.addWidget(self.floor)
-        ll.addLayout(row)
+        tl.addLayout(row)
+        info = QtWidgets.QLabel("<b>Scans</b>: untick to leave out; the same group is fitted together")
+        info.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        tl.addWidget(info)
+        tl.addWidget(self.scan_table, 3)
+        row = QtWidgets.QHBoxLayout()
+        for b in self.scan_buttons:
+            row.addWidget(b)
+        tl.addLayout(row)
+        tl.addWidget(self.scan_info)
+        left = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        left.addWidget(top)
+        bottom = QtWidgets.QWidget()
+        ll = QtWidgets.QVBoxLayout(bottom)
+        ll.setContentsMargins(0, 0, 0, 0)
+        left.addWidget(bottom)
+        left.setSizes([440, 420])
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("<b>Parameters</b>"))
         row.addStretch(1)
@@ -403,9 +446,17 @@ class FitWindow(QtWidgets.QMainWindow):
 
         # ---------------- signals
         b_add.clicked.connect(lambda: self.add_data())
-        b_del.clicked.connect(self.remove_data)
+        b_del.clicked.connect(lambda: self.remove_data())
         self.floor.valueChanged.connect(self._set_floor)
-        self.data_list.currentRowChanged.connect(lambda *_: self._sync_floor())
+        self.data_list.currentRowChanged.connect(lambda *_: self._on_dataset_picked())
+        self.data_list.itemClicked.connect(lambda *_: self._on_dataset_picked())
+        self.scan_table.itemChanged.connect(self._on_scan_item)
+        self.scan_table.currentCellChanged.connect(lambda r, *_: self._show_scan(r))
+        for b, fn in zip(self.scan_buttons, (lambda: self.set_scan_use(self.selected_scans(), True),
+                                             lambda: self.set_scan_use(self.selected_scans(), False),
+                                             lambda: self.group_selected(), lambda: self.set_scan_group(
+                                                 self.selected_scans(), ""))):
+            b.clicked.connect(lambda _=False, f=fn: f())
         self.group.currentTextChanged.connect(self.proxy.set_group)
         self.table.edited.connect(self._on_edit)
         self.rod_pick.currentIndexChanged.connect(lambda *_: self.show_rod())
@@ -482,6 +533,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.table.errors = dict(self.result.errors)
         self._size_columns()
         self._update_free()
+        self.data_list.blockSignals(True)
         self.data_list.clear()
         for ds in self.datasets:
             pot = ds.meta.get("potential_V")
@@ -489,17 +541,149 @@ class FitWindow(QtWidgets.QMainWindow):
             cond = ds.meta.get("condition")
             extra = ([f"film {film}"] if film and film not in ds.name else []) + \
                 ([f"{pot:g} V"] if pot is not None else [cond] if cond and cond not in ds.name else [])
-            self.data_list.addItem(f"{ds.name}: {len(ds)} points, rods {', '.join(ds.rod_labels)}"
-                                   + "".join(f", {x}" for x in extra))
+            n = len(ds.scan_labels)
+            self.data_list.addItem(f"{ds.name}: {len(ds)} points, {n} scan{'s' if n != 1 else ''}, "
+                                   f"rods {', '.join(ds.rod_labels)}" + "".join(f", {x}" for x in extra))
         if self.datasets:
             self.data_list.setCurrentRow(0)
+        self.data_list.blockSignals(False)
+        self._sync_floor()
+        self._fill_scans()
         self.rod_pick.blockSignals(True)
         self.rod_pick.clear()
         for i, ds in enumerate(self.datasets):
-            for lab in ds.rod_labels:
-                self.rod_pick.addItem(f"{ds.name}: ({lab} L)", (i, lab))
+            out = self.project.scans.left_out(ds.name)
+            extra = [lab for lab in (out.rod_labels if out is not None else []) if lab not in ds.rod_labels]
+            for lab in ds.rod_labels + extra:          # a rod whose scans are all left out: still shown
+                self.rod_pick.addItem(f"{ds.name}: ({lab} L)" + (" (left out)" if lab in extra else ""), (i, lab))
         self.rod_pick.blockSignals(False)
         self.show_rod()
+
+    # ------------------------------------------------------------------ scans
+    def _fill_scans(self):
+        """The scan table from the loaded files and the choice per scan."""
+        sel = self.project.scans
+        keep = set(self.selected_scans())          # the selection survives a refill (same scans)
+        self._scan_rows = sel.rows()
+        t = self.scan_table
+        self._filling = True
+        t.clearSelection()
+        t.setRowCount(len(self._scan_rows))
+        grey = QtGui.QBrush(QtGui.QColor(128, 128, 128))
+        for i, r in enumerate(self._scan_rows):
+            cond = r.condition or (f"{r.potential_V:g} V" if r.potential_V is not None else "")
+            vals = ("", r.scan, ", ".join(r.rods), str(r.n), f"{r.L_min:.2f}–{r.L_max:.2f}", r.film or "", cond,
+                    r.source, r.group)
+            for c, v in enumerate(vals):
+                it = QtWidgets.QTableWidgetItem(v)
+                flags = QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled
+                if SCAN_COLS[c] == "Fit":
+                    flags |= QtCore.Qt.ItemIsUserCheckable
+                    it.setCheckState(QtCore.Qt.Checked if r.use else QtCore.Qt.Unchecked)
+                elif SCAN_COLS[c] == "Group":
+                    flags |= QtCore.Qt.ItemIsEditable
+                    it.setToolTip("Scans with the same group are fitted together (one scale, one copy of the per-"
+                                  "dataset parameters). Empty: the file's own group.")
+                    if not r.custom:
+                        it.setForeground(grey)
+                if not r.use and SCAN_COLS[c] != "Fit":
+                    it.setForeground(grey)
+                it.setFlags(flags)
+                t.setItem(i, c, it)
+        t.resizeColumnsToContents()
+        t.setColumnWidth(SCAN_COLS.index("Fit"), 34)
+        sm = t.selectionModel()
+        for row, r in enumerate(self._scan_rows):
+            if r.key in keep:
+                sm.select(t.model().index(row, 0), QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows)
+        self._filling = False
+        self.scan_info.setText(sel.summary())
+
+    def selected_scans(self):
+        """Keys of the scans selected in the scan table."""
+        rows = sorted({i.row() for i in self.scan_table.selectionModel().selectedRows()})
+        return [self._scan_rows[r].key for r in rows if r < len(self._scan_rows)]
+
+    def scan_keys(self, source=None, scan=None):
+        """Keys of the loaded scans, optionally of one file and / or one scan label (for scripts and tests)."""
+        return [r.key for r in self.project.scans.rows()
+                if (source is None or r.source == source) and (scan is None or r.scan == scan)]
+
+    def _regroup(self):
+        """Rebuild the fitted datasets from the files and the scan choices; parameters follow (fit.scans)."""
+        self.project.datasets, notes = regroup(self.model, self.project.scans, self.project.datasets)
+        for n in notes:
+            self.log.appendPlainText(n)
+        self._rod_cache = {}
+        self._refresh_all()
+        return notes
+
+    def set_scan_use(self, keys, use=True):
+        """Fit (use=True) or leave out these scans."""
+        if self.worker is not None or not keys:
+            return
+        self.project.scans.set_use(keys, use)
+        self._regroup()
+        self.say(f"{len(keys)} scan(s) {'fitted' if use else 'left out'}: {self.project.scans.summary()}")
+
+    def set_scan_group(self, keys, group=""):
+        """Fit these scans together as the dataset `group` ('' = back to their file's group)."""
+        if self.worker is not None or not keys:
+            return
+        self.project.scans.set_group(keys, group)
+        notes = self._regroup()
+        what = f"grouped as {group.strip()}" if group.strip() else "back in their file's group"
+        self.say(f"{len(keys)} scan(s) {what}: {self.project.scans.summary()}" + (f" ({notes[0]})" if notes else ""))
+
+    def group_selected(self, name=None):
+        keys = self.selected_scans()
+        if not keys:
+            self.say("Select the scans to group in the scan table first.")
+            return
+        if name is None:
+            rows = {r.key: r for r in self._scan_rows}
+            name, ok = QtWidgets.QInputDialog.getText(self, "Group scans", "Fit the selected scans together as:",
+                                                      text=rows[keys[0]].group)
+            if not ok:
+                return
+        self.set_scan_group(keys, name)
+
+    def _on_scan_item(self, item):
+        if self._filling or item.row() >= len(self._scan_rows):
+            return
+        r = self._scan_rows[item.row()]
+        col = SCAN_COLS[item.column()]
+        if col == "Fit":
+            use = item.checkState() == QtCore.Qt.Checked
+            if use != r.use:
+                QtCore.QTimer.singleShot(0, lambda: self.set_scan_use([r.key], use))   # not inside the item signal
+        elif col == "Group" and item.text().strip() != r.group:
+            QtCore.QTimer.singleShot(0, lambda t=item.text(): self.set_scan_group([r.key], t))
+
+    def _show_scan(self, row):
+        """Show the clicked scan's rod in its dataset."""
+        if not 0 <= row < len(self._scan_rows):
+            return
+        r = self._scan_rows[row]
+        for j in range(self.rod_pick.count()):
+            i, lab = self.rod_pick.itemData(j)
+            if self.datasets[i].name == r.group and lab == r.rods[0]:
+                self.rod_pick.setCurrentIndex(j)
+                return
+
+    def _on_dataset_picked(self):
+        """A dataset picked in the list: its floor, and the scans of its group selected in the scan table."""
+        self._sync_floor()
+        i = self.data_list.currentRow()
+        if not 0 <= i < len(self.datasets):
+            return
+        name = self.datasets[i].name
+        t = self.scan_table
+        sm = t.selectionModel()
+        sm.clearSelection()
+        for row, r in enumerate(self._scan_rows):
+            if r.group == name:                    # its scans, the left-out ones too
+                sm.select(t.model().index(row, 0), QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows)
 
     def _sync_floor(self):
         i = self.data_list.currentRow()
@@ -545,21 +729,34 @@ class FitWindow(QtWidgets.QMainWindow):
             except (OSError, ValueError, KeyError) as ex:
                 self.warn("Could not read the data", f"{path}: {ex}")
                 continue
-            self.datasets.append(ds)
-            added.append(ds)
+            added.append(self.project.scans.add(ds))
         if added:
-            self._refresh_all()
+            self._regroup()
             ds = added[-1]
-            self.say(f"Added {ds.name}: {len(ds)} points on {len(ds.rod_labels)} rods" if len(added) == 1 else
-                     f"Added {len(added)} datasets ({', '.join(d.name for d in added)})")
+            self.say(f"Added {ds.name}: {len(ds)} points, {len(ds.scan_labels)} scans on {len(ds.rod_labels)} rods"
+                     if len(added) == 1 else f"Added {len(added)} datasets ({', '.join(d.name for d in added)})")
         return added
 
-    def remove_data(self):
-        i = self.data_list.currentRow()
-        if 0 <= i < len(self.datasets):
-            ds = self.datasets.pop(i)
-            self._refresh_all()
-            self.say(f"Removed {ds.name}")
+    def remove_data(self, files=None):
+        """Remove loaded files: given by name, else those of the selected scans, else of the selected dataset."""
+        if self.worker is not None:
+            return
+        if files is None:
+            keys = self.selected_scans()
+            i = self.data_list.currentRow()
+            if not keys and 0 <= i < len(self.datasets):
+                keys = getattr(self.datasets[i], "parts", [])
+            files = list(dict.fromkeys(k.split(SEP, 1)[0] for k in keys))
+        if not files:
+            return
+        self.project.scans.remove(files)
+        self._regroup()
+        self.say(f"Removed {', '.join(files)}")
+
+    def clear_data(self):
+        """Remove every loaded file."""
+        self.project.scans.clear()
+        self._regroup()
 
     def new_model(self, settings=None):
         self.project.model = Model.from_settings(dict(DEFAULTS, **(settings or {})))
@@ -633,11 +830,17 @@ class FitWindow(QtWidgets.QMainWindow):
         key = (id(self.model), id(ds), lab, scope)
         hit = self._rod_cache.get(key)
         if hit is None:
-            idx = ds.rods()[lab]
-            H, K = ds.rod_hk(lab)
-            Ld = np.linspace(ds.L[idx].min(), ds.L[idx].max(), 400)
-            hit = (self.model.evaluator(ds.H[idx], ds.K[idx], ds.L[idx], scope=scope),
-                   self.model.evaluator(np.full(Ld.size, H), np.full(Ld.size, K), Ld, scope=scope), Ld, scope)
+            idx = ds.rods().get(lab, np.zeros(0, int))
+            out = self.project.scans.left_out(ds.name)
+            k = None if out is None else out.rod == lab
+            left = None if k is None or not k.any() else (out.L[k], out.F[k], out.sigma_eff[k])
+            H, K = ds.rod_hk(lab) if idx.size else out.rod_hk(lab)
+            Lall = ds.L[idx] if left is None else np.concatenate([ds.L[idx], left[0]])
+            Ld = np.linspace(Lall.min(), Lall.max(), 400)
+            hit = (self.model.evaluator(ds.H[idx], ds.K[idx], ds.L[idx], scope=scope) if idx.size else
+                   (lambda v: np.zeros(0)),
+                   self.model.evaluator(np.full(Ld.size, H), np.full(Ld.size, K), Ld, scope=scope), Ld, scope,
+                   left)
             self._rod_cache = {key: hit}
         return hit
 
@@ -648,18 +851,19 @@ class FitWindow(QtWidgets.QMainWindow):
             return
         i, lab = data
         ds = self.datasets[i]
-        idx = ds.rods()[lab]
-        H, K = ds.rod_hk(lab)
+        idx = ds.rods().get(lab, np.zeros(0, int))
         try:
-            ev_pts, ev_dense, Ld, scope = self._rod_evaluators(i, lab)
+            ev_pts, ev_dense, Ld, scope, left = self._rod_evaluators(i, lab)
             v = self.model.params.view(scope) if values is None else scoped_view(values, scope)
             Fc, Fd = ev_pts(v), ev_dense(v)
+            H, K = ev_dense.rods[0]
         except (ValueError, KeyError) as ex:
             self.say(f"Model not evaluated: {ex}", error=True)
             return
         self.p_rod.draw(plots.draw_fit_rod, ds.L[idx], ds.F[idx], ds.sigma_eff[idx], Fc,
                         f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd,
-                        hold=values is not None)       # a running fit: the axes stay with the data
+                        hold=values is not None,       # a running fit: the axes stay with the data
+                        scans=ds.point_scans()[idx], left_out=left)
 
     def show_series(self):
         name = self.series_pick.currentText()
@@ -710,7 +914,8 @@ class FitWindow(QtWidgets.QMainWindow):
         self.run_button.setText("Stop" if on else "Run fit")
         for b in self.step_buttons:
             b.setEnabled(not on)
-        for w in (self.floor, self.data_list, self.rod_pick):
+        for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del,
+                  *self.scan_buttons):
             w.setEnabled(not on)
 
     def _per_dataset(self):
@@ -722,7 +927,8 @@ class FitWindow(QtWidgets.QMainWindow):
 
     def _check_ready(self):
         if not self.datasets:
-            self.warn("No data", "Add a dataset first.")
+            self.warn("No data", "Every scan is left out: tick Fit for at least one in the scan table."
+                      if self.project.scans.sources else "Add a dataset first.")
             return False
         problems = self.model.params.check()
         if problems:

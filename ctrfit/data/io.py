@@ -2,7 +2,8 @@
 
 CSV:   a header row with at least H, K, L, F, sigma (any order, case-insensitive; 'sigF', 'dF',
        'err' also accepted for sigma). With intensities=True the columns are I and sigma (or sigI).
-       An optional 'rod' column labels the points. Lines starting with # are comments;
+       Optional 'rod' and 'scan' columns label the points (the scan each point was measured in, so
+       the Fitting app can list, leave out and group scans). Lines starting with # are comments;
        '# key: value' comment lines set metadata (name, energy_kev, potential_V, thickness_nm,
        film, condition, notes, sys_floor). A global fit groups the datasets of one film by 'film'.
 .dat:  whitespace columns H K L F sigma (GenX / ANA-ROD style), # comments, no header.
@@ -58,7 +59,7 @@ def _finish(cols, meta, intensities, name, sys_floor):
     floor = meta.pop("sys_floor", 0.0) if sys_floor is None else sys_floor
     nm = name or meta.pop("name", "data")
     meta.pop("name", None)
-    return Dataset(H, K, L, Y, sY, cols.get("rod"), name=nm, sys_floor=floor, **meta)
+    return Dataset(H, K, L, Y, sY, cols.get("rod"), name=nm, sys_floor=floor, scan=cols.get("scan"), **meta)
 
 
 def read_csv(path, intensities=False, name=None, sys_floor=None):
@@ -81,8 +82,9 @@ def read_csv(path, intensities=False, name=None, sys_floor=None):
                sY=col(*_SIGMA_NAMES))
     data = rows[1:]
     cols = {k: [float(r[i]) for r in data] for k, i in idx.items()}
-    if "rod" in low:
-        cols["rod"] = [r[low.index("rod")].strip() for r in data]
+    for c in ("rod", "scan"):
+        if c in low:
+            cols[c] = [r[low.index(c)].strip() for r in data]
     return _finish(cols, _meta_from_comments(comments), intensities, name, sys_floor)
 
 
@@ -111,10 +113,11 @@ def write_csv(ds, path):
         for ln in _meta_lines(ds):
             fh.write(ln + "\n")
         w = csv.writer(fh, lineterminator="\n")
-        w.writerow(["H", "K", "L", "F", "sigma", "rod"])
-        for row in zip(ds.H, ds.K, ds.L, ds.F, ds.sigma, ds.rod):
+        scans = ds.has_scans
+        w.writerow(["H", "K", "L", "F", "sigma", "rod"] + (["scan"] if scans else []))
+        for row in zip(ds.H, ds.K, ds.L, ds.F, ds.sigma, ds.rod, ds.scan):
             w.writerow([int(row[0]), int(row[1]), repr(float(row[2])), repr(float(row[3])), repr(float(row[4])),
-                        row[5]])
+                        row[5]] + ([row[6]] if scans else []))
 
 
 def write_dat(ds, path):

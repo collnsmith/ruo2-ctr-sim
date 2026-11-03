@@ -1,4 +1,5 @@
 """Write a fit result to disk: JSON, text summary and PNG plots (headless, matplotlib Agg)."""
+import re
 from pathlib import Path
 
 import numpy as np
@@ -33,8 +34,9 @@ def write_report(fit, result, out_dir, dense_step=0.01):
             Ld = np.arange(Lr.min(), Lr.max() + 1e-9, dense_step)
             Fd = fit.model.evaluator(np.full(Ld.size, H), np.full(Ld.size, K), Ld, scope=ds.scope)()
             fig = _fig(7, 5)
-            plots.draw_fit_rod(fig, Lr, ds.F[idx], ds.sigma_eff[idx], Fc[idx], f"{ds.name}: ({H} {K} L)", Ld, Fd)
-            p = out / f"rod_{ds.name}_{H}_{K}.png".replace(" ", "_")
+            plots.draw_fit_rod(fig, Lr, ds.F[idx], ds.sigma_eff[idx], Fc[idx], f"{ds.name}: ({H} {K} L)", Ld, Fd,
+                               scans=ds.point_scans()[idx])
+            p = out / (re.sub(r"[^\w.+-]+", "_", f"rod_{ds.name}_{H}_{K}") + ".png")
             fig.savefig(p, dpi=110)
             files.append(p)
     fig = _fig(7, 4)

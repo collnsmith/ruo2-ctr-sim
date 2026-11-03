@@ -126,8 +126,20 @@ res.save("result.json")
 ```
 
 Fitting window: `python ctr_fit_gui.py [data.csv] [model.json]` (or `python -m ctrfit gui`). Left:
-datasets (with the systematic error floor) and the parameter table (tick Fit, edit value, bounds and
-links; errors appear after a fit, parameters named in warnings are highlighted). Right: fit settings,
+the fitted datasets (with the systematic error floor), the scans of the loaded files, and the
+parameter table (tick Fit, edit value, bounds and links; errors appear after a fit, parameters named
+in warnings are highlighted). The scan table lists every scan of every loaded file (scan, rod,
+points, L range, film, condition, file, group; the scan library's export and Processing write each
+point's scan, a file without a scan column counts one scan per rod). Untick Fit to leave a scan out
+of every fit (it is still drawn, hollow and grey, on its rod). Scans with the same Group are fitted
+together as one dataset (one scale, one copy of the Per dataset parameters): type a group in the
+Group cell, or select rows and use Group…; Own file puts them back. By default a file is one group;
+a group can take scans from several files (e.g. repeats of one potential) or split a file. A group
+that mixes potentials or films is allowed and noted in the log (one surface structure for all of
+it; a mixed film is a film of its own). A group keeps its parameter copies, scale and floor while
+its name stays; a new group starts from the copies of the dataset its scans came from. Clicking a
+dataset selects its scans; clicking a scan shows its rod, one colour per scan. The project file
+keeps the files and the choices. Right: fit settings,
 Run / Stop (during a fit the model curve of the shown rod and the Value column follow the best
 parameters after every differential-evolution generation and as least squares improves; the rod
 plot keeps the data's axes meanwhile and the residuals stay within ±10 σ, so the view does not jump

@@ -1145,7 +1145,8 @@ def fitting_datasets(lib, entries=None):
     Fitting app, from the processed rod scans that are used and have a film: |F| and sigma_F of their
     used points (on one monitor reference), each point on its scan's rod, with the metadata the fit
     needs: potential_V (CA), film and thickness_nm (for parameters per film), condition, energy and
-    the systematic floor of Processing. Rod scans from raw ROI sums have no |F| (process them first);
+    the systematic floor of Processing, and each point's scan ('#333', with the source when the library
+    has several) so the Fitting app can leave scans out or group them. Rod scans from raw ROI sums have no |F| (process them first);
     CV scans are not rods."""
     es = lib.entries if entries is None else entries
     notes, pick = [], []
@@ -1171,7 +1172,7 @@ def fitting_datasets(lib, entries=None):
         groups.setdefault((e.film, e.thickness, cond), []).append(e)
     out = []
     for (film, thick, cond), group in groups.items():
-        H, K, L, F, S, rod, scans = [], [], [], [], [], [], []
+        H, K, L, F, S, rod, scans, labels = [], [], [], [], [], [], [], []
         header = {}
         for e in group:
             d = lib.data(e)
@@ -1186,6 +1187,7 @@ def fitting_datasets(lib, entries=None):
             F += list(P["F"][k] * f)
             S += list(P["sigma_F"][k] * f)
             rod += [f"{h} {kk}"] * int(k.sum())
+            labels += [group_label(lib, e, "scan")] * int(k.sum())
             scans.append(f"{e.source}:{e.scan}")
         if not L:
             notes.append(f"{film} {cond}: no used points")
@@ -1196,7 +1198,7 @@ def fitting_datasets(lib, entries=None):
         named = film_thickness_nm(film)
         label = film + (f" ({thick:g} nm)" if thick is not None and (named is None or abs(named - thick) > 1e-9) else "")
         floor = _header_number(header, "output", r"systematic floor ([\d.eE+-]+) %")
-        ds = Dataset(H, K, L, F, S, rod, name=f"{label} {cond}", sys_floor=(floor or 0.0) / 100,
+        ds = Dataset(H, K, L, F, S, rod, name=f"{label} {cond}", sys_floor=(floor or 0.0) / 100, scan=labels,
                      energy_kev=_header_number(header, "correct", r"energy=([\d.eE+-]+)"),
                      potential_V=group[0].potential if group[0].mode == "CA" else None,
                      thickness_nm=thick, film=film, condition=cond,

@@ -111,7 +111,7 @@ def test_run_and_stop(win):
 def test_global_fit_from_window(win, tmp_path):
     from ctrfit import make_dataset
     from test_fit import ODD, truth_model
-    win.datasets.clear()
+    win.clear_data()
     for i, x in enumerate((0.3, 0.7)):
         d = make_dataset(truth_model(x_OH=x), rods=ODD[:2], noise_rel=0.03, seed=300 + i, step=0.1, name=f"d{i}",
                          potential_V=0.5 + 0.5 * i)
@@ -135,7 +135,7 @@ def test_several_datasets_at_once_with_film_and_potential(win, tmp_path):
     from ctrfit import make_dataset
     from ctrfit.fit import workflow
     from test_fit import ODD, truth_model
-    win.datasets.clear()
+    win.clear_data()
     paths = []
     for i, (film, nm, u) in enumerate((("7 nm", 7.0, 0.7), ("7 nm", 7.0, 0.0), ("4.1 nm", 4.1, 0.7))):
         d = make_dataset(truth_model(), rods=ODD[:1], noise_rel=0.03, seed=400 + i, step=0.2, name=f"{film} {u:g} V",
@@ -210,3 +210,56 @@ def test_live_update_every_generation(win, monkeypatch):
     assert all(b[2] <= a[2] for a, b in zip(de, de[1:]))                 # best FOM never gets worse
     assert len({round(s[3]["z_OH"], 6) for s in de} | {round(start, 6)}) > 1   # the values move
     assert not win.table.live and "generation" not in win.p_rod.figure.axes[0].get_title()
+
+
+def test_scan_table_leave_out_and_groups(win, tmp_path):
+    """Each scan of the loaded files is listed; unticking leaves it out of every fit (drawn hollow), a
+    group typed for scans of two files fits them as one dataset, and the project keeps the choices."""
+    from PyQt5.QtCore import Qt
+    from test_scans import _file
+    win.clear_data()
+    paths = []
+    for i, (nm, u) in enumerate((("A", 0.5), ("A repeat", 0.5), ("B", 0.9))):
+        d = _file(nm, u, 700 + i, scans=(f"#{2 * i}", f"#{2 * i + 1}"))
+        d.save(tmp_path / f"s{i}.csv")
+        paths.append(str(tmp_path / f"s{i}.csv"))
+    win.add_datasets(paths)
+    t = win.scan_table
+    assert t.rowCount() == 6 and win.data_list.count() == 3 and "6 of 6 scans" in win.scan_info.text()
+    assert t.item(0, 1).text() == "#0" and t.item(0, 7).text() == "A" and "2 scans" in win.data_list.item(0).text()
+    n0 = len(win.datasets[0])
+    t.item(1, 0).setCheckState(Qt.Unchecked)                       # tick box: leave scan #1 out
+    QtWidgets.QApplication.processEvents()
+    assert len(win.datasets[0]) < n0 and "5 of 6" in win.scan_info.text()
+    assert t.item(1, 0).checkState() == Qt.Unchecked
+    assert win.rod_pick.itemText(1).endswith("(left out)")         # A's second rod: only the left-out scan
+    win.rod_pick.setCurrentIndex(1)
+    labels = [x.get_text() for x in win.p_rod.figure.axes[0].get_legend().get_texts()]
+    assert "left out" in labels
+    t.item(2, 8).setText("A")                                       # typed group: the repeat's first scan with A
+    QtWidgets.QApplication.processEvents()
+    assert [d.name for d in win.datasets] == ["A", "A repeat", "B"] and win.datasets[0].scan_labels == ["#0", "#2"]
+    t.selectRow(3)
+    win.group_selected("A")                                         # the repeat's other scan too: file gone
+    assert [d.name for d in win.datasets] == ["A", "B"] and win.data_list.count() == 2
+    win.rod_pick.setCurrentIndex(0)
+    labels = [x.get_text() for x in win.p_rod.figure.axes[0].get_legend().get_texts()]
+    assert {"#0", "#2"} <= set(labels)                              # one colour per scan
+    win.data_list.setCurrentRow(1)                                  # a dataset picks its scans in the table
+    assert win.selected_scans() == win.scan_keys("B")
+    win.data_list.setCurrentRow(0)
+    assert len(win.selected_scans()) == 4
+    win.save_project(str(tmp_path / "p.ctrproj.json"))
+    win.clear_data()
+    assert t.rowCount() == 0 and not win.datasets
+    win.open_project(str(tmp_path / "p.ctrproj.json"))
+    assert [d.name for d in win.datasets] == ["A", "B"] and t.rowCount() == 6
+    assert t.item(1, 0).checkState() == Qt.Unchecked and t.item(3, 8).text() == "A"
+    win.set_scan_group(win.scan_keys("A repeat"), "")                # back to the file's own group
+    assert [d.name for d in win.datasets] == ["A", "A repeat", "B"]
+    win.set_scan_use(win.scan_keys(), False)                         # nothing to fit
+    win.run_or_stop()
+    assert win.worker is None and "left out" in win.messages[-1][1]
+    win.set_scan_use(win.scan_keys(), True)
+    win.remove_data(["B"])
+    assert [r.source for r in win.project.scans.rows()].count("B") == 0 and len(win.datasets) == 2

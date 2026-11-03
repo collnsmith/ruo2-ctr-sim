@@ -106,6 +106,7 @@ def test_processing_recovers_the_structure_factor(tmp_path):
     out = pr.write_points(tmp_path / "p.csv", pts, opt)
     ds = read_csv(out)
     assert ds.sys_floor == pytest.approx(0.05) and ds.L.size == pts.L.size
+    assert ds.scan.tolist() == [f"#{s}" for s in pts.scan]                       # each point's scan, for the fit
     pr.write_genx(tmp_path / "p_genx.dat", pts)
     assert len((tmp_path / "p_genx.dat").read_text().splitlines()) == 1 + pts.L.size
 

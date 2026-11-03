@@ -555,6 +555,7 @@ def test_export_for_fitting_one_dataset_per_film_and_condition(tmp_path):
     assert d7.meta == dict(energy_kev=16.0, potential_V=0.7, thickness_nm=7.0, film="7 nm", condition="CA 0.7 V",
                            notes="scans S1:1, S1:2; potentials in V vs RHE")
     assert d7.rod_labels == ["0 1"] and len(d7) == int(ra[1].keep.sum() + ra[2].keep.sum())
+    assert d7.scan_labels == ["a #1", "a #2"] and len(d7.scans()["a #1"]) == int(ra[1].keep.sum())  # source label + scan
     assert d7.sys_floor == pytest.approx(0.05)                                        # Processing's floor
     assert "potential_V" not in by["7 nm OCV"].meta and by["7 nm OCV"].rod_labels == ["1 1"]
     assert by["4.1 nm (4.3 nm) CA 0.35 V"].meta["thickness_nm"] == 4.3
@@ -575,6 +576,7 @@ def test_export_for_fitting_one_dataset_per_film_and_condition(tmp_path):
     assert [(d.name, d.meta.get("potential_V"), d.meta["film"], d.meta["thickness_nm"]) for d in back] == \
         [("4.1 nm (4.3 nm) CA 0.35 V", 0.35, "4.1 nm", 4.3), ("4.1 nm CA 0.7 V", 0.7, "4.1 nm", 4.1),
          ("7 nm OCV", None, "7 nm", 7.0), ("7 nm CA 0.7 V", 0.7, "7 nm", 7.0)]
+    assert back[3].scan_labels == ["a #1", "a #2"]                                  # the scan column read back
     # the fit: three films (4.1, 4.3 and 7 nm), each thickness from its datasets
     m = Model.from_settings()
     fit = global_fit(m, back, per_dataset=["x_OH"], per_film=["thickness_mean_tl"])

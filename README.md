@@ -214,6 +214,16 @@ python -m ctrfit fit model.json data.csv --out fit_results
   roughness_tl, eps_perp, relax_001, coherent_tl, b_top_extra, interface_A, b_film_Ru, b_film_O` (the
   sample). Only the ticked ones get copies; everything else free is shared, e.g. the species heights
   and B factors (properties of a species, not of the potential), the substrate and the window.
+- Parameter presets (File, "Apply parameter preset…", JSON files in `presets/fit/`): start values,
+  bounds and fit flags, and the Per dataset / Per film lists, applied to the current model (its
+  settings stay). With the datasets loaded, each dataset's copy gets the value for its potential
+  (`by_potential` rules; a dataset without a potential, OCV, takes the plain value). Shipped:
+  `rao2017_RuO2_110_acid_low_potential.json`, from the in situ CTR of RuO2(110) in 0.1 M HClO4 by Rao
+  et al., Energy Environ. Sci. 10, 2626 (2017): one effective CUS species (x_OH = 0) whose height
+  z_H2O is fitted per dataset from 2.65 Å (2.4 Å near 0.7 V), theta 0.95, protonated bridging O
+  dz_Obr +0.35 Å (+0.2 near 0.7 V), CUS Ru -0.07 Å, z_OH 2.07 Å fixed, Kapton 7.6 µm fixed, t_liquid
+  fitted; the file's notes (also in the Log tab) say where each value comes from. Potentials in V vs
+  RHE. Write your own the same way.
 - Less starting guess. The global search only needs bounds that bracket the answer:
   - The dataset scales are solved exactly for every trial of differential evolution (on by default,
     `run_de(solve_scales=False)` / "Solve scales exactly" in the window to search them instead).

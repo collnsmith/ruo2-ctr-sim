@@ -518,3 +518,22 @@ def test_per_scan_offsets_and_copies_only_for_fitted_parameters(win, tmp_path):
     assert win.add_rod_offsets() == []                                                # already there
     assert sorted(win.add_rod_scales()) == ["ds1.rodscale_0_1", "ds1.rodscale_1_0", "ds2.rodscale_0_1",
                                             "ds2.rodscale_1_0"]
+
+
+def test_apply_parameter_preset(win, tmp_path):
+    from test_presets import PRESETS, _datasets
+    win.clear_data()
+    paths = []
+    for i, d in enumerate(_datasets()):
+        d.save(tmp_path / f"p{i}.csv")
+        paths.append(str(tmp_path / f"p{i}.csv"))
+    win.add_datasets(paths)
+    notes = win.apply_preset(str(PRESETS / "rao2017_RuO2_110_acid_low_potential.json"))
+    P = win.model.params
+    assert notes == [] and "z_H2O" in win.per_dataset.text() and "Applied preset" in win.status.text()
+    assert P["ds2.z_H2O"].value == 2.4 and P["ds1.dz_Obr"].value == 0.35
+    row = win.table.row_of("z_H2O")
+    assert win.table.data(win.table.index(row, win.table.COLS.index("Dataset"))).startswith("per dataset")
+    bad = tmp_path / "bad.json"
+    bad.write_text("{}")
+    assert win.apply_preset(str(bad)) is None and win.messages

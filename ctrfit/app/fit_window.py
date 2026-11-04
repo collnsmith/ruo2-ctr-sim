@@ -32,6 +32,7 @@ from ..fit import workflow
 from ..fit.fit import Fit, FitResult
 from ..fit import parallel
 from ..fit.global_fit import series, shadowed
+from ..fit.presets import apply_preset, read_preset
 from ..fit.sensitivity import curve_effect
 from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
@@ -42,6 +43,7 @@ from ..project.project import Project
 from ..project.report import per_dataset_names, write_report
 
 GROUPS = ("all", "film", "surface", "scale", "instrument", "free", "selected dataset")
+PRESET_DIR = Path(__file__).resolve().parents[2] / "presets" / "fit"     # parameter presets (JSON)
 # What changes with the potential (one copy per dataset) and what belongs to the sample (one value per film).
 # Only the parameters that are fitted get copies; the rest stay shared until they are ticked.
 PER_DATASET_DEFAULT = "theta, x_OH, x_O, x_SO4, ns_B_O, ns_du, dz_Obr, t_liquid"
@@ -702,6 +704,7 @@ class FitWindow(QtWidgets.QMainWindow):
         for text, fn, key in (("New model from defaults", self.new_model, None),
                               ("New model from settings or preset…", self.new_model_from_ini, None),
                               ("Open model…", self.open_model, None), ("Save model…", self.save_model, None),
+                              ("Apply parameter preset…", self.apply_preset, None),
                               ("Add data…", self.add_data, "Ctrl+D"), (None, None, None),
                               ("Open project…", self.open_project, "Ctrl+O"),
                               ("Save project…", self.save_project, "Ctrl+S"),
@@ -1140,6 +1143,42 @@ class FitWindow(QtWidgets.QMainWindow):
         self.result = None
         self._refresh_all()
         self.say("New model (template rutile110_film)")
+
+    def apply_preset(self, path=None):
+        """Start values, bounds, fit flags and the Per dataset / Per film lists from a preset (JSON), on the
+        current model and, with several datasets, on each dataset's copies (values by potential)."""
+        if self.worker is not None:
+            self.say("A fit is running.")
+            return None
+        if path is None:
+            folder = PRESET_DIR if PRESET_DIR.is_dir() else self.settings_dir
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Parameter preset", str(folder),
+                                                            "Parameter preset (*.json)")
+            if not path:
+                return None
+        try:
+            preset = read_preset(path)
+        except (OSError, ValueError, KeyError) as ex:
+            self.warn("Could not read the preset", f"{path}: {ex}")
+            return None
+        if preset.get("per_dataset"):
+            self.per_dataset.setText(preset["per_dataset"])
+        if preset.get("per_film"):
+            self.per_film.setText(preset["per_film"])
+        try:
+            notes = apply_preset(self.model, self.datasets, preset, self._per_dataset(), self._per_film())
+        except (ValueError, KeyError) as ex:
+            self.warn("Preset not applied", str(ex))
+            return None
+        self._refresh_all()
+        for n in notes:
+            self.log.appendPlainText(f"preset: {n}")
+        for n in preset.get("notes", ()):
+            self.log.appendPlainText(f"preset note: {n}")
+        self.say(f"Applied preset {preset.get('name', Path(path).stem)}"
+                 + ("" if len(self.datasets) > 1 else " (load the datasets first for values per potential)")
+                 + (f"; {len(notes)} note(s) in the log" if notes else ""))
+        return notes
 
     def new_model_from_ini(self, path=None):
         path = path or self._open_name("Settings or preset", "Settings (*.ini)")

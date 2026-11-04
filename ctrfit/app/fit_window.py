@@ -66,6 +66,9 @@ class ParamTable(QtCore.QAbstractTableModel):
         self.locked = False
         self.live = {}                 # best values during a running fit (shown instead of the parameters)
         self.order = list(params.names)
+        self.children = {}             # shared parameter -> its copies (rows under it), in dataset order
+        self.expanded = set()          # shared parameters whose copies are shown (collapsed by default)
+        self.short_children = True     # a copy listed under its parameter as "↳ ds1" (the full name otherwise)
 
     def set_context(self, labels, inactive):
         """The datasets (scope -> name) and the shared parameters every dataset overrides."""
@@ -78,12 +81,21 @@ class ParamTable(QtCore.QAbstractTableModel):
         for p in P:
             if p.scope:
                 copies.setdefault(p.base, []).append(p.name)
-        order = []
+        order, self.children = [], {}
         for p in P:
             if not p.scope:
                 order.append(p.name)
-                order += sorted(copies.pop(p.name, []), key=lambda n: (rank.get(n.rpartition(".")[0], 1e9), n))
+                kids = sorted(copies.pop(p.name, []), key=lambda n: (rank.get(n.rpartition(".")[0], 1e9), n))
+                if kids:
+                    self.children[p.name] = kids
+                order += kids
         self.order = order + [n for names in copies.values() for n in names]
+        self.expanded &= set(self.children)
+
+    def parent_of(self, name):
+        """The shared parameter a copy is listed under (None for a shared parameter or a lone copy)."""
+        base = name.rpartition(".")[2]
+        return base if "." in name and name in self.children.get(base, ()) else None
 
     def set_params(self, params):
         self.beginResetModel()
@@ -169,14 +181,17 @@ class ParamTable(QtCore.QAbstractTableModel):
                 tip += ("\nEvery dataset has its own copy (the rows below). Fit here fits all of them that are not "
                         "linked (one per film for per-film parameters); Min / Max here set all their bounds; "
                         "edit a value in its own row.")
+            if p.name in self.children:
+                tip += "\nClick ▸ / ▾ (or double-click the name, or press → / ←) to show or hide the copies."
             return tip
         if role == QtCore.Qt.FontRole and master:
             f = QtGui.QFont()
             f.setBold(True)
             return f
         if role == QtCore.Qt.BackgroundRole:            # from the palette: readable in a dark theme too
-            if p.name in self.flagged:
-                return tint(FLAG, 0.245)
+            if p.name in self.flagged or (p.name in self.children and p.name not in self.expanded
+                                          and self.flagged & set(self.children[p.name])):
+                return tint(FLAG, 0.245)                # a collapsed row shows a warning of its copies
             if p.linked:
                 return tint(LINK, 0.085)
             return None
@@ -192,7 +207,13 @@ class ParamTable(QtCore.QAbstractTableModel):
         if role not in (QtCore.Qt.DisplayRole, QtCore.Qt.EditRole):
             return None
         if col == "Name":
-            return f"    ↳ {p.name}" if p.scope and role == QtCore.Qt.DisplayRole else p.name
+            if role != QtCore.Qt.DisplayRole:
+                return p.name
+            if p.name in self.children:              # ▸ collapsed / ▾ expanded, with the number of copies
+                return f"{'▾' if p.name in self.expanded else '▸'} {p.name}  ({len(self.children[p.name])})"
+            if self.parent_of(p.name):
+                return f"      ↳ {p.scope}" if self.short_children else f"   {p.name}"
+            return f"   {p.name}"
         if col == "Dataset":
             return self._dataset_text(p)
         if col == "Value":
@@ -294,11 +315,15 @@ class GroupFilter(QtCore.QSortFilterProxyModel):
             self.invalidateFilter()
 
     def filterAcceptsRow(self, row, parent):
+        src = self.sourceModel()
+        if self.group == "selected dataset":     # one dataset's own copies, whether collapsed or not
+            return self.only is None or src.name_at(row) in self.only
+        up = src.parent_of(src.name_at(row))
+        if up is not None and up not in src.expanded:
+            return False
         if self.group == "all":
             return True
-        if self.group == "selected dataset":
-            return self.only is None or self.sourceModel().name_at(row) in self.only
-        tag = self.sourceModel().data(self.sourceModel().index(row, 0, parent), QtCore.Qt.UserRole) or ""
+        tag = src.data(src.index(row, 0, parent), QtCore.Qt.UserRole) or ""
         return ("free" in tag.split()) if self.group == "free" else tag.endswith(self.group)
 
 
@@ -438,6 +463,10 @@ class FitWindow(QtWidgets.QMainWindow):
         self.view.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.group = QtWidgets.QComboBox()
         self.group.addItems(GROUPS)
+        self.expand_all = QtWidgets.QToolButton(text="▾ all")
+        self.expand_all.setToolTip("Show the copies (one per dataset or film) under every parameter")
+        self.collapse_all = QtWidgets.QToolButton(text="▸ all")
+        self.collapse_all.setToolTip("Hide the copies: one row per parameter (its Fit box and Min / Max act on them)")
         self.n_free = ElidedLabel()            # one line: a long list of free parameters never widens the window
         self.param_buttons = [QtWidgets.QPushButton(t) for t in ("Fit shown", "Fix shown", "Fit selected",
                                                                  "Fix selected")]
@@ -480,6 +509,8 @@ class FitWindow(QtWidgets.QMainWindow):
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("<b>Parameters</b>"))
         row.addStretch(1)
+        row.addWidget(self.expand_all)
+        row.addWidget(self.collapse_all)
         row.addWidget(QtWidgets.QLabel("Show"))
         row.addWidget(self.group)
         ll.addLayout(row)
@@ -623,7 +654,11 @@ class FitWindow(QtWidgets.QMainWindow):
             b.clicked.connect(lambda _=False, f=fn: f())
         self.scan_table.installEventFilter(self)          # Space toggles the selected rows
         self.view.installEventFilter(self)
-        self.group.currentTextChanged.connect(self.proxy.set_group)
+        self.view.viewport().installEventFilter(self)     # a click on ▸ / ▾ opens or closes a parameter's copies
+        self.view.doubleClicked.connect(self._on_param_double_click)
+        self.expand_all.clicked.connect(lambda: self.set_expanded(list(self.table.children), True))
+        self.collapse_all.clicked.connect(lambda: self.set_expanded(list(self.table.children), False))
+        self.group.currentTextChanged.connect(self._on_show)
         self.table.edited.connect(self._on_edit)
         self.rod_pick.currentIndexChanged.connect(lambda *_: self.show_rod())
         self.sens_box.toggled.connect(lambda *_: self.show_rod())
@@ -727,6 +762,41 @@ class FitWindow(QtWidgets.QMainWindow):
         rows = {self.proxy.mapToSource(i).row() for i in self.view.selectionModel().selectedRows()}
         return [self.table.name_at(r) for r in sorted(rows) if 0 <= r < self.table.rowCount()]
 
+    def _on_show(self, group):
+        """The Show filter: one dataset's view lists its copies by their full names (no parameter row above)."""
+        self.table.short_children = group != "selected dataset"
+        self.proxy.set_group(group)
+        self.table.refresh_cells()
+        self._size_columns()
+
+    def set_expanded(self, names, on=True):
+        """Show (on) or hide the copies listed under these parameters."""
+        names = [n for n in names if n in self.table.children]
+        if not names:
+            return
+        cur = self._current_param()
+        if on:
+            self.table.expanded |= set(names)
+        else:
+            self.table.expanded -= set(names)
+        self.proxy.invalidateFilter()
+        self.table.refresh_cells()
+        self._size_columns()
+        if cur is not None and not on and self.table.parent_of(cur) in names:   # the selection moves up
+            self._select_param(self.table.parent_of(cur))
+
+    def _select_param(self, name):
+        idx = self.proxy.mapFromSource(self.table.index(self.table.row_of(name), 1))
+        if idx.isValid():
+            self.view.setCurrentIndex(idx)
+            self.view.selectRow(idx.row())
+
+    def _on_param_double_click(self, idx):
+        if self.table.COLS[idx.column()] == "Name":
+            name = self.table.name_at(self.proxy.mapToSource(idx).row())
+            if name in self.table.children:
+                self.set_expanded([name], name not in self.table.expanded)
+
     def _is_fit(self, name):
         """Fit flag as the table shows it (a master row: all its free copies)."""
         if name in self.table.inactive:
@@ -754,7 +824,25 @@ class FitWindow(QtWidgets.QMainWindow):
                     f"{', …' if len(skip) > 4 else ''})" if skip else "") + f": {len(P.free_names)} free")
 
     def eventFilter(self, obj, ev):
-        """Space in the scan or parameter table toggles Fit of all selected rows (ticked if any was not)."""
+        """Space in the scan or parameter table toggles Fit of all selected rows (ticked if any was not);
+        in the parameter table → / ← (or a click on ▸ / ▾) show or hide a parameter's copies."""
+        if obj is self.view.viewport() and ev.type() == QtCore.QEvent.MouseButtonPress:
+            idx = self.view.indexAt(ev.pos())
+            if idx.isValid() and self.table.COLS[idx.column()] == "Name":
+                name = self.table.name_at(self.proxy.mapToSource(idx).row())
+                if name in self.table.children and ev.pos().x() - self.view.visualRect(idx).x() < 22:
+                    self.set_expanded([name], name not in self.table.expanded)
+                    return True
+            return False
+        if obj is self.view and ev.type() == QtCore.QEvent.KeyPress and \
+                ev.key() in (QtCore.Qt.Key_Right, QtCore.Qt.Key_Left):
+            name = self._current_param()
+            if name in self.table.children:
+                self.set_expanded([name], ev.key() == QtCore.Qt.Key_Right)
+                return True
+            if ev.key() == QtCore.Qt.Key_Left and name is not None and self.table.parent_of(name):
+                self.set_expanded([self.table.parent_of(name)], False)
+                return True
         if ev.type() == QtCore.QEvent.KeyPress and ev.key() == QtCore.Qt.Key_Space and self.worker is None:
             if obj is self.scan_table and self.selected_scans():
                 keys = self.selected_scans()

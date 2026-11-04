@@ -144,7 +144,9 @@ keeps the files and the choices. Many rows at once: Fit all / Leave all out and 
 out selected for the scans; Fit shown / Fix shown (the rows the Show filter lists, e.g. Show
 surface, then Fit shown) and Fit selected / Fix selected for the parameters; Space toggles Fit of
 the selected rows in either table. The parameter table lists each shared parameter followed by its
-copies (`↳ ds1.thickness_mean_tl`, ...), and the Dataset column says which dataset a copy belongs to
+copies (`↳ ds1`, ... under `thickness_mean_tl`), collapsed by default: click ▸ / ▾ in the Name cell
+(or double-click the name, or press → / ←) to show or hide them, "▾ all" / "▸ all" for every
+parameter; a warning on a hidden copy colours its parameter's row. The Dataset column says which dataset a copy belongs to
 (and which copy a per-film one follows), "shared" for one value for all, or "per film: 2 films, 3
 datasets" / "per dataset: 3" for a parameter that every dataset replaces with its own copy. Such a
 parameter is a master row (bold, its Value shows the copies' range): its Fit box fits every copy that

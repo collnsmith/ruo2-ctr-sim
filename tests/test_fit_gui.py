@@ -420,7 +420,7 @@ def test_table_groups_copies_under_their_parameter_and_masters_fit_them(win, tmp
     assert text("ds1.thickness_mean_tl", "Dataset") == "A" and text("ds2.thickness_mean_tl", "Dataset") == "B  (follows ds1)"
     assert text("thickness_mean_tl", "Dataset") == "per film: 2 films, 3 datasets"
     assert text("x_OH", "Dataset") == "per dataset: 3" and text("z_OH", "Dataset") == "shared"
-    assert "↳" in text("ds3.x_OH", "Name") and "…" in text("thickness_mean_tl", "Value")    # the copies' range
+    assert text("ds3.x_OH", "Name").strip() == "↳ ds3" and "…" in text("thickness_mean_tl", "Value")  # copies' range
     master = t.index(r, col("Fit"))
     for n in ("ds1.thickness_mean_tl", "ds3.thickness_mean_tl"):
         P[n].fit = False
@@ -438,4 +438,56 @@ def test_table_groups_copies_under_their_parameter_and_masters_fit_them(win, tmp
     win.data_list.setCurrentRow(2)
     shown = win.shown_params()
     assert "ds3.thickness_mean_tl" in shown and "ds3.x_OH" in shown and "z_OH" in shown
+    assert text("ds3.x_OH", "Name").strip() == "ds3.x_OH"                          # full name without its row above
     assert "ds1.x_OH" not in shown and "x_OH" not in shown and "thickness_mean_tl" not in shown
+
+
+def test_copies_collapse_under_their_parameter(win, tmp_path):
+    from PyQt5 import QtCore, QtGui
+    from ctrfit.fit import workflow
+    from test_scans import _file
+    win.clear_data()
+    paths = []
+    for i, (nm, film) in enumerate((("A", "7 nm"), ("B", "4 nm"))):
+        d = _file(nm, 0.5, 950 + i, film=film, scans=(f"#{2 * i}", f"#{2 * i + 1}"))
+        d.meta["thickness_nm"] = float(film.split()[0])
+        d.save(tmp_path / f"c{i}.csv")
+        paths.append(str(tmp_path / f"c{i}.csv"))
+    win.add_datasets(paths)
+    workflow.prepare(win.model, win.datasets, ["x_OH"], ["thickness_mean_tl"])
+    win._refresh_all()
+    t = win.table
+    shown = win.shown_params()
+    assert "thickness_mean_tl" in shown and "ds1.thickness_mean_tl" not in shown       # collapsed by default
+    name_cell = lambda n: t.data(t.index(t.row_of(n), t.COLS.index("Name")))
+    assert name_cell("thickness_mean_tl").startswith("▸ thickness_mean_tl") and "(2)" in name_cell("thickness_mean_tl")
+    win.set_expanded(["thickness_mean_tl"])
+    assert {"ds1.thickness_mean_tl", "ds2.thickness_mean_tl"} <= set(win.shown_params())
+    assert name_cell("thickness_mean_tl").startswith("▾") and "ds1.x_OH" not in win.shown_params()
+    # a click on the arrow closes it again
+    idx = win.proxy.mapFromSource(t.index(t.row_of("thickness_mean_tl"), t.COLS.index("Name")))
+    rect = win.view.visualRect(idx)
+    vp = win.view.viewport()
+    QtWidgets.QApplication.sendEvent(vp, QtGui.QMouseEvent(QtCore.QEvent.MouseButtonPress,
+                                                           QtCore.QPointF(rect.x() + 6, rect.center().y()),
+                                                           QtCore.Qt.LeftButton, QtCore.Qt.LeftButton,
+                                                           QtCore.Qt.NoModifier))
+    assert "ds1.thickness_mean_tl" not in win.shown_params()
+    # → / ← on the selected parameter
+    win._select_param("x_OH")
+    key = lambda k: QtWidgets.QApplication.sendEvent(win.view, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, k,
+                                                                               QtCore.Qt.NoModifier))
+    key(QtCore.Qt.Key_Right)
+    assert "ds2.x_OH" in win.shown_params()
+    key(QtCore.Qt.Key_Left)
+    assert "ds2.x_OH" not in win.shown_params()
+    win.expand_all.click()
+    assert {"ds1.x_OH", "ds2.thickness_mean_tl", "ds1.scale"} <= set(win.shown_params())
+    win.collapse_all.click()
+    assert not [n for n in win.shown_params() if "." in n]
+    # a warning on a hidden copy shows on its row; one dataset's view lists its copies however collapsed
+    t.flagged = {"ds2.x_OH"}
+    assert t.data(t.index(t.row_of("x_OH"), 1), QtCore.Qt.BackgroundRole) is not None
+    win.group.setCurrentText("selected dataset")
+    win.data_list.setCurrentRow(1)
+    assert "ds2.x_OH" in win.shown_params() and "ds2.thickness_mean_tl" in win.shown_params()

@@ -4,8 +4,11 @@ Run:  python -m ctrfit gui   (or python ctr_fit_gui.py)
 
 All computation goes through ctrfit (Fit, workflow, plots); this file only holds the window.
 """
+import hashlib
+import json
 import sys
 import time
+from types import SimpleNamespace
 import traceback
 from pathlib import Path
 
@@ -38,7 +41,9 @@ from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
 from ..model.parameters import scoped_view
 from ..model.model import Model
+from ..fit.scans import ScanSelection
 from ..project import plots
+from ..project.history import History
 from ..project.project import Project
 from ..project.report import per_dataset_names, write_report
 
@@ -723,7 +728,13 @@ class FitWindow(QtWidgets.QMainWindow):
         for b in self.step_buttons:
             b.clicked.connect(lambda _=False, k=b.property("step"): self.select_step(k))
         self.resize(1500, 900)
+        self.undo_stack = History()
+        self._result_index = None             # which of project.results is shown
+        self._state = None
+        self.per_dataset.editingFinished.connect(lambda: self._record("Per dataset list"))
+        self.per_film.editingFinished.connect(lambda: self._record("Per film list"))
         self._refresh_all()
+        self._record("start")
 
     # ------------------------------------------------------------------ helpers
     @property
@@ -761,6 +772,16 @@ class FitWindow(QtWidgets.QMainWindow):
             if key:
                 a.setShortcut(QtGui.QKeySequence(key))
 
+        em = self.menuBar().addMenu("&Edit")
+        self.undo_action = em.addAction("Undo")
+        self.undo_action.setShortcut(QtGui.QKeySequence.Undo)
+        self.undo_action.triggered.connect(lambda: self.undo())
+        self.redo_action = em.addAction("Redo")
+        self.redo_action.setShortcuts([QtGui.QKeySequence("Ctrl+Y"), QtGui.QKeySequence("Ctrl+Shift+Z")])
+        self.redo_action.triggered.connect(lambda: self.redo())
+        for a in (self.undo_action, self.redo_action):
+            a.setShortcutContext(QtCore.Qt.WindowShortcut)
+            a.setEnabled(False)
         mm = self.menuBar().addMenu("&Model")
         for text, fn, tip in (
                 ("Add an L offset per scan (rod) in each dataset", self.add_rod_offsets,
@@ -787,6 +808,7 @@ class FitWindow(QtWidgets.QMainWindow):
             add(rods, scope=sc, fit=False)
             names += [n for n in self.model.params.names if n not in before]
         self._refresh_all()
+        self._record(what)
         self.say(f"Added {len(names)} {what} (fixed; tick the ones to fit)" if names else f"Every rod has its {what} already")
         return names
 
@@ -823,6 +845,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.warn("Parameter not changed", msg)
         else:
             self._clear_step()
+            self._record("table edit")
             self._table_context()
             self.table.refresh_cells()
             self._update_free()
@@ -912,6 +935,7 @@ class FitWindow(QtWidgets.QMainWindow):
             P[n].fit = fit
         if changed:
             self._clear_step()
+            self._record("fit ticks")
         self.table.refresh_cells()
         self._update_free()
         self.say(f"{'Fitting' if fit else 'Fixed'} {len(changed)} parameter(s)"
@@ -1042,6 +1066,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.log.appendPlainText(n)
         self._rod_cache = {}
         self._refresh_all()
+        self._record("scans")
         return notes
 
     def set_scan_use(self, keys, use=True):
@@ -1206,8 +1231,9 @@ class FitWindow(QtWidgets.QMainWindow):
 
     def new_model(self, settings=None):
         self.project.model = Model.from_settings(dict(DEFAULTS, **(settings or {})))
-        self.result = None
+        self.result, self._result_index = None, None
         self._refresh_all()
+        self._record("new model")
         self.say("New model (template rutile110_film)")
 
     def apply_preset(self, path=None):
@@ -1237,6 +1263,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.warn("Preset not applied", str(ex))
             return None
         self._refresh_all()
+        self._record("preset")
         for n in notes:
             self.log.appendPlainText(f"preset: {n}")
         for n in preset.get("notes", ()):
@@ -1262,8 +1289,9 @@ class FitWindow(QtWidgets.QMainWindow):
             except (OSError, ValueError, KeyError) as ex:
                 self.warn("Could not read the model", f"{path}: {ex}")
                 return
-            self.result = None
+            self.result, self._result_index = None, None
             self._refresh_all()
+            self._record("open model")
             self.say(f"Opened model {Path(path).name}")
 
     def save_model(self, path=None):
@@ -1283,9 +1311,14 @@ class FitWindow(QtWidgets.QMainWindow):
             return
         self.result = FitResult(**{k: v for k, v in self.project.results[-1].items() if k != "summary"}) \
             if self.project.results else None
+        self._result_index = len(self.project.results) - 1 if self.project.results else None
+        self.fit = None
         self._refresh_all()
         if self.result is not None:
             self._show_result()
+        self.undo_stack.clear()                 # a new project: a new start
+        self._state = None
+        self._record("open project")
         self.say(f"Opened project {Path(path).name}")
 
     def save_project(self, path=None):
@@ -1295,9 +1328,11 @@ class FitWindow(QtWidgets.QMainWindow):
             self.say(f"Saved project {Path(path).name}")
 
     def export_report(self, folder=None):
-        if self.result is None or self.fit is None:
+        if self.result is None:
             self.say("Run a fit first.")
             return
+        if self.fit is None:                    # e.g. after opening a project or an undo: the model as it is
+            self.fit = Fit(self.model, self.datasets)
         folder = folder or QtWidgets.QFileDialog.getExistingDirectory(self, "Report folder", str(self.settings_dir))
         if folder:
             files = write_report(self.fit, self.result, folder)
@@ -1419,12 +1454,86 @@ class FitWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------ running
     def _busy(self, on):
         self.table.locked = on
+        if hasattr(self, "undo_action"):          # no undo while a fit runs
+            self.undo_action.setEnabled(not on and bool(self.undo_stack.undo))
+            self.redo_action.setEnabled(not on and bool(self.undo_stack.redo))
         self.run_button.setText("Stop" if on else "Run fit")
         for b in self.step_buttons:
             b.setEnabled(not on)
         for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del, self.cores,
                   self.rods, self.thick_scan, *self.scan_buttons, *self.param_buttons):
             w.setEnabled(not on)
+
+    # ------------------------------------------------------------------ undo / redo
+    def _snapshot(self, label):
+        """The state Ctrl+Z goes back to: the model (values, bounds, fit flags, links, copies), the scan choices,
+        the datasets' scopes and floors, the Per dataset / Per film lists and which fit result is shown."""
+        p = self.project
+        st = dict(label=label, model=p.model.to_dict(), scans=p.scans.to_dict(),
+                  datasets=[(d.name, d.scope, d.sys_floor) for d in p.datasets],
+                  per_dataset=self.per_dataset.text(), per_film=self.per_film.text(), result=self._result_index)
+        body = json.dumps({k: v for k, v in st.items() if k != "label"}, sort_keys=True, default=float)
+        st["key"] = hashlib.sha1(body.encode()).hexdigest()
+        return st
+
+    def _record(self, label):
+        """After a change: the state before it can be restored with Ctrl+Z."""
+        new = self._snapshot(label)
+        if self._state is not None and new["key"] != self._state["key"]:
+            self.undo_stack.push(self._state)
+        if self._state is None or new["key"] != self._state["key"]:
+            self._state = new
+        self._sync_undo_actions()
+
+    def _sync_undo_actions(self):
+        cur = self._state["label"] if self._state else ""
+        self.undo_action.setEnabled(bool(self.undo_stack.undo) and self.worker is None)
+        self.undo_action.setText(f"Undo {cur}" if self.undo_stack.undo else "Undo")
+        self.redo_action.setEnabled(bool(self.undo_stack.redo) and self.worker is None)
+        self.redo_action.setText(f"Redo {self.undo_stack.redo_label}" if self.undo_stack.redo else "Redo")
+
+    def _restore(self, st):
+        sel = ScanSelection.from_dict(st["scans"])
+        prev = [SimpleNamespace(name=n, scope=sc, sys_floor=fl) for n, sc, fl in st["datasets"]]
+        datasets, _ = sel.build(previous=prev)
+        old = self.project
+        self.project = Project(Model.from_dict(st["model"]), datasets, old.results, old.name, old.notes, scans=sel)
+        self.per_dataset.setText(st["per_dataset"])
+        self.per_film.setText(st["per_film"])
+        i = st["result"]
+        self._result_index = i if i is not None and i < len(self.project.results) else None
+        r = self.project.results[self._result_index] if self._result_index is not None else None
+        self.result = FitResult(**{k: v for k, v in r.items() if k != "summary"}) if r else None
+        self.fit = None
+        self._clear_step()
+        self._rod_cache = {}
+        self._refresh_all()
+        if self.result is not None:
+            self._show_result()
+        else:
+            self.report.setPlainText("")
+
+    def undo(self):
+        """Back to the state before the last change (a fit, an edit, a step, a preset, scans)."""
+        if self.worker is not None or not self.undo_stack.undo:
+            return False
+        what = self._state["label"]
+        st = self.undo_stack.back(self._state)
+        self._restore(st)
+        self._state = st
+        self._sync_undo_actions()
+        self.say(f"Undid {what}")
+        return True
+
+    def redo(self):
+        if self.worker is not None or not self.undo_stack.redo:
+            return False
+        st = self.undo_stack.forward(self._state)
+        self._restore(st)
+        self._state = st
+        self._sync_undo_actions()
+        self.say(f"Redid {st['label']}")
+        return True
 
     def _clear_step(self):
         """Ticks changed by hand: no guided step is selected any more."""
@@ -1528,6 +1637,7 @@ class FitWindow(QtWidgets.QMainWindow):
             if b.property("step") == key:
                 b.setChecked(True)
         self._refresh_all()
+        self._record(st["title"])
         self.say(f"{st['title']}: {len(st['names'])} free on the {st['rods']} rods, {st['method']}"
                  + (" with a thickness scan" if st["scan"] else "") + ". Adjust the ticks if you like, then Run fit.")
         return st
@@ -1562,7 +1672,9 @@ class FitWindow(QtWidgets.QMainWindow):
         self._release_held()
         self.fit, self.result = out
         self.project.results.append(self.result.to_dict())
+        self._result_index = len(self.project.results) - 1
         self._refresh_all()
+        self._record("fit" if label in ("", "Fitting") else f"fit ({label})")
         self._show_result()
         stopped = any(s.get("message") == "stopped by user" for s in self.result.stages)
         self.say(f"{label} {'stopped' if stopped else 'done'}: reduced chi2 {self.result.fom['red_chi2']:.4g}"
@@ -1574,6 +1686,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.table.live = {}
         self._busy(False)
         self._release_held()
+        self._record("failed fit")
         self.warn("Fit failed", msg)
 
     def wait(self, timeout=300.0):

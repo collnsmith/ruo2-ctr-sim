@@ -609,3 +609,41 @@ def test_guided_steps_only_select(win, tmp_path):
     assert "ds2.scale" not in win.result.names and "ds1.scale" in win.result.names
     assert win.model.params["ds2.scale"].fit                              # restored
     assert win.result.dataset_meta[0]["name"] == "g0 even" and len(win.result.dataset_meta) == 1
+
+
+def test_undo_and_redo(win, tmp_path):
+    """Ctrl+Z goes back over a fit (parameters and the shown result), table edits and scan changes; Ctrl+Y
+    goes forward again; a new change after an undo drops the redo."""
+    from PyQt5 import QtCore, QtGui
+    P = lambda: win.model.params
+    assert win.undo_action.shortcut() == QtGui.QKeySequence(QtGui.QKeySequence.Undo)
+    assert "Ctrl+Y" in [s.toString() for s in win.redo_action.shortcuts()]
+    z0 = P()["z_OH"].value
+    assert win.table.setData(_cell(win, "z_OH", "Value"), "2.3")
+    assert win.undo_action.isEnabled() and win.undo_action.text() == "Undo table edit"
+    win.undo_action.trigger()
+    assert P()["z_OH"].value == z0 and win.redo_action.text() == "Redo table edit"
+    win.redo_action.trigger()
+    assert P()["z_OH"].value == 2.3
+    # a fit that is undone: the values before it and no result; redo brings the fit back
+    before = P().values()
+    win.method.setCurrentText("refine only")
+    win.run_or_stop()
+    assert not win.undo_action.isEnabled()                          # not during a run
+    assert win.wait(120)
+    after = P().values()
+    assert after != before and win.result is not None and win.undo_action.text() == "Undo fit"
+    assert win.undo()
+    assert P().values() == before and win.result is None and win.report.toPlainText() == ""
+    assert win.redo()
+    assert P().values() == after and win.result is not None and "reduced chi2" in win.report.toPlainText()
+    win.export_report(str(tmp_path / "rep"))                         # a redone result exports (fit rebuilt)
+    assert (tmp_path / "rep" / "result.json").exists()
+    # scans: leave one out, undo puts it back
+    n0 = len(win.datasets[0])
+    win.set_scan_use(win.scan_keys()[:1], False)
+    assert len(win.datasets[0]) < n0
+    assert win.undo() and len(win.datasets[0]) == n0 and win.scan_table.item(0, 0).checkState() == QtCore.Qt.Checked
+    # a new change after an undo: no redo
+    assert win.table.setData(_cell(win, "z_OH", "Value"), "2.2")
+    assert not win.redo_action.isEnabled()

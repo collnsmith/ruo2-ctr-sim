@@ -171,7 +171,14 @@ strain on the even rods (DE, thickness scan); 2. + roughness and spread; 3. surf
 species on the odd rods (theta, and x_OH + z_OH, or z_H2O alone at x_OH = 0, z_OH alone at x_OH =
 1); 4. + bridging O (dz_Obr); 5. the electrolyte film (t_liquid, all rods); 6. everything together.
 Rods "even" / "odd" fit only those rods; a dataset without them sits the run out, its own free
-parameters held fixed for the run. A tick changed by hand clears the selected step. Tabs: data vs model with residuals per rod, live figure of
+parameters held fixed for the run. A tick changed by hand clears the selected step.
+
+Edit, Undo / Redo (Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z): back over a fit that made things worse, or any
+other change (table edits, tick buttons, guided steps, presets, the Model menu, scan choices and
+groups, Per dataset / Per film lists, a new or opened model), up to 50 steps. A state is the model
+(every value, bound, fit flag, link and copy), the scan choices and which fit result is shown (its
+report, errors and correlations come back with it). Not while a fit runs; opening a project starts
+a new history. The menu names what an undo would take back. Tabs: data vs model with residuals per rod, live figure of
 merit, report with warnings, correlation matrix, per-dataset series for global fits. File menu:
 models, data, project files (`*.ctrproj.json`: model, data and results together) and a report folder.
 

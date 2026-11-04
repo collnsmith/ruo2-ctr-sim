@@ -154,7 +154,7 @@ dataset in the list shows it in the plot) and can be edited there, without openi
 per-film parameter of a dataset that follows its film's first one, that film copy); its Fit box fits
 every copy that is not linked (one per film), its Min / Max set all their bounds. Selecting it colours
 the plot by that same copy. Show "selected dataset" lists only what the dataset picked in the list
-uses (its copies and the shared parameters). "Colour by selected parameter" (above the
+uses (its copies and the shared parameters). "Colour by parameter" (above the
 rod plot, on by default; untick for the plain red curve): the model curve is coloured by how much
 |F| changes when the parameter selected in the table moves by ±1σ (its fit error; before a fit, a
 small step: 2 % of the value, at most 1 % of its range), red for no change to blue for the largest
@@ -165,8 +165,13 @@ own copy, leaves the curve red and says why in the status bar. Right: fit settin
 Run / Stop (Solve scales exactly, Refine starts and Fringe hops: see "Less starting guess" below; during a fit the model curve of the shown rod and the Value column follow the best
 parameters after every differential-evolution generation and as least squares improves; the rod
 plot keeps the data's axes meanwhile and the residuals stay within ±10 σ, so the view does not jump
-between trials, and progress messages never resize the window), and the guided workflow (1. film on the even rods with a thickness scan, 2. surface on
-the odd rods, 3. everything together). Tabs: data vs model with residuals per rod, live figure of
+between trials, and progress messages never resize the window), and the guided workflow. Its buttons only select (the Fit ticks, the Rods to fit, the Method and the
+Thickness scan), so you can adjust before pressing Run fit: 0. scales only; 1. film thickness and
+strain on the even rods (DE, thickness scan); 2. + roughness and spread; 3. surface coverage and
+species on the odd rods (theta, and x_OH + z_OH, or z_H2O alone at x_OH = 0, z_OH alone at x_OH =
+1); 4. + bridging O (dz_Obr); 5. the electrolyte film (t_liquid, all rods); 6. everything together.
+Rods "even" / "odd" fit only those rods; a dataset without them sits the run out, its own free
+parameters held fixed for the run. A tick changed by hand clears the selected step. Tabs: data vs model with residuals per rod, live figure of
 merit, report with warnings, correlation matrix, per-dataset series for global fits. File menu:
 models, data, project files (`*.ctrproj.json`: model, data and results together) and a report folder.
 

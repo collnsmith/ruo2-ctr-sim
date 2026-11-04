@@ -70,20 +70,24 @@ def test_table_edits_values_bounds_links(win):
 
 @pytest.mark.slow
 def test_guided_workflow_and_fit(win, tmp_path):
-    win.run_step("film")
+    win.select_step("film")
+    assert win.worker is None                                     # a step only selects
+    win.run_or_stop()
     assert win.worker is not None and win.table.locked
     assert win.wait(240)
     r = win.result
-    assert set(r.names) == {"thickness_mean_tl", "roughness_tl", "eps_perp", "scale"}
+    assert set(r.names) == {"thickness_mean_tl", "eps_perp", "scale"}
     assert abs(r.values["thickness_mean_tl"] - 19.4) < 3 * r.errors["thickness_mean_tl"]
     assert "reduced chi2" in win.report.toPlainText() and win.p_fom.figure.axes
     assert win.table.errors["eps_perp"] > 0 and not win.table.locked
+    win.run_step("film_shape")
+    assert win.wait(240) and "roughness_tl" in win.result.names
     win.run_step("surface")
-    assert win.wait(240) and "x_OH" in win.result.names
+    assert win.wait(240) and "theta" in win.result.names
     win.run_step("all")
-    assert win.wait(240) and len(win.result.names) == 7
+    assert win.wait(240) and len(win.result.names) >= 8
     assert win.p_corr.figure.axes
-    assert len(win.project.results) == 3
+    assert len(win.project.results) == 4
     path = tmp_path / "p.ctrproj.json"
     win.save_project(str(path))
     values = win.model.params.values()
@@ -568,3 +572,40 @@ def test_master_row_shows_and_edits_the_plotted_dataset(win, tmp_path):
     win._select_param("thickness_mean_tl")                               # colour: the film copy B follows
     QtWidgets.QApplication.processEvents()
     assert len(win.p_rod.figure.axes) == 3 and "ds1.thickness_mean_tl" in win.p_rod.figure.axes[2].get_ylabel()
+
+
+def test_guided_steps_only_select(win, tmp_path):
+    """A step button sets the ticks, the rods, the method and the thickness scan, and starts nothing; Run fit
+    then fits those rods (a dataset without them sits out, its own free parameters held and restored)."""
+    from PyQt5 import QtCore
+    from ctrfit import make_dataset
+    from test_fit import EVEN, ODD, truth_model
+    win.clear_data()
+    for i, rods in enumerate((ODD[:1] + EVEN[:1], ODD[:1])):            # the second has no even rod
+        d = make_dataset(truth_model(), rods=rods, noise_rel=0.03, seed=440 + i, step=0.2, name=f"g{i}",
+                         potential_V=0.5 + 0.4 * i)
+        d.save(tmp_path / f"g{i}.csv")
+        win.add_data(str(tmp_path / f"g{i}.csv"))
+    assert [b.text() for b in win.step_buttons][:2] == ["0. Scales only", "1. Film: thickness, strain"]
+    film = [b for b in win.step_buttons if b.property("step") == "film"][0]
+    film.click()
+    assert win.worker is None and film.isChecked()
+    assert win.rods.currentText() == "even" and win.method.currentText() == "DE + refine" and win.thick_scan.isChecked()
+    free = set(win.model.params.free_names)
+    assert {"ds1.scale", "ds2.scale"} <= free and "thickness_mean_tl" in free
+    surf = [b for b in win.step_buttons if b.property("step") == "surface"][0]
+    surf.click()
+    assert win.rods.currentText() == "odd" and not win.thick_scan.isChecked() and surf.isChecked() and not film.isChecked()
+    assert {"ds1.theta", "ds2.theta", "z_OH"} <= set(win.model.params.free_names)
+    t = win.table                                                          # a hand-made tick clears the step
+    assert t.setData(t.index(t.row_of("B_OH"), 0), QtCore.Qt.Checked, QtCore.Qt.CheckStateRole)
+    assert win.step_group.checkedButton() is None
+    # Run fit on the even rods: g1 has none, its scale is held fixed for the run and free again after
+    win.select_step("film")
+    win.method.setCurrentText("refine only")
+    win.run_or_stop()
+    assert not win.model.params["ds2.scale"].fit                          # held during the run
+    assert win.wait(120)
+    assert "ds2.scale" not in win.result.names and "ds1.scale" in win.result.names
+    assert win.model.params["ds2.scale"].fit                              # restored
+    assert win.result.dataset_meta[0]["name"] == "g0 even" and len(win.result.dataset_meta) == 1

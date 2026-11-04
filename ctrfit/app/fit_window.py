@@ -584,10 +584,30 @@ class FitWindow(QtWidgets.QMainWindow):
                                  "film B factors. Only the ticked ones get copies. One film: the same as shared.")
         self.run_button = QtWidgets.QPushButton("Run fit")
         self.run_button.setMinimumHeight(32)
-        self.step_buttons = [QtWidgets.QPushButton(t) for t in
-                             ("1. Film on the even rods", "2. Surface on the odd rods", "3. Everything together")]
+        self.rods = QtWidgets.QComboBox()
+        self.rods.addItems(["all", "even", "odd"])
+        self.rods.setToolTip("The rods a run fits: all, the even ones (H + K even: mostly the film) or the odd ones "
+                             "(H + K odd: mostly O, the surface). Datasets without such rods sit the run out, their "
+                             "own free parameters held fixed for it.")
+        self.thick_scan = QtWidgets.QCheckBox("Thickness scan after DE")
+        self.thick_scan.setToolTip("After the global search, a chi2 profile of each free film thickness (±3 TL in "
+                                   "0.5 TL steps around its value, the others refined at each point) keeps the best "
+                                   "fringe minimum")
+        self.step_buttons = []
+        self.step_group = QtWidgets.QButtonGroup(self)
+        self.step_group.setExclusive(True)
+        for g in workflow.GUIDED:
+            b = QtWidgets.QPushButton(g["title"])
+            b.setCheckable(True)
+            b.setToolTip(g["help"] + f"\nSelects: rods {g['rods']}, {g['method']}"
+                         + (", thickness scan" if g["scan"] else "") + ". Run fit starts it.")
+            b.setProperty("step", g["key"])
+            self.step_group.addButton(b)
+            self.step_buttons.append(b)
         form = QtWidgets.QFormLayout()
         form.addRow("Method", self.method)
+        form.addRow("Rods", self.rods)
+        form.addRow(self.thick_scan)
         form.addRow("Figure of merit", self.fom)
         form.addRow("DE generations", self.maxiter)
         form.addRow("DE population", self.popsize)
@@ -605,21 +625,29 @@ class FitWindow(QtWidgets.QMainWindow):
         rl.addWidget(self.run_button)
         rl.addSpacing(10)
         rl.addWidget(QtWidgets.QLabel("<b>Guided workflow</b>"))
-        guide = QtWidgets.QLabel("Film first (thickness, roughness, strain, with a thickness scan), then the "
-                                 "CUS surface on the rods it changes most, then refine everything.")
+        guide = QtWidgets.QLabel("Each step selects what is fitted (the Fit ticks), the rods and the method; "
+                                 "adjust if you like, then press Run fit. Film first, then the surface on the "
+                                 "rods it changes most, then everything.")
         guide.setWordWrap(True)
         rl.addWidget(guide)
         for b in self.step_buttons:
             rl.addWidget(b)
         rl.addStretch(1)
-        right.setMaximumWidth(300)
+        right_panel = right
+        right = QtWidgets.QScrollArea()            # a long panel scrolls instead of making the window taller
+        right.setWidget(right_panel)
+        right.setWidgetResizable(True)
+        right.setFrameShape(QtWidgets.QFrame.NoFrame)
+        right.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        right.setMaximumWidth(310)
+        right.setMinimumWidth(260)
 
         # ---------------- centre: plots and report
         self.rod_pick = QtWidgets.QComboBox()
         self.rod_pick.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.rod_pick.setMinimumContentsLength(24)
+        self.rod_pick.setMinimumContentsLength(12)          # it widens with the window; a small minimum
         self.p_rod = PlotPanel("Add data to see the rods.")
-        self.sens_box = QtWidgets.QCheckBox("Colour by selected parameter")
+        self.sens_box = QtWidgets.QCheckBox("Colour by parameter")
         self.sens_box.setChecked(True)
         self.sens_box.setToolTip("Colour the model curve by how much |F| changes when the parameter selected in the "
                                  "table moves by ±1σ (its fit error; before a fit, a small step): red = no change, "
@@ -692,8 +720,8 @@ class FitWindow(QtWidgets.QMainWindow):
             lambda *_: self.show_rod() if self.sens_box.isChecked() else None)
         self.series_pick.currentIndexChanged.connect(lambda *_: self.show_series())
         self.run_button.clicked.connect(self.run_or_stop)
-        for i, b in enumerate(self.step_buttons):
-            b.clicked.connect(lambda _=False, s=("film", "surface", "all")[i]: self.run_step(s))
+        for b in self.step_buttons:
+            b.clicked.connect(lambda _=False, k=b.property("step"): self.select_step(k))
         self.resize(1500, 900)
         self._refresh_all()
 
@@ -794,6 +822,7 @@ class FitWindow(QtWidgets.QMainWindow):
         if msg:
             self.warn("Parameter not changed", msg)
         else:
+            self._clear_step()
             self._table_context()
             self.table.refresh_cells()
             self._update_free()
@@ -881,6 +910,8 @@ class FitWindow(QtWidgets.QMainWindow):
         changed = [n for n in names if n not in skip and P[n].fit != fit]
         for n in changed:
             P[n].fit = fit
+        if changed:
+            self._clear_step()
         self.table.refresh_cells()
         self._update_free()
         self.say(f"{'Fitting' if fit else 'Fixed'} {len(changed)} parameter(s)"
@@ -1392,8 +1423,15 @@ class FitWindow(QtWidgets.QMainWindow):
         for b in self.step_buttons:
             b.setEnabled(not on)
         for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del, self.cores,
-                  *self.scan_buttons, *self.param_buttons):
+                  self.rods, self.thick_scan, *self.scan_buttons, *self.param_buttons):
             w.setEnabled(not on)
+
+    def _clear_step(self):
+        """Ticks changed by hand: no guided step is selected any more."""
+        if self.step_group.checkedButton() is not None:
+            self.step_group.setExclusive(False)
+            self.step_group.checkedButton().setChecked(False)
+            self.step_group.setExclusive(True)
 
     def _per_dataset(self):
         return [n.strip() for n in self.per_dataset.text().replace(";", ",").split(",") if n.strip()]
@@ -1443,41 +1481,67 @@ class FitWindow(QtWidgets.QMainWindow):
 
         workflow.prepare(self.model, self.datasets, per,      # on this thread: the table shows the new rows
                          self._active(self._per_film()) if len(self.datasets) > 1 else [])
+        try:
+            data = workflow.rod_subsets(self.datasets, self.rods.currentText())
+        except ValueError as ex:
+            self.warn("Nothing to fit on these rods", str(ex))
+            return
+        held = workflow.unused_free(self.model, data)          # copies of datasets that sit this run out
+        for n in held:
+            self.model.params[n].fit = False
+        self._held = held
         self._refresh_all()
-
-        cores = self.cores.value()
+        if not self.model.params.free_names:
+            self._release_held()
+            self.warn("Nothing to fit", "None of the ticked parameters acts on the rods chosen.")
+            return
+        cores, scan = self.cores.value(), self.thick_scan.isChecked() and method != "refine only"
 
         def job(worker):
-            fit = Fit(self.model, self.datasets, fom=fom, cores=cores)
+            fit = Fit(self.model, data, fom=fom, cores=cores)
             worker.hook(fit)
             if method != "refine only":
                 fit.run("de", **de)
+            if scan and not fit.cancelled:             # each free film thickness: the best fringe minimum
+                for n in [n for n in fit.names if n.rpartition(".")[2] == "thickness_mean_tl"]:
+                    if fit.cancelled:
+                        break
+                    fit.profile(n, workflow.thickness_window(self.model, n))
             if method != "DE only" and not fit.cancelled:
                 fit.refine(**ref)
             return fit, fit.report()
-        self._start(job, "Fitting")
+        step = self.step_group.checkedButton()
+        self._start(job, step.text() if step is not None else "Fitting")
 
-    def run_step(self, step):
-        if self.worker is not None or not self._check_ready():
-            return
-        de = self._de_settings()
-        ref = dict(self._refine_settings(), cores=self.cores.value())
-        if len(self.datasets) > 1:
-            also = {"film": workflow.FILM_PARAMS, "surface": workflow.SURFACE_PARAMS,
-                    "all": workflow.FILM_PARAMS + workflow.SURFACE_PARAMS}[step]
-            workflow.prepare(self.model, self.datasets,
-                             self._active(self._per_dataset(), also) if step != "film" else (),
-                             self._active(self._per_film(), also))
-            self._refresh_all()
+    def select_step(self, key):
+        """A guided step: select what is fitted, on which rods and how (Run fit starts it)."""
+        if self.worker is not None:
+            return None
+        if not self.datasets:
+            self.warn("No data", "Add a dataset first.")
+            return None
+        st = workflow.select_step(self.model, self.datasets, key, self._per_dataset(), self._per_film())
+        self.rods.setCurrentText(st["rods"])
+        self.method.setCurrentText(st["method"])
+        self.thick_scan.setChecked(st["scan"])
+        for b in self.step_buttons:
+            if b.property("step") == key:
+                b.setChecked(True)
+        self._refresh_all()
+        self.say(f"{st['title']}: {len(st['names'])} free on the {st['rods']} rods, {st['method']}"
+                 + (" with a thickness scan" if st["scan"] else "") + ". Adjust the ticks if you like, then Run fit.")
+        return st
 
-        def job(worker):
-            if step == "film":
-                return workflow.step_film(self.model, self.datasets, de=de, fit_hook=worker.hook, **ref)
-            if step == "surface":
-                return workflow.step_surface(self.model, self.datasets, de=de, fit_hook=worker.hook, **ref)
-            return workflow.step_all(self.model, self.datasets, fit_hook=worker.hook, hops=ref["hops"],
-                                     cores=ref["cores"])
-        self._start(job, {"film": "Step 1: film", "surface": "Step 2: surface", "all": "Step 3: everything"}[step])
+    def run_step(self, key):
+        """Select a guided step and run it at once (scripts; the buttons only select)."""
+        if self.select_step(key) is not None:
+            self.run_or_stop()
+
+    def _release_held(self):
+        for n in getattr(self, "_held", ()):
+            if n in self.model.params:
+                self.model.params[n].fit = True
+        self._held = []
 
     def _start(self, job, label):
         self.history = []
@@ -1495,6 +1559,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.worker = None
         self.table.live = {}
         self._busy(False)
+        self._release_held()
         self.fit, self.result = out
         self.project.results.append(self.result.to_dict())
         self._refresh_all()
@@ -1508,6 +1573,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.worker = None
         self.table.live = {}
         self._busy(False)
+        self._release_held()
         self.warn("Fit failed", msg)
 
     def wait(self, timeout=300.0):

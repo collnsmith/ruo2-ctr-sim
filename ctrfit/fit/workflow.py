@@ -136,3 +136,111 @@ def _prepare_scales(model, datasets):
             elif g.fit and not model.params[n].linked:
                 model.params[n].fit = True
         g.fit = False
+
+
+# ---------------------------------------------------------------------- steps that only select
+# The fitting window's guided buttons: each selects what is fitted (fit flags), on which rods and how,
+# and leaves the run to the Run fit button (so the selection can be adjusted first).
+GUIDED = [
+    dict(key="scales", title="0. Scales only", rods="all", method="refine only", scan=False,
+         help="Only the dataset scales, on all rods: the right intensity level before anything else."),
+    dict(key="film", title="1. Film: thickness, strain", rods="even", method="DE + refine", scan=True,
+         help="Film thickness, out-of-plane strain and the scales on the even rods (H + K even: mostly the film), "
+              "with a global search and a thickness scan around its result."),
+    dict(key="film_shape", title="2. Film: + roughness, spread", rods="even", method="refine only", scan=False,
+         help="Step 1 plus the roughness and the thickness spread, refined on the even rods."),
+    dict(key="surface", title="3. Surface: coverage, species", rods="odd", method="DE + refine", scan=False,
+         help="CUS coverage and species on the odd rods (H + K odd: mostly O): theta, the scales, and the species "
+              "the composition holds (x_OH and z_OH when both OH and H2O are there; z_H2O alone at x_OH = 0, "
+              "z_OH alone at x_OH = 1)."),
+    dict(key="surface_more", title="4. Surface: + bridging O", rods="odd", method="refine only", scan=False,
+         help="Step 3 plus the bridging O height (dz_Obr: its protonation), refined on the odd rods."),
+    dict(key="cell", title="5. Cell: electrolyte film", rods="all", method="refine only", scan=False,
+         help="The electrolyte film thickness t_liquid and the scales on all rods (set t_window to your window "
+              "first; it lowers low L most)."),
+    dict(key="all", title="6. Everything together", rods="all", method="refine only", scan=False,
+         help="Everything of steps 2 and 4 (and t_liquid if it is in use), refined on all rods."),
+]
+GUIDED_BY_KEY = {g["key"]: g for g in GUIDED}
+
+
+def _values(P, base, datasets):
+    """The values of a parameter as the datasets see it (their copies, else the shared one)."""
+    out = [P[f"{ds.scope}.{base}"].value for ds in datasets if ds.scope and f"{ds.scope}.{base}" in P]
+    return out or ([P[base].value] if base in P else [])
+
+
+def _species(P, datasets):
+    x = _values(P, "x_OH", datasets)
+    if x and all(v <= 0 for v in x):
+        return ["z_H2O"]
+    if x and all(v >= 1 for v in x):
+        return ["z_OH"]
+    return ["x_OH", "z_OH"]
+
+
+def step_names(model, key, datasets=()):
+    """The parameters (base names) a guided step fits."""
+    P = model.params
+    film = ["thickness_mean_tl", "eps_perp", "scale"]
+    shape = film + ["roughness_tl", "thickness_spread_tl"]
+    surface = ["theta", "scale"] + _species(P, datasets)
+    more = surface + ["dz_Obr"]
+    in_use = any(v > 0 for v in _values(P, "t_liquid", datasets))
+    names = {"scales": ["scale"], "film": film, "film_shape": shape, "surface": surface, "surface_more": more,
+             "cell": ["t_liquid", "scale"], "all": shape + more + (["t_liquid"] if in_use else [])}[key]
+    return [n for n in dict.fromkeys(names) if n in P]
+
+
+def active_names(model, datasets, names, also=()):
+    """Of these names, those a run gives copies: fitted, about to be fitted (also), or with copies already."""
+    P = model.params
+    scopes = {ds.scope for ds in datasets if ds.scope}
+    return [n for n in names if n in P and (P[n].fit or n in also or any(f"{s}.{n}" in P for s in scopes))]
+
+
+def select_step(model, datasets, key, per_dataset=(), per_film=()):
+    """Set the fit flags of a guided step (making the per-dataset / per-film copies it needs first); returns
+    the step with 'names', the parameters now free."""
+    step = dict(GUIDED_BY_KEY[key])
+    datasets = list(datasets)
+    names = step_names(model, key, datasets)
+    if len(datasets) > 1:
+        prepare(model, datasets, active_names(model, datasets, per_dataset, names),
+                active_names(model, datasets, [n for n in per_film if n not in set(per_dataset)], names))
+    model.params.fit_only(_free(model, names, datasets))
+    step["names"] = model.params.free_names
+    return step
+
+
+def rod_subsets(datasets, rods):
+    """The datasets for a run on 'all', 'even' (H + K even) or 'odd' rods (datasets without such rods left
+    out; each subset keeps its dataset's scope)."""
+    datasets = list(datasets)
+    if rods == "all":
+        return datasets
+    return _subsets(datasets, {"even": 0, "odd": 1}[rods])
+
+
+def unused_free(model, datasets):
+    """Free parameters that cannot act on these datasets: the copies of datasets not among them (unless a
+    parameter they use follows them by a link). A run holds them fixed."""
+    P = model.params
+    scopes = {ds.scope for ds in datasets}
+    used = {p.name for p in P if p.scope in scopes or not p.scope}
+    todo = [p for p in P if p.name in used and p.linked]
+    seen = set()
+    while todo:                                   # what the used ones follow, and what that follows
+        q = todo.pop()
+        if q.name in seen:
+            continue
+        seen.add(q.name)
+        for ref in q._expr.names:
+            try:
+                r = P.resolve(ref, q.scope)
+            except Exception:
+                continue
+            used.add(r)
+            if P[r].linked:
+                todo.append(P[r])
+    return [n for n in P.free_names if n not in used]

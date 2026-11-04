@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
-from ctrfit.fit.sensitivity import affects, curve_effect, effect_step
+from ctrfit.fit.sensitivity import affects, curve_effect, effect_step, target
 from ctrfit.model.parameters import Parameter
 from ctrfit.project import plots
 
@@ -45,7 +45,8 @@ def test_links_follow_and_parameters_that_do_not_act_are_reported():
     assert not np.allclose(alone, both)                         # the linked H2O height moves too
     assert "linked" in affects(P, "z_H2O")
     P.add(Parameter("ds2.x_OH", 0.4, 0, 1, group="surface"))
-    assert "another dataset" in affects(P, "ds2.x_OH", "ds1")
+    s, _, why = curve_effect(P, "ds2.x_OH", ev, scope="ds1", step=0.05)
+    assert s is None and "belongs to ds2" in why
     assert "own copy" in affects(P, "x_OH", "ds2") and affects(P, "x_OH", "ds1") is None
     assert curve_effect(P, "x_OH", ev, scope="ds2")[0] is None
 
@@ -72,3 +73,19 @@ def test_plot_colours_the_model_curve():
     fig = Figure()
     plots.draw_fit_rod(fig, L, F, 0.1 * F, F, "t", Ld, 10 + 5 * np.sin(Ld))
     assert len(fig.axes) == 2                                   # no colours: as before
+
+
+def test_target_of_a_shared_row_and_of_a_per_film_copy():
+    m = truth_model()
+    P = m.params
+    for sc in ("ds1", "ds2", "ds3"):
+        P.add(Parameter(f"{sc}.thickness_mean_tl", 20.0, 5, 40, group="film"))
+    P.link("ds2.thickness_mean_tl", "ds1.thickness_mean_tl")          # same film as ds1
+    assert target(P, "thickness_mean_tl", "ds3") == "ds3.thickness_mean_tl"
+    assert target(P, "thickness_mean_tl", "ds2") == "ds1.thickness_mean_tl"    # follows ds1
+    assert target(P, "ds2.thickness_mean_tl", "ds2") == "ds1.thickness_mean_tl"
+    assert target(P, "z_OH", "ds2") == "z_OH"
+    # moving the film's copy changes the dataset that follows it
+    _, ev = _ev(m)
+    s, _, _ = curve_effect(P, "ds1.thickness_mean_tl", ev, scope="ds2", step=0.3)
+    assert s is not None and s.max() > 1e-4

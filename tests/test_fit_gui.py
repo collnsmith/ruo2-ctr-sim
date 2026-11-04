@@ -418,9 +418,10 @@ def test_table_groups_copies_under_their_parameter_and_masters_fit_them(win, tmp
     col = lambda c: t.COLS.index(c)
     text = lambda name, c: t.data(t.index(t.row_of(name), col(c)))
     assert text("ds1.thickness_mean_tl", "Dataset") == "A" and text("ds2.thickness_mean_tl", "Dataset") == "B  (follows ds1)"
-    assert text("thickness_mean_tl", "Dataset") == "per film: 2 films, 3 datasets"
-    assert text("x_OH", "Dataset") == "per dataset: 3" and text("z_OH", "Dataset") == "shared"
-    assert text("ds3.x_OH", "Name").strip() == "↳ ds3" and "…" in text("thickness_mean_tl", "Value")  # copies' range
+    assert text("thickness_mean_tl", "Dataset") == "per film: 2 films, 3 datasets · A"     # whose value is shown
+    assert text("x_OH", "Dataset") == "per dataset: 3 · A" and text("z_OH", "Dataset") == "shared"
+    assert text("ds3.x_OH", "Name").strip() == "↳ ds3"
+    assert text("thickness_mean_tl", "Value") == text("ds1.thickness_mean_tl", "Value")   # the plotted dataset's
     master = t.index(r, col("Fit"))
     for n in ("ds1.thickness_mean_tl", "ds3.thickness_mean_tl"):
         P[n].fit = False
@@ -430,7 +431,7 @@ def test_table_groups_copies_under_their_parameter_and_masters_fit_them(win, tmp
     assert "ds2.thickness_mean_tl" not in P.free_names                            # linked: follows ds1
     P["ds3.thickness_mean_tl"].fit = False
     assert t.data(master, QtCore.Qt.CheckStateRole) == QtCore.Qt.PartiallyChecked
-    assert not (t.flags(t.index(r, col("Value"))) & QtCore.Qt.ItemIsEditable)
+    assert t.flags(t.index(r, col("Value"))) & QtCore.Qt.ItemIsEditable      # edits the plotted dataset's copy
     assert t.setData(t.index(r, col("Max")), "30")
     assert all(P[n].max == 30 for n in ("thickness_mean_tl", "ds1.thickness_mean_tl", "ds3.thickness_mean_tl"))
     # one dataset's parameters
@@ -537,3 +538,33 @@ def test_apply_parameter_preset(win, tmp_path):
     bad = tmp_path / "bad.json"
     bad.write_text("{}")
     assert win.apply_preset(str(bad)) is None and win.messages
+
+
+def test_master_row_shows_and_edits_the_plotted_dataset(win, tmp_path):
+    """A collapsed parameter shows the value of the dataset in the plot and edits it (for a per-film copy that
+    follows another, the film's copy), and colours the plot by it; picking a dataset switches the plot."""
+    from ctrfit.fit import workflow
+    from test_scans import _file
+    win.clear_data()
+    paths = []
+    for i, (nm, film, u) in enumerate((("A", "7 nm", 0.5), ("B", "7 nm", 0.9), ("C", "4 nm", 0.5))):
+        d = _file(nm, u, 970 + i, film=film, scans=(f"#{2 * i}", f"#{2 * i + 1}"))
+        d.meta["thickness_nm"] = float(film.split()[0])
+        d.save(tmp_path / f"m{i}.csv")
+        paths.append(str(tmp_path / f"m{i}.csv"))
+    win.add_datasets(paths)
+    workflow.prepare(win.model, win.datasets, ["x_OH"], ["thickness_mean_tl"])
+    win._refresh_all()
+    t, P = win.table, win.model.params
+    val = lambda n: t.index(t.row_of(n), t.COLS.index("Value"))
+    win.data_list.setCurrentRow(2)                                       # dataset C: the plot shows it
+    assert win.rod_pick.currentData()[0] == 2 and t.current_scope == "ds3"
+    assert t.data(val("thickness_mean_tl")) == f"{P['ds3.thickness_mean_tl'].value:.6g}"
+    assert t.setData(val("thickness_mean_tl"), "13.5") and P["ds3.thickness_mean_tl"].value == 13.5
+    assert t.setData(val("x_OH"), "0.3") and P["ds3.x_OH"].value == 0.3 and P["ds1.x_OH"].value != 0.3
+    win.data_list.setCurrentRow(1)                                       # B follows A for the film thickness
+    assert t.setData(val("thickness_mean_tl"), "22.5") and P["ds1.thickness_mean_tl"].value == 22.5
+    assert P.values()["ds2.thickness_mean_tl"] == 22.5
+    win._select_param("thickness_mean_tl")                               # colour: the film copy B follows
+    QtWidgets.QApplication.processEvents()
+    assert len(win.p_rod.figure.axes) == 3 and "ds1.thickness_mean_tl" in win.p_rod.figure.axes[2].get_ylabel()

@@ -8,6 +8,7 @@ A link that follows the parameter moves with it (e.g. z_H2O = z_OH + 0.4). The p
 restored afterwards; call it when no fit is running.
 """
 import math
+import re
 
 import numpy as np
 
@@ -24,13 +25,30 @@ def effect_step(p, error=None):
     return (float(min(cands)) if cands else 0.01), "step"
 
 
+def target(params, name, scope=""):
+    """The parameter that sets `name` for a dataset of this scope: a shared parameter the dataset
+    replaces with its own copy -> that copy; a copy that follows another by a plain link (one value per
+    film) -> the one it follows. Anything else: name itself."""
+    if name in params and not params[name].scope and scope and f"{scope}.{name}" in params:
+        name = f"{scope}.{name}"
+    seen = set()
+    while name in params and params[name].linked and name not in seen:
+        seen.add(name)
+        ref = params[name].expr.strip()
+        if not re.fullmatch(r"[A-Za-z_][\w.]*", ref):
+            break
+        try:
+            name = params.resolve(ref, params[name].scope)
+        except Exception:
+            break
+    return name
+
+
 def affects(params, name, scope=""):
-    """None if `name` changes what a dataset of this scope sees, else the reason it does not."""
+    """None if `name` can be moved to see what it does to a dataset of this scope, else the reason."""
     p = params[name]
     if p.linked:
         return f"{name} is linked ({p.expr}): select the parameter it follows"
-    if p.scope and p.scope != scope:
-        return f"{name} belongs to another dataset ({p.scope})"
     if not p.scope and scope and f"{scope}.{p.base}" in params:
         return f"this dataset uses its own copy {scope}.{p.base}"
     return None
@@ -62,5 +80,8 @@ def curve_effect(params, name, evaluate, scope="", step=None, error=None):
         params.values()                        # links back to the restored value
     tiny = 1e-300
     s = np.abs(np.log(np.maximum(Fp, tiny)) - np.log(np.maximum(Fm, tiny))) / 2 * (2 * step / (hi - lo))
+    if not np.nanmax(s, initial=0.0) > 1e-12:            # e.g. another dataset's copy that nothing here follows
+        whose = f" (it belongs to {p.scope})" if p.scope and p.scope != scope else ""
+        return None, step, f"{name} does not change this dataset{whose}"
     unit = f" {p.unit}" if p.unit else ""
     return s, step, f"{name} ± {step:.3g}{unit} ({kind})"

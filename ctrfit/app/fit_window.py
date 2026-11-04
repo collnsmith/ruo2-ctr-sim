@@ -33,7 +33,7 @@ from ..fit.fit import Fit, FitResult
 from ..fit import parallel
 from ..fit.global_fit import series, shadowed
 from ..fit.presets import apply_preset, read_preset
-from ..fit.sensitivity import curve_effect
+from ..fit.sensitivity import curve_effect, target
 from ..fit.scans import SEP, regroup
 from ..model.expr import ExprError
 from ..model.parameters import scoped_view
@@ -60,7 +60,7 @@ class ParamTable(QtCore.QAbstractTableModel):
     dataset each row belongs to. A shared parameter that every dataset replaces with its own copy is a
     master row: its Fit box fits all the copies that are not linked (one per film for per-film
     parameters), its Min / Max set their bounds; values are edited in the copies' own rows."""
-    COLS = ["Fit", "Name", "Dataset", "Value", "Error", "Min", "Max", "Unit", "Link", "Description"]
+    COLS = ["Fit", "Name", "Value", "Error", "Dataset", "Min", "Max", "Unit", "Link", "Description"]
     EDITABLE = {"Value", "Min", "Max", "Link"}
     edited = Signal(str)          # error message, or "" after a good edit
 
@@ -76,6 +76,7 @@ class ParamTable(QtCore.QAbstractTableModel):
         self.children = {}             # shared parameter -> its copies (rows under it), in dataset order
         self.expanded = set()          # shared parameters whose copies are shown (collapsed by default)
         self.short_children = True     # a copy listed under its parameter as "↳ ds1" (the full name otherwise)
+        self.current_scope = ""        # the dataset shown in the plot: a master row shows and edits its value
 
     def set_context(self, labels, inactive):
         """The datasets (scope -> name) and the shared parameters every dataset overrides."""
@@ -155,6 +156,13 @@ class ParamTable(QtCore.QAbstractTableModel):
         n = sum(c.fit for c in cs)
         return QtCore.Qt.Checked if cs and n == len(cs) else QtCore.Qt.PartiallyChecked if n else QtCore.Qt.Unchecked
 
+    def master_target(self, name):
+        """The copy a master row shows and edits: the plotted dataset's own (or the film copy it follows)."""
+        if name not in self.inactive or not self.current_scope:
+            return None
+        t = target(self.params, name, self.current_scope)
+        return t if t != name and t in self.params else None
+
     def _scope_label(self, scope):
         return self.labels[scope] if scope in self.labels else "(no dataset)"
 
@@ -168,8 +176,9 @@ class ParamTable(QtCore.QAbstractTableModel):
         if p.name in self.inactive:
             cs = self.copies(p.name)
             lead = [c for c in cs if not c.linked]
-            return f"per film: {len(lead)} films, {len(cs)} datasets" if len(lead) < len(cs) else \
+            kind = f"per film: {len(lead)} films, {len(cs)} datasets" if len(lead) < len(cs) else \
                 f"per dataset: {len(cs)}"
+            return kind + (f" · {self.labels[self.current_scope]}" if self.current_scope in self.labels else "")
         return "shared" if len(self.labels) > 1 else ""
 
     # ------------------------------------------------------------------ cells
@@ -185,9 +194,10 @@ class ParamTable(QtCore.QAbstractTableModel):
         if role == QtCore.Qt.ToolTipRole:
             tip = f"{p.name} ({p.group}): {p.description}" + (f"\nlinked: {p.expr}" if p.linked else "")
             if master:
-                tip += ("\nEvery dataset has its own copy (the rows below). Fit here fits all of them that are not "
-                        "linked (one per film for per-film parameters); Min / Max here set all their bounds; "
-                        "edit a value in its own row.")
+                t = self.master_target(p.name)
+                tip += ("\nEvery dataset has its own copy (the rows below). Value here: the copy of the dataset "
+                        f"shown in the plot ({t or 'none'}); Fit here fits all copies that are not linked (one per "
+                        "film for per-film parameters); Min / Max here set all their bounds.")
             if p.name in self.children:
                 tip += "\nClick ▸ / ▾ (or double-click the name, or press → / ←) to show or hide the copies."
             return tip
@@ -203,7 +213,7 @@ class ParamTable(QtCore.QAbstractTableModel):
                 return tint(LINK, 0.085)
             return None
         if role == QtCore.Qt.ForegroundRole:
-            if master and col == "Value":
+            if master and col == "Value" and self.master_target(p.name) is None:
                 return muted_text()
             if p.name in self.flagged or p.linked:
                 return text_color()
@@ -224,14 +234,19 @@ class ParamTable(QtCore.QAbstractTableModel):
         if col == "Dataset":
             return self._dataset_text(p)
         if col == "Value":
-            if master:                           # the copies' values, edited in their rows
+            if master:                           # the plotted dataset's copy, else the range of the copies
+                t = self.master_target(p.name)
+                if t is not None:
+                    q = self.params[t]
+                    v = self.live.get(t, q.value) if self.locked else q.value
+                    return f"{v:.6g}" if role == QtCore.Qt.DisplayRole else repr(v)
                 vals = [self.live.get(c.name, c.value) if self.locked else c.value for c in self.copies(p.name)]
                 lo, hi = (min(vals), max(vals)) if vals else (p.value, p.value)
                 return f"{lo:.6g}" if np.isclose(lo, hi) else f"{lo:.4g} … {hi:.4g}"
             v = self.live.get(p.name, p.value) if self.locked else p.value
             return f"{v:.6g}" if role == QtCore.Qt.DisplayRole else repr(v)
         if col == "Error":
-            e = self.errors.get(p.name)
+            e = self.errors.get(self.master_target(p.name) or p.name if master else p.name)
             return "" if e is None else f"{e:.3g}"
         if col in ("Min", "Max"):
             v = p.min if col == "Min" else p.max
@@ -252,8 +267,8 @@ class ParamTable(QtCore.QAbstractTableModel):
         p = self.param(index.row())
         if col == "Fit":
             return f | QtCore.Qt.ItemIsUserCheckable
-        if p.name in self.inactive and col in ("Value", "Link"):
-            return f                             # values in the copies' rows; a master is not linked
+        if p.name in self.inactive and (col == "Link" or (col == "Value" and self.master_target(p.name) is None)):
+            return f                             # a master is not linked; its value is the plotted dataset's copy
         if col in self.EDITABLE and not (col == "Value" and p.linked):
             return f | QtCore.Qt.ItemIsEditable
         return f
@@ -272,10 +287,11 @@ class ParamTable(QtCore.QAbstractTableModel):
                 else:
                     p.fit = on
             elif col == "Value":
+                q = self.params[self.master_target(p.name)] if master and self.master_target(p.name) else p
                 v = float(value)
-                if not p.min <= v <= p.max:
-                    raise ValueError(f"{p.name}: {v:g} is outside [{p.min:g}, {p.max:g}]")
-                p.value = v
+                if not q.min <= v <= q.max:
+                    raise ValueError(f"{q.name}: {v:g} is outside [{q.min:g}, {q.max:g}]")
+                q.value = v
             elif col in ("Min", "Max"):
                 v = float(value) if str(value).strip() else (-np.inf if col == "Min" else np.inf)
                 for q in [p] + (self.copies(p.name) if master else []):
@@ -670,7 +686,7 @@ class FitWindow(QtWidgets.QMainWindow):
         self.collapse_all.clicked.connect(lambda: self.set_expanded(list(self.table.children), False))
         self.group.currentTextChanged.connect(self._on_show)
         self.table.edited.connect(self._on_edit)
-        self.rod_pick.currentIndexChanged.connect(lambda *_: self.show_rod())
+        self.rod_pick.currentIndexChanged.connect(lambda *_: self._on_rod_picked())
         self.sens_box.toggled.connect(lambda *_: self.show_rod())
         self.view.selectionModel().currentRowChanged.connect(
             lambda *_: self.show_rod() if self.sens_box.isChecked() else None)
@@ -935,6 +951,7 @@ class FitWindow(QtWidgets.QMainWindow):
             for lab in ds.rod_labels + extra:          # a rod whose scans are all left out: still shown
                 self.rod_pick.addItem(f"{ds.name}: ({lab} L)" + (" (left out)" if lab in extra else ""), (i, lab))
         self.rod_pick.blockSignals(False)
+        self._sync_current_dataset()
         self.show_rod()
 
     # ------------------------------------------------------------------ scans
@@ -1049,14 +1066,32 @@ class FitWindow(QtWidgets.QMainWindow):
                 self.rod_pick.setCurrentIndex(j)
                 return
 
+    def _sync_current_dataset(self):
+        """The table's master rows show the values of the dataset in the plot."""
+        data = self.rod_pick.currentData()
+        sc = self.datasets[data[0]].scope if data is not None and data[0] < len(self.datasets) else ""
+        if sc != self.table.current_scope:
+            self.table.current_scope = sc
+            self.table.refresh_cells()
+
+    def _on_rod_picked(self):
+        self._sync_current_dataset()
+        self.show_rod()
+
     def _on_dataset_picked(self):
-        """A dataset picked in the list: its floor, its parameters (Show: selected dataset), and the scans of
-        its group selected in the scan table."""
+        """A dataset picked in the list: the plot shows it (a rod of it), its floor, its parameters (Show:
+        selected dataset), and the scans of its group selected in the scan table."""
         self._sync_floor()
         i = self.data_list.currentRow()
         self.proxy.set_only(self._dataset_params(i))
         if not 0 <= i < len(self.datasets):
             return
+        cur = self.rod_pick.currentData()
+        if cur is None or cur[0] != i:
+            for j in range(self.rod_pick.count()):
+                if self.rod_pick.itemData(j)[0] == i:
+                    self.rod_pick.setCurrentIndex(j)
+                    break
         name = self.datasets[i].name
         t = self.scan_table
         sm = t.selectionModel()
@@ -1286,8 +1321,8 @@ class FitWindow(QtWidgets.QMainWindow):
             return
         sens, sens_label, sens_max = None, "", None
         name = self._current_param() if values is None and self.sens_box.isChecked() else None
-        if name in self.table.inactive and f"{scope}.{name}" in self.model.params:
-            name = f"{scope}.{name}"             # a master row: this dataset's own copy
+        if name is not None:                   # a master row or a per-film copy: what sets it for this dataset
+            name = target(self.model.params, name, scope)
         if name is not None:                   # not during a fit: it moves the parameter for a moment
             err = self.result.errors.get(name) if self.result is not None else None
             try:

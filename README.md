@@ -149,9 +149,11 @@ copies (`↳ ds1`, ... under `thickness_mean_tl`), collapsed by default: click �
 parameter; a warning on a hidden copy colours its parameter's row. The Dataset column says which dataset a copy belongs to
 (and which copy a per-film one follows), "shared" for one value for all, or "per film: 2 films, 3
 datasets" / "per dataset: 3" for a parameter that every dataset replaces with its own copy. Such a
-parameter is a master row (bold, its Value shows the copies' range): its Fit box fits every copy that
-is not linked (one per film for per-film parameters), its Min / Max set all their bounds; values are
-edited in the copies' rows. Show "selected dataset" lists only what the dataset picked in the list
+parameter is a master row (bold): its Value is the value of the dataset shown in the plot (picking a
+dataset in the list shows it in the plot) and can be edited there, without opening the row (for a
+per-film parameter of a dataset that follows its film's first one, that film copy); its Fit box fits
+every copy that is not linked (one per film), its Min / Max set all their bounds. Selecting it colours
+the plot by that same copy. Show "selected dataset" lists only what the dataset picked in the list
 uses (its copies and the shared parameters). "Colour by selected parameter" (above the
 rod plot, on by default; untick for the plain red curve): the model curve is coloured by how much
 |F| changes when the parameter selected in the table moves by ±1σ (its fit error; before a fit, a

@@ -12,7 +12,7 @@ from .electrolyte import electrolyte_F
 from .lattice import c11_prime, film_spacing, trilayers
 from .settings import DEFAULTS, parse_comp, parse_extra_layers, parse_floats, parse_points, parse_rods
 from .sf import CROMER_MANN, F_ANOM_TABLE, HC, f_atom, resolve_anomalous, sf_atoms  # noqa: F401
-from .structures import (ADSORBATE_H, add_atom, add_trilayer, finish_atoms, new_atoms,  # noqa: F401
+from .structures import (ADSORBATE_H, ADSORBATE_HEAVY, add_atom, add_trilayer, finish_atoms, new_atoms,  # noqa: F401
                          oh_h2o)
 
 
@@ -73,6 +73,8 @@ class CTRModel:
             "H2O": dict(z_O=p["h2o_z"], B_O=p["h2o_B"], dz_Mcus=p["h2o_dz"], H=ADSORBATE_H["H2O"]),
             "OH": dict(z_O=p["oh_z"], B_O=p["oh_B"], dz_Mcus=p["oh_dz"], H=ADSORBATE_H["OH"]),
             "O": dict(z_O=p["o_z"], B_O=p["o_B"], dz_Mcus=p["o_dz"], H=ADSORBATE_H["O"]),
+            "SO4": dict(z_O=p["so4_z"], B_O=p["so4_B"], dz_Mcus=p["so4_dz"], H=ADSORBATE_H["SO4"],
+                        heavy=ADSORBATE_HEAVY["SO4"]),
         }
         self.include_H, self.b_H_extra = p["include_H"], p["b_H_extra"]
         self.relax_top = dict(M_6f=p["relax_M6f"], O_br=p["relax_Obr"], O_ip=p["relax_Oip"],
@@ -205,6 +207,9 @@ class CTRModel:
             zO = zM + ad["z_O"]
             self._add(at, "Ru", 0.0, f2c, zM, e * frac, BS["M"], f"{tag}:M_cus[{sp}]")
             self._add(at, "O", 0.0, f2c, zO, e * frac, ad["B_O"], f"{tag}:{sp}_O")
+            for el, dx, dy, dz, occ in ad.get("heavy", ()):          # the rest of a larger species (SO4)
+                self._add(at, el, dx / self.A1, (f2c + dy / self.A2) % 1.0, zO + dz, e * frac * occ, ad["B_O"],
+                          f"{tag}:{sp}_{el}")
             if self.include_H:
                 for dx, dy, dz in ad["H"]:
                     self._add(at, "H", dx / self.A1, (f2c + dy / self.A2) % 1.0, zO + dz, e * frac,

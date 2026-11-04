@@ -6,7 +6,8 @@ The engine converts them to internal units.
 import configparser
 import re
 
-ADSORBATE_SPECIES = ("H2O", "OH", "O")
+ADSORBATE_SPECIES = ("H2O", "OH", "O")          # the CUS species of the CV / composition-path tools
+SURFACE_SPECIES = ADSORBATE_SPECIES + ("SO4",)   # every species a composition may name (SO4: adsorbed (bi)sulfate)
 
 # Each group: (title, expanded_by_default, [param specs])
 # spec keys: key, label, type (float|int|bool|choice|text), default, and optionally
@@ -15,6 +16,10 @@ GROUPS = [
     ("Beam and reciprocal space", True, [
         dict(key="energy_kev", label="Photon energy", type="float", default=16.0, min=5.0, max=40.0,
              step=0.5, decimals=2, unit="keV"),
+        dict(key="alpha_in_deg", label="Incidence angle", type="float", default=0.5, min=0.01, max=10.0,
+             step=0.05, decimals=3, unit="°",
+             tip="Fixed incidence angle of the rod scans; used for the absorption in the electrolyte and window "
+                 "(fit parameters t_liquid, t_window) through the exit angle of each point"),
         dict(key="two_theta_max", label="Max 2θ", type="float", default=60.0, min=5.0, max=170.0,
              step=1.0, decimals=1, unit="°", tip="Largest scattering angle reachable through the cell"),
         dict(key="L_min", label="L min", type="float", default=0.3, min=0.0, max=20.0, step=0.1, decimals=3),
@@ -117,6 +122,14 @@ GROUPS = [
         dict(key="o_B", label="O: B factor", type="float", default=1.0, min=0.0, max=30.0, step=0.1,
              decimals=2, unit="Å²"),
         dict(key="o_dz", label="O: Ru_cus shift", type="float", default=0.0, min=-1.0, max=1.0,
+             step=0.01, decimals=3, unit="Å"),
+        dict(key="so4_z", label="SO4: Ru-O height", type="float", default=2.10, min=1.0, max=4.0, step=0.01,
+             decimals=3, unit="Å",
+             tip="(Bi)sulfate bound through one O to the CUS Ru (monodentate, upright, its upper three O "
+                 "averaged around the S-O axis); SO4 in a composition, x_SO4 in the fitting model"),
+        dict(key="so4_B", label="SO4: B factor", type="float", default=4.0, min=0.0, max=40.0, step=0.1,
+             decimals=2, unit="Å²"),
+        dict(key="so4_dz", label="SO4: Ru_cus shift", type="float", default=0.0, min=-1.0, max=1.0,
              step=0.01, decimals=3, unit="Å"),
         dict(key="include_H", label="Include H atoms", type="bool", default=True),
         dict(key="b_H_extra", label="H B factor offset", type="float", default=1.0, min=0.0, max=30.0,
@@ -239,7 +252,7 @@ DEFAULTS = {k: s["default"] for k, s in SPECS.items()}
 
 # Parameter study: every numeric physics setting can be varied (not the L grid or the scan settings)
 _NOT_STUDIED = {"two_theta_max", "L_min", "L_max", "L_step", "scan_h_max", "scan_k_max", "bragg_excl", "rel_min",
-                "i_bg", "top_n", "coherent_tol_pct", "alpha_abs", "cvp_lower", "cvp_upper", "cvp_rate", "cvp_hold",
+                "i_bg", "top_n", "coherent_tol_pct", "alpha_abs", "alpha_in_deg", "cvp_lower", "cvp_upper", "cvp_rate", "cvp_hold",
                 "cvp_shift", "cvp_ns_dB"}
 STUDY_KEYS = [k for k, s in SPECS.items() if s["type"] == "float" and k not in _NOT_STUDIED]
 STUDY_DEFAULT = "roughness_nm, 0.05, 0.4, 5; oh_dz, -0.2, 0.2, 5"
@@ -317,9 +330,9 @@ def parse_comp(text, what="composition"):
         if "=" not in item:
             raise ValueError(f"{what}: '{item}' should look like OH=0.5")
         name, val = (s.strip() for s in item.split("=", 1))
-        match = [s for s in ADSORBATE_SPECIES if s.lower() == name.lower()]
+        match = [s for s in SURFACE_SPECIES if s.lower() == name.lower()]
         if not match:
-            raise ValueError(f"{what}: unknown species '{name}' (use {', '.join(ADSORBATE_SPECIES)})")
+            raise ValueError(f"{what}: unknown species '{name}' (use {', '.join(SURFACE_SPECIES)})")
         try:
             frac = float(val)
         except ValueError:

@@ -491,3 +491,30 @@ def test_copies_collapse_under_their_parameter(win, tmp_path):
     win.group.setCurrentText("selected dataset")
     win.data_list.setCurrentRow(1)
     assert "ds2.x_OH" in win.shown_params() and "ds2.thickness_mean_tl" in win.shown_params()
+
+
+def test_per_scan_offsets_and_copies_only_for_fitted_parameters(win, tmp_path):
+    from ctrfit.fit import workflow
+    from test_scans import _file
+    win.clear_data()
+    paths = []
+    for i, (nm, film) in enumerate((("A", "7 nm"), ("B", "4 nm"))):
+        d = _file(nm, 0.5 + 0.4 * i, 990 + i, film=film, scans=(f"#{2 * i}", f"#{2 * i + 1}"))
+        d.meta["thickness_nm"] = float(film.split()[0])
+        d.save(tmp_path / f"o{i}.csv")
+        paths.append(str(tmp_path / f"o{i}.csv"))
+    win.add_datasets(paths)
+    P = win.model.params
+    assert "t_liquid" in win._per_dataset() and "relax_001" in win._per_film()        # the new defaults
+    P.fit_only(["theta", "x_OH", "thickness_mean_tl", "scale", "t_liquid"])
+    per, film = win._active(win._per_dataset()), win._active(win._per_film())
+    assert per == ["theta", "x_OH", "t_liquid"] and film == ["thickness_mean_tl"]   # fixed ones stay shared
+    workflow.prepare(win.model, win.datasets, per, film)
+    assert "ds2.t_liquid" in P and "ds2.x_O" not in P and "ds2.relax_001" not in P
+    assert win._active(["x_OH"]) == ["x_OH"]                                          # copies: still per dataset
+    names = win.add_rod_offsets()
+    assert sorted(names) == ["ds1.dL_0_1", "ds1.dL_1_0", "ds2.dL_0_1", "ds2.dL_1_0"]
+    assert all(not P[n].fit and P[n].value == 0 for n in names)
+    assert win.add_rod_offsets() == []                                                # already there
+    assert sorted(win.add_rod_scales()) == ["ds1.rodscale_0_1", "ds1.rodscale_1_0", "ds2.rodscale_0_1",
+                                            "ds2.rodscale_1_0"]

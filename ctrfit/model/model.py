@@ -5,22 +5,39 @@
     I = model.intensity(0, 1, L)                     # |F|^2 without scale, reference engine
     F = model.F(0, 1, L)                             # scale * |F|, as compared with data
 
-Data are structure-factor amplitudes: F_data = scale * rodscale(H K) * |F_model|.
+Data are structure-factor amplitudes:
+
+    F_data = scale * rodscale(H K) * T(t_liquid, t_window; exit angle) * |F_model(H, K, L + dL(H K))|
+
+with T the absorption in the electrolyte film and the window (1 at t = 0, ctrfit.core.absorption) and
+dL an optional L offset per rod (a scan's L calibration, e.g. a shifted Bragg peak; add_rod_offsets).
 """
 import json
 
 import numpy as np
 
+from ..core.absorption import path_factor, transmission_F
 from ..core.film import FilmCTRModel
 from ..core.settings import DEFAULTS
 from .parameters import Parameter, ParameterSet
 from .templates import get_template
 
 ROD_SCALE_BOUNDS = (0.5, 2.0)
+ROD_OFFSET_BOUND = 0.05            # r.l.u.
 
 
 def rod_scale_name(H, K, scope=""):
     return (scope + "." if scope else "") + f"rodscale_{H}_{K}"
+
+
+def rod_offset_name(H, K, scope=""):
+    return (scope + "." if scope else "") + f"dL_{H}_{K}"
+
+
+def lattice(settings):
+    """(a1, a2, a3) of the surface cell in Å: c_TiO2, sqrt(2) a_TiO2, sqrt(2) a_TiO2."""
+    a = float(settings["tio2_a"]) * np.sqrt(2)
+    return float(settings["tio2_c"]), a, a
 
 
 class Model:
@@ -59,6 +76,28 @@ class Model:
     def rod_scale(self, values, H, K):
         return values.get(f"rodscale_{H}_{K}", 1.0)
 
+    def add_rod_offsets(self, rods, scope="", fit=False):
+        """One L offset per rod (H, K) (r.l.u., 0 and fixed unless fit): with one dataset per potential and
+        one scan per rod in it, one per scan, e.g. for a scan whose Bragg peak sits off its nominal L."""
+        for H, K in rods:
+            n = rod_offset_name(H, K, scope)
+            if n not in self.params:
+                self.params.add(name=n, value=0.0, min=-ROD_OFFSET_BOUND, max=ROD_OFFSET_BOUND, fit=fit,
+                                unit="r.l.u.", group="instrument",
+                                description=f"L offset of the ({H} {K}) rod: the model is taken at L + dL")
+
+    def rod_offset(self, values, H, K):
+        return values.get(f"dL_{H}_{K}", 0.0)
+
+    def absorption(self, values, H, K, L):
+        """|F| factor of the absorption in the electrolyte film and the window (1 when both are 0)."""
+        t_l, t_w = values.get("t_liquid", 0.0), values.get("t_window", 0.0)
+        if not t_l and not t_w:
+            return 1.0
+        e = self.settings["energy_kev"]
+        return transmission_F(path_factor(H, K, L, e, lattice(self.settings), self.settings["alpha_in_deg"]),
+                              e, t_l, t_w)
+
     # ------------------------------------------------------------------ evaluation (reference path)
     def engine(self, values=None, scope=""):
         """(FilmCTRModel, composition) for the current or given parameter values."""
@@ -73,7 +112,9 @@ class Model:
 
     def F(self, H, K, L, values=None, scope=""):
         v = self.params.view(scope) if values is None else values
-        return v["scale"] * self.rod_scale(v, H, K) * np.sqrt(self.intensity(H, K, L, v))
+        L = np.atleast_1d(np.asarray(L, float))
+        return (v["scale"] * self.rod_scale(v, H, K) * self.absorption(v, H, K, L)
+                * np.sqrt(self.intensity(H, K, L + self.rod_offset(v, H, K), v)))
 
     def evaluator(self, H, K, L, free=None, scope=""):
         """Fast vectorized |F| for many points (see ctrfit.model.evaluator)."""

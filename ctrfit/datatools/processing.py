@@ -46,6 +46,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from ..data.dataset import Dataset
+from ..core.absorption import surface_angles  # noqa: F401  (one formula for the exit angle)
 from ..data.io import intensities_to_F, write_csv
 from ..echem.external import parse_roi_sums
 from .specfile import parse_spec_file
@@ -212,26 +213,6 @@ def _col(scan, name):
 
 
 # ------------------------------------------------------------------ geometry and corrections
-def surface_angles(H, K, L, energy_kev, lattice, alpha_deg):
-    """(alpha, beta, cos psi) from H K L at a fixed incidence angle: sin(beta) = Q_perp / k - sin(alpha);
-    psi is the in-plane angle between the incident and exit directions."""
-    a1, a2, a3 = lattice
-    k = 2 * math.pi / (12.398419843320026 / energy_kev)
-    q_par = 2 * math.pi * np.sqrt((np.asarray(H, float) / a1) ** 2 + (np.asarray(K, float) / a2) ** 2)
-    q_perp = 2 * math.pi * np.asarray(L, float) / a3
-    alpha = np.radians(np.broadcast_to(np.asarray(alpha_deg, float), np.shape(q_perp))).copy()
-    spec = q_par < 1e-9                     # specular rod: only alpha = beta reaches it
-    alpha[spec] = np.arcsin(np.clip(q_perp[spec] / (2 * k), -1, 1))
-    sin_b = q_perp / k - np.sin(alpha)
-    beta = np.arcsin(np.clip(sin_b, -1, 1))
-    beta = np.where(np.abs(sin_b) <= 1, beta, np.nan)
-    ca, cb = np.cos(alpha), np.cos(beta)
-    cos_psi = (ca ** 2 + cb ** 2 - (q_par / k) ** 2) / (2 * ca * cb)
-    cos_psi = np.where(np.abs(cos_psi) <= 1 + 1e-9, np.clip(cos_psi, -1, 1), np.nan)
-    cos_psi[spec] = 1.0
-    return np.degrees(alpha), np.degrees(beta), cos_psi
-
-
 def corrections(alpha_deg, beta_deg, cos_psi, opt):
     """(P, C_rod, C_area) for each point (1 where a correction is switched off)."""
     a, b = np.radians(alpha_deg), np.radians(beta_deg)

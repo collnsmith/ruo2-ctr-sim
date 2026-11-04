@@ -131,3 +131,13 @@ def test_json_round_trip(tmp_path):
         a, b = ps[n], back[n]
         assert (a.value, a.min, a.max, a.fit, a.unit, a.group) == (b.value, b.min, b.max, b.fit, b.unit, b.group)
     assert "h2o_z" in back.table()
+
+
+def test_at_bound_on_wide_positive_bounds_is_logarithmic():
+    from ctrfit.model.parameters import Parameter
+    p = Parameter("scale", 1.0, 1e-6, 1e6, group="scale")
+    assert not p.at_bound()                         # it used to warn: 1 is within 1 % of 1e6 from 1e-6
+    p.value = 1.2e-6
+    assert p.at_bound()
+    q = Parameter("x", 0.005, 0.0, 1.0)
+    assert q.at_bound() and not Parameter("x", 0.5, 0.0, 1.0).at_bound()

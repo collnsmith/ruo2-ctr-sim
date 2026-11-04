@@ -48,7 +48,7 @@ except Exception:  # numba without CUDA support
 # ==============================================================================================
 # scene: one random real-space version of the model
 # ==============================================================================================
-RADIUS = {"Ru": 0.85, "Ti": 0.80, "O": 0.66, "H": 0.33}           # display radii (Å) at size 1
+RADIUS = {"Ru": 0.85, "Ti": 0.80, "O": 0.66, "H": 0.33, "S": 0.80}    # display radii (Å) at size 1
 COLORS = {                                                         # linear RGB
     "Ru": (0.12, 0.42, 0.72),
     "Ti": (0.66, 0.68, 0.72),
@@ -56,6 +56,8 @@ COLORS = {                                                         # linear RGB
     "O_OH": (1.00, 0.52, 0.06),     # O of OH on a CUS Ru
     "O_H2O": (0.05, 0.72, 0.80),    # O of H2O on a CUS Ru
     "O_O": (0.62, 0.36, 0.85),      # oxo O on a CUS Ru
+    "O_SO4": (0.95, 0.80, 0.20),    # O of an adsorbed (bi)sulfate
+    "S": (0.85, 0.65, 0.05),        # its S
     "H": (0.93, 0.93, 0.93),
     "O_w": (0.55, 0.72, 0.95),      # electrolyte water
 }
@@ -101,7 +103,7 @@ def build_scene(params, nx=8, ny=4, n_sub=4, island_A=10.0, seed=1, show_H=True,
             for i, k in enumerate(ks)}
     zpl = dict(zip(ks, zl))
     subs = [_trilayer(m, "Ti", j % 2, -j * m.D_SUB, m.D_SUB, u_s) for j in range(n_sub)]
-    species = [s for s in ("OH", "H2O", "O") if comp.get(s, 0) > 0]
+    species = [s for s in ("OH", "H2O", "O", "SO4") if comp.get(s, 0) > 0]
     weights = [comp[s] for s in species] + [max(0.0, 1 - sum(comp.values()))]
     surface_z = np.zeros((nx, ny))
 
@@ -130,6 +132,13 @@ def build_scene(params, nx=8, ny=4, n_sub=4, island_A=10.0, seed=1, show_H=True,
             zO = zM + ad["z_O"]
             add("Ru", "Ru", cx, cy, zM, f"CUS Ru under {sp}, trilayer {kt}")
             add("O", f"O_{sp}", cx, cy, zO, f"{sp} oxygen on CUS Ru, {ad['z_O']:.2f} Å above it")
+            heavy = ad.get("heavy", ())
+            if heavy:                         # one orientation of the ring the model averages (display only)
+                phi = rng.uniform(0, 2 * np.pi)
+                ring = [a for a in heavy if a[4] < 1]
+                for el, dx, dy, dz, occ in [a for a in heavy if a[4] >= 1] + ring[::max(1, len(ring) // 3)]:
+                    hx, hy = dx * np.cos(phi) - dy * np.sin(phi), dx * np.sin(phi) + dy * np.cos(phi)
+                    add(el, el if el != "O" else f"O_{sp}", cx + hx, cy + hy, zO + dz, f"{el} of {sp} on CUS Ru")
             if show_H:
                 phi = rng.uniform(0, 2 * np.pi)   # random azimuth (display only)
                 for dx, dy, dz in ADSORBATE_H[sp]:

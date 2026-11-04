@@ -42,6 +42,11 @@ from ..project.project import Project
 from ..project.report import per_dataset_names, write_report
 
 GROUPS = ("all", "film", "surface", "scale", "instrument", "free", "selected dataset")
+# What changes with the potential (one copy per dataset) and what belongs to the sample (one value per film).
+# Only the parameters that are fitted get copies; the rest stay shared until they are ticked.
+PER_DATASET_DEFAULT = "theta, x_OH, x_O, x_SO4, ns_B_O, ns_du, dz_Obr, t_liquid"
+PER_FILM_DEFAULT = ("thickness_mean_tl, thickness_spread_tl, roughness_tl, eps_perp, relax_001, coherent_tl, "
+                    "b_top_extra, interface_A, b_film_Ru, b_film_O")
 SCAN_COLS = ("Fit", "Scan", "Rod", "Points", "L", "Film", "Condition", "File", "Group")
 
 
@@ -547,15 +552,18 @@ class FitWindow(QtWidgets.QMainWindow):
         self.hops.setToolTip("Also refine from the film thickness 1 ... n trilayers up and down (per film): the "
                              "thickness fringes give separate minima about one trilayer apart that a global search "
                              "often confuses. 0: off.")
-        self.per_dataset = QtWidgets.QLineEdit("theta, x_OH, z_OH")
+        self.per_dataset = QtWidgets.QLineEdit(PER_DATASET_DEFAULT)
         self.per_dataset.setToolTip("With several datasets (e.g. one per potential): what the potential changes, "
-                                    "fitted separately per dataset: the CUS coverage and species (theta, x_OH, "
-                                    "x_O), their heights (z_OH, ...), near-surface O (ns_B_O, ns_du). Everything "
-                                    "else free is shared.")
-        self.per_film = QtWidgets.QLineEdit("thickness_mean_tl, roughness_tl, eps_perp")
+                                    "one copy per dataset: the CUS coverage and species (theta, x_OH, x_O, x_SO4), "
+                                    "near-surface O (ns_B_O, ns_du), bridging O protonation (dz_Obr), and the "
+                                    "electrolyte film thickness (t_liquid, set anew by the cell's film). Only the "
+                                    "ticked ones get copies; everything else free is shared (e.g. the species "
+                                    "heights z_OH, z_H2O: properties of a species, not of the potential).")
+        self.per_film = QtWidgets.QLineEdit(PER_FILM_DEFAULT)
         self.per_film.setToolTip("With several films: one value per film, shared by all potentials of that film "
                                  "(datasets with the same 'film' metadata, e.g. from the scan library's 'Export "
-                                 "for fitting'). One film: the same as shared.")
+                                 "for fitting'): thickness, spread, roughness, strain, relaxation, interface and "
+                                 "film B factors. Only the ticked ones get copies. One film: the same as shared.")
         self.run_button = QtWidgets.QPushButton("Run fit")
         self.run_button.setMinimumHeight(32)
         self.step_buttons = [QtWidgets.QPushButton(t) for t in
@@ -705,6 +713,43 @@ class FitWindow(QtWidgets.QMainWindow):
             a.triggered.connect(lambda _=False, f=fn: f())
             if key:
                 a.setShortcut(QtGui.QKeySequence(key))
+
+        mm = self.menuBar().addMenu("&Model")
+        for text, fn, tip in (
+                ("Add an L offset per scan (rod) in each dataset", self.add_rod_offsets,
+                 "dL_H_K (r.l.u., fixed at 0 until ticked): the model is taken at L + dL on that rod, for a scan "
+                 "whose Bragg peak sits off its nominal L"),
+                ("Add a scale per rod in each dataset", self.add_rod_scales,
+                 "rodscale_H_K (fixed at 1 until ticked; pulled towards 1 by a penalty)")):
+            a = mm.addAction(text)
+            a.setToolTip(tip)
+            a.triggered.connect(lambda _=False, f=fn: f())
+        mm.setToolTipsVisible(True)
+
+    def _per_rod(self, add, what):
+        if self.worker is not None or not self.datasets:
+            self.say("Add data first." if not self.datasets else "A fit is running.")
+            return []
+        if len(self.datasets) > 1:
+            workflow.prepare(self.model, self.datasets, (), ())       # scopes and scales
+        names = []
+        for ds in self.datasets:
+            sc = ds.scope if len(self.datasets) > 1 else ""
+            rods = [ds.rod_hk(lab) for lab in ds.rod_labels]
+            before = set(self.model.params.names)
+            add(rods, scope=sc, fit=False)
+            names += [n for n in self.model.params.names if n not in before]
+        self._refresh_all()
+        self.say(f"Added {len(names)} {what} (fixed; tick the ones to fit)" if names else f"Every rod has its {what} already")
+        return names
+
+    def add_rod_offsets(self):
+        """An L offset per rod of every dataset (one per scan with one scan per rod), fixed at 0 until ticked."""
+        return self._per_rod(self.model.add_rod_offsets, "L offsets")
+
+    def add_rod_scales(self):
+        """A scale per rod of every dataset, fixed at 1 until ticked."""
+        return self._per_rod(self.model.add_rod_scales, "rod scales")
 
     def say(self, text, error=False):
         self.status.setText(text.splitlines()[0][:160])
@@ -1283,6 +1328,13 @@ class FitWindow(QtWidgets.QMainWindow):
         per = set(self._per_dataset())
         return [n.strip() for n in self.per_film.text().replace(";", ",").split(",") if n.strip() and n.strip() not in per]
 
+    def _active(self, names, also=()):
+        """Of these names, those a run gives copies: fitted, about to be fitted by a guided step (also), or
+        with copies already. A fixed parameter keeps one shared row instead of a copy per dataset."""
+        P = self.model.params
+        scopes = {ds.scope for ds in self.datasets if ds.scope}
+        return [n for n in names if n in P and (P[n].fit or n in also or any(f"{s}.{n}" in P for s in scopes))]
+
     def _check_ready(self):
         if not self.datasets:
             self.warn("No data", "Every scan is left out: tick Fit for at least one in the scan table."
@@ -1313,10 +1365,10 @@ class FitWindow(QtWidgets.QMainWindow):
             return
         method, fom, de = self.method.currentText(), self.fom.currentText(), self._de_settings()
         ref = self._refine_settings(after_de=method != "refine only")
-        per = self._per_dataset() if len(self.datasets) > 1 else []
+        per = self._active(self._per_dataset()) if len(self.datasets) > 1 else []
 
         workflow.prepare(self.model, self.datasets, per,      # on this thread: the table shows the new rows
-                         self._per_film() if len(self.datasets) > 1 else [])
+                         self._active(self._per_film()) if len(self.datasets) > 1 else [])
         self._refresh_all()
 
         cores = self.cores.value()
@@ -1337,8 +1389,11 @@ class FitWindow(QtWidgets.QMainWindow):
         de = self._de_settings()
         ref = dict(self._refine_settings(), cores=self.cores.value())
         if len(self.datasets) > 1:
-            workflow.prepare(self.model, self.datasets, self._per_dataset() if step != "film" else (),
-                             self._per_film())
+            also = {"film": workflow.FILM_PARAMS, "surface": workflow.SURFACE_PARAMS,
+                    "all": workflow.FILM_PARAMS + workflow.SURFACE_PARAMS}[step]
+            workflow.prepare(self.model, self.datasets,
+                             self._active(self._per_dataset(), also) if step != "film" else (),
+                             self._active(self._per_film(), also))
             self._refresh_all()
 
         def job(worker):

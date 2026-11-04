@@ -85,7 +85,7 @@ class FastCTR:
 
         def build():
             qz, q = self._q(m, a1)
-            return qz, q, {el: m.f_atom(el, q) for el in ("Ru", "Ti", "O", "H")}
+            return qz, q, {el: m.f_atom(el, q) for el in ("Ru", "Ti", "O", "H", "S")}
         return self._cached("q" + region, key, build)
 
     def sf(self, at, region, m):

@@ -3,7 +3,13 @@
 Template "rutile110_film": RuO2(110) film on TiO2(110) with OH / H2O / O on the CUS sites.
 
 Composition on the CUS sites (any values inside the bounds are valid):
-    O = theta * x_O,  OH = theta * (1 - x_O) * x_OH,  H2O = theta * (1 - x_O) * (1 - x_OH)
+    SO4 = theta * x_SO4, and of the rest r = theta * (1 - x_SO4):
+    O = r * x_O,  OH = r * (1 - x_O) * x_OH,  H2O = r * (1 - x_O) * (1 - x_OH)
+(x_SO4 = 0, the default: no sulfate, the composition as before.)
+
+Off by default (0) and not fitted: x_SO4 (adsorbed (bi)sulfate), t_liquid and t_window (absorption in
+the electrolyte film and the window, through each point's exit angle; see ctrfit.core.absorption).
+Per-rod L offsets dL_H_K (Model.add_rod_offsets) exist only when added.
 """
 from ..core.ctrmodel import CTRModel
 from ..core.settings import DEFAULTS, parse_comp, parse_extra_layers
@@ -52,6 +58,16 @@ _SPECS = [
     ("B_O", "Å²", 0.0, 30.0, False, "surface", "B factor of the oxo O"),
     ("el_z0", "Å", 0.0, 20.0, False, "surface", "Onset of the bulk electrolyte above the top metal plane"),
     ("el_sigma", "Å", 0.05, 10.0, False, "surface", "Width of the electrolyte onset"),
+    ("x_SO4", "", 0.0, 1.0, False, "surface",
+     "Adsorbed (bi)sulfate share of the covered CUS sites (0: none; monodentate SO4, its upper O ring averaged)"),
+    ("z_SO4", "Å", 1.0, 4.0, False, "surface", "Height of the sulfate's bonding O above its CUS Ru"),
+    ("B_SO4", "Å²", 0.0, 40.0, False, "surface", "B factor of the sulfate S and O"),
+    ("dz_Rucus_SO4", "Å", -0.5, 0.5, False, "surface", "Outward shift of a CUS Ru under sulfate"),
+    # ---------------------------------------------------------------- instrument (in situ cell)
+    ("t_liquid", "µm", 0.0, 200.0, False, "instrument",
+     "Electrolyte film above the surface: absorption of both beams through the exit angle (0: off)"),
+    ("t_window", "µm", 0.0, 100.0, False, "instrument",
+     "Window film (Kapton) above it: absorption like t_liquid (0: off; 0.0003 inch = 7.6 µm)"),
     # ---------------------------------------------------------------- scale
     ("scale", "", 1e-6, 1e6, True, "scale", "Overall scale of |F| (data = scale x model |F|)"),
 ]
@@ -72,23 +88,35 @@ _DIRECT = {
     "z_OH": "oh_z", "z_H2O": "h2o_z", "z_O": "o_z", "B_OH": "oh_B", "B_H2O": "h2o_B", "B_O": "o_B",
     "el_z0": "water_z0", "el_sigma": "water_sigma", "interface_A": "interface_A",
     "ns_B_O": "ns_B_O", "ns_du": "ns_du",
+    "z_SO4": "so4_z", "B_SO4": "so4_B", "dz_Rucus_SO4": "so4_dz",
 }
+NOT_SETTINGS = {"t_liquid": 0.0, "t_window": 0.0}      # parameters with no GUI setting (start values)
 
 DEFAULT_OPTIONS = dict(water_layer=False, water_layer_site="cus")
 
 
-def composition(theta, x_OH, x_O=0.0):
-    """CUS fractions from coverage and shares."""
-    return {"O": theta * x_O, "OH": theta * (1 - x_O) * x_OH, "H2O": theta * (1 - x_O) * (1 - x_OH)}
+def composition(theta, x_OH, x_O=0.0, x_SO4=0.0):
+    """CUS fractions from coverage and shares (SO4 only when x_SO4 > 0)."""
+    r = theta * (1 - x_SO4)
+    out = {"O": r * x_O, "OH": r * (1 - x_O) * x_OH, "H2O": r * (1 - x_O) * (1 - x_OH)}
+    if x_SO4 > 0:
+        out["SO4"] = theta * x_SO4
+    return out
 
 
 def shares(comp):
-    """(theta, x_OH, x_O) from a composition dict; inverse of composition()."""
-    O, OH, H2O = comp.get("O", 0.0), comp.get("OH", 0.0), comp.get("H2O", 0.0)
-    theta = O + OH + H2O
-    x_O = O / theta if theta > 0 else 0.0
+    """(theta, x_OH, x_O) from a composition dict; inverse of composition() (with sulfate_share)."""
+    O, OH, H2O, SO4 = (comp.get(k, 0.0) for k in ("O", "OH", "H2O", "SO4"))
+    theta = O + OH + H2O + SO4
+    x_O = O / (O + OH + H2O) if O + OH + H2O > 0 else 0.0
     x_OH = OH / (OH + H2O) if OH + H2O > 0 else 0.5
     return theta, x_OH, x_O
+
+
+def sulfate_share(comp):
+    """x_SO4: the sulfate share of the covered CUS sites."""
+    theta = sum(comp.get(k, 0.0) for k in ("O", "OH", "H2O", "SO4"))
+    return comp.get("SO4", 0.0) / theta if theta > 0 else 0.0
 
 
 class Rutile110Film:
@@ -111,7 +139,10 @@ class Rutile110Film:
         v.update(thickness_mean_tl=float(m.n_film), thickness_spread_tl=m.film_n_spread,
                  roughness_tl=m.sigma_rough, eps_perp=100 * m.eps_perp, interface_A=m.Z_INT,
                  coherent_tl=float(m.n_coherent), scale=1.0)
-        v["theta"], v["x_OH"], v["x_O"] = shares(parse_comp(s["comp_default"]))
+        comp = parse_comp(s["comp_default"])
+        v["theta"], v["x_OH"], v["x_O"] = shares(comp)
+        v["x_SO4"] = sulfate_share(comp)
+        v.update(NOT_SETTINGS)
         if self.options["water_layer"]:
             layers = [xl for xl in parse_extra_layers(s["extra_layers"]) if xl["el"] == "O"]
             xl = layers[0] if len(layers) == 1 else dict(z=3.4, occ=0.0, B=4.0)
@@ -139,7 +170,7 @@ class Rutile110Film:
             site = self.options["water_layer_site"]
             geometry["extra_layers"] = parse_extra_layers(s["extra_layers"]) + [
                 dict(el="O", site=site, z=v["wl_z"], occ=v["wl_occ"], B=v["wl_B"])]
-        return s, geometry, composition(v["theta"], v["x_OH"], v["x_O"])
+        return s, geometry, composition(v["theta"], v["x_OH"], v["x_O"], v.get("x_SO4", 0.0))
 
 
 def _layer_text(xl):

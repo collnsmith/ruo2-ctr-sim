@@ -6,8 +6,8 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Ellipse
 import matplotlib.cm as cm
 
-ELEMENT_COLOR = {"Ru": "tab:blue", "O": "tab:red", "H": "0.75", "Ti": "0.4"}
-ELEMENT_SIZE = {"Ru": 220, "O": 120, "H": 35, "Ti": 200}
+ELEMENT_COLOR = {"Ru": "tab:blue", "O": "tab:red", "H": "0.75", "Ti": "0.4", "S": "goldenrod"}
+ELEMENT_SIZE = {"Ru": 220, "O": 120, "H": 35, "Ti": 200, "S": 160}
 
 
 def is_wide(fig, ratio=1.3):

@@ -95,6 +95,7 @@ def test_every_parameter_changes_the_model(name):
     p = model.params[name]
     assert p.unit is not None and p.description, name
     model.params["wl_occ"].value = 0.5            # the default layer is empty
+    model.params["x_SO4"].value = 0.2             # and the default surface has no sulfate
     L = np.linspace(0.31, 3.5, 60)
     rods = [(0, 0), (0, 1), (1, 1)]
     before = np.concatenate([model.F(H, K, L) for H, K in rods])

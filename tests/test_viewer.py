@@ -74,3 +74,14 @@ def test_viewer_window_starts(monkeypatch):
     assert win.scene is not None and win.view.image is not None
     win.close()
     app.processEvents()
+
+
+def test_scene_shows_adsorbed_sulfate():
+    pytest.importorskip("numba")
+    pytest.importorskip("PyQt5")
+    import ctr_viewer3d as v
+    from ctr_params import DEFAULTS
+    sc = v.build_scene(dict(DEFAULTS, comp_default="OH=0.3, H2O=0.3, SO4=0.4"), nx=4, ny=2, n_sub=2, seed=1)
+    roles = sc["role"]
+    assert roles.count("S") > 0 and roles.count("O_SO4") == 4 * roles.count("S")   # bonding O + 3 upper O
+    assert set(roles) <= set(v.COLORS) and set(sc["el"]) <= set(v.RADIUS)

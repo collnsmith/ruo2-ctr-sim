@@ -142,7 +142,8 @@ def test_d_degenerate_oh_h2o_mixture_warns():
 # ---------------------------------------------------------------------------- every parameter
 _SWEEP_SETTINGS = dict(DEFAULTS, relax_001=0.5, thickness_nm=6.0, coherent_nm=3.0,
                        comp_default="OH=0.3, H2O=0.3, O=0.2", extra_layers="O cus 3.6 0.5 5.0")
-_SWEEP_SKIP = {"coherent_tl"}          # whole trilayers by construction (rounded); kept fixed in fits
+_SO4_GEOMETRY = {"z_SO4", "B_SO4", "dz_Rucus_SO4"}    # no effect without sulfate: their own sweep below
+_SWEEP_SKIP = {"coherent_tl"} | _SO4_GEOMETRY      # coherent_tl: whole trilayers by construction (rounded)
 
 
 @pytest.mark.parametrize("name", [n for n in Model.from_settings(_SWEEP_SETTINGS, water_layer=True).params.names
@@ -159,6 +160,25 @@ def test_every_parameter_is_recovered(name):
     p.value = start + step if start + step <= p.max else start - step
     data = make_dataset(truth, rods=[(0, 0), (0, 1), (1, 0), (1, 1), (0, 3)], noise_rel=0.03, seed=31, step=0.1)
     model = Model.from_settings(_SWEEP_SETTINGS, water_layer=True)
+    model.params.fit_only([name])
+    fit = Fit(model, data)
+    fit.refine()
+    res = fit.report()
+    assert abs(res.values[name] - p.value) <= 3 * res.errors[name], (name, p.value, res.values[name], res.errors[name])
+
+
+@pytest.mark.parametrize("name", sorted(_SO4_GEOMETRY | {"x_SO4"}))
+def test_sulfate_parameters_are_recovered(name):
+    """The adsorbed (bi)sulfate's share, height, B factor and Ru shift, each alone, on a surface with 20 %
+    of the covered CUS sites sulfate."""
+    settings = dict(_SWEEP_SETTINGS, comp_default="OH=0.3, H2O=0.3, O=0.1, SO4=0.2")
+    truth = Model.from_settings(settings, water_layer=True)
+    p = truth.params[name]
+    start = p.value
+    step = {"x_SO4": 0.05, "z_SO4": 0.1, "B_SO4": 1.0, "dz_Rucus_SO4": 0.05}[name]
+    p.value = start + step
+    data = make_dataset(truth, rods=[(0, 0), (0, 1), (1, 0), (1, 1), (0, 3)], noise_rel=0.03, seed=33, step=0.1)
+    model = Model.from_settings(settings, water_layer=True)
     model.params.fit_only([name])
     fit = Fit(model, data)
     fit.refine()

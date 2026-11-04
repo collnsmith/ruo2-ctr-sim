@@ -55,9 +55,15 @@ class Parameter:
         return self.name.rpartition(".")[2]
 
     def at_bound(self, frac=0.01):
-        """True if the value sits within frac of the bound range from either bound."""
+        """True if the value sits within frac of the bound range from either bound. Bounds spanning more
+        than three decades of positive values (a scale's 1e-6 ... 1e6) are measured on a log scale, so a
+        scale of 1 is not 'at its lower bound'."""
         if not (math.isfinite(self.min) and math.isfinite(self.max)) or self.max == self.min:
             return False
+        if self.min > 0 and self.max / self.min > 1e3 and self.value > 0:
+            lo, hi, v = math.log(self.min), math.log(self.max), math.log(self.value)
+            tol = frac * (hi - lo)
+            return v - lo <= tol or hi - v <= tol
         tol = frac * (self.max - self.min)
         return self.value - self.min <= tol or self.max - self.value <= tol
 

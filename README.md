@@ -191,6 +191,29 @@ python -m ctrfit fit model.json data.csv --out fit_results
 - Thickness fringes give separate chi2 minima about one trilayer apart (traded against eps_perp).
   Run `fit.profile("thickness_mean_tl", grid)` after the global search to pick the right one, or
   `fit.refine(hops=1)` (below).
+- In situ cell and surface (all off by default: 0 and not fitted, so the model is unchanged until you use them):
+  - `t_liquid` and `t_window` (µm, group instrument): absorption of both beams in the electrolyte
+    film (0.1 M H2SO4) and the window (Kapton; 0.0003 inch = 7.6 µm) above the surface. Each point's
+    |F| is multiplied by exp(-(mu_l t_l + mu_w t_w)(1/sin alpha + 1/sin beta)/2), with the exit angle
+    beta from H K L, the energy and the incidence angle (setting "Incidence angle", default 0.5°, the
+    same as Processing's). It lowers low L most (a few % in |F| below L = 0.5 for a few µm at 15-20 keV,
+    more for a thicker film); refraction near the critical angle is not included, so leave out points
+    with an exit angle below about twice the critical angle (L below about 0.15). Set t_window to your
+    window's thickness (fixed) and fit t_liquid, per dataset since the film is set anew by the cell.
+  - Model menu, "Add an L offset per scan (rod) in each dataset": `dL_H_K` (r.l.u., ±0.05, fixed at 0
+    until ticked) per rod of each dataset, one per scan with one scan per rod: the model is taken at
+    L + dL, for a scan whose Bragg peak sits off its nominal L. Fit them only where the substrate peak
+    region is in the data (they trade against eps_perp otherwise). "Add a scale per rod in each dataset"
+    adds `rodscale_H_K` the same way.
+  - Adsorbed (bi)sulfate: `x_SO4` (share of the covered CUS sites), `z_SO4` (height of its bonding O
+    above the CUS Ru), `B_SO4`, `dz_Rucus_SO4`; a monodentate SO4 standing on the CUS Ru, its upper three
+    O averaged around the S-O axis. `SO4=0.2` in a composition (simulator, settings) too. Test it as a
+    model variant against the OH / H2O one by BIC.
+- Per dataset (default): `theta, x_OH, x_O, x_SO4, ns_B_O, ns_du, dz_Obr, t_liquid` (what the
+  potential, or the cell, changes); per film (default): `thickness_mean_tl, thickness_spread_tl,
+  roughness_tl, eps_perp, relax_001, coherent_tl, b_top_extra, interface_A, b_film_Ru, b_film_O` (the
+  sample). Only the ticked ones get copies; everything else free is shared, e.g. the species heights
+  and B factors (properties of a species, not of the potential), the substrate and the window.
 - Less starting guess. The global search only needs bounds that bracket the answer:
   - The dataset scales are solved exactly for every trial of differential evolution (on by default,
     `run_de(solve_scales=False)` / "Solve scales exactly" in the window to search them instead).

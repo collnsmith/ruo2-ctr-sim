@@ -381,6 +381,72 @@
    "expr": null
   },
   {
+   "name": "x_SO4",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 1.0,
+   "fit": false,
+   "unit": "",
+   "description": "Adsorbed (bi)sulfate share of the covered CUS sites (0: none; monodentate SO4, its upper O ring averaged)",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "z_SO4",
+   "value": 2.1,
+   "min": 1.0,
+   "max": 4.0,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Height of the sulfate's bonding O above its CUS Ru",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "B_SO4",
+   "value": 4.0,
+   "min": 0.0,
+   "max": 40.0,
+   "fit": false,
+   "unit": "\u00c5\u00b2",
+   "description": "B factor of the sulfate S and O",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "dz_Rucus_SO4",
+   "value": 0.0,
+   "min": -0.5,
+   "max": 0.5,
+   "fit": false,
+   "unit": "\u00c5",
+   "description": "Outward shift of a CUS Ru under sulfate",
+   "group": "surface",
+   "expr": null
+  },
+  {
+   "name": "t_liquid",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 200.0,
+   "fit": false,
+   "unit": "\u00b5m",
+   "description": "Electrolyte film above the surface: absorption of both beams through the exit angle (0: off)",
+   "group": "instrument",
+   "expr": null
+  },
+  {
+   "name": "t_window",
+   "value": 0.0,
+   "min": 0.0,
+   "max": 100.0,
+   "fit": false,
+   "unit": "\u00b5m",
+   "description": "Window film (Kapton) above it: absorption like t_liquid (0: off; 0.0003 inch = 7.6 \u00b5m)",
+   "group": "instrument",
+   "expr": null
+  },
+  {
    "name": "scale",
    "value": 1.0,
    "min": 1e-06,

@@ -280,6 +280,15 @@ python -m ctrfit fit model.json data.csv --out fit_results
 - Worked example with synthetic data: `examples/synthetic_ruo2/` (`run_fit.py`: film on the even
   rods, then the surface on the odd rods, then everything together).
 
+## Splitting fitting files by rod
+
+`python tools/split_rods.py fit_*.csv` (or with no files, a file dialog) writes one CSV per film,
+potential and rod into `split_by_rod/` next to the first file: all the scans of that rod at that
+potential together, repeats from other files of the same film and potential included, with the
+metadata the Fitting app reads (film, thickness, potential, condition, energy, error floor). Input
+files are never written over; `--out folder` picks another folder. A quick standalone script, not in
+the launcher.
+
 ## Near-surface oxygen
 
 The "Near-surface oxygen" settings (simulator sidebar, fitting model, in-situ CV window) change the

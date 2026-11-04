@@ -35,7 +35,7 @@ def win(monkeypatch, tmp_path):
 
 
 def _cell(w, name, col):
-    row = w.table.params.names.index(name)
+    row = w.table.row_of(name)
     return w.table.index(row, w.table.COLS.index(col))
 
 
@@ -287,7 +287,7 @@ def test_table_colours_readable_in_light_and_dark_themes(win, base, text):
         win.table.flagged = {"z_OH"}
         win.table.refresh()
         for name in ("z_OH", "z_H2O"):
-            row = win.table.params.names.index(name)
+            row = win.table.row_of(name)
             bg = win.table.data(win.table.index(row, 1), QtCore.Qt.BackgroundRole)
             fg = win.table.data(win.table.index(row, 1), QtCore.Qt.ForegroundRole)
             assert W.contrast(bg, fg) >= 4.5 and W.contrast(bg, text) >= 4.5, (name, bg.name())
@@ -340,7 +340,7 @@ def test_tick_and_untick_many_scans_and_parameters(win, tmp_path):
     assert all(P[n].group == "surface" for n in P.free_names)
     win.group.setCurrentText("all")
     for name in ("theta", "x_OH"):
-        win.view.selectionModel().select(win.proxy.mapFromSource(win.table.index(P.names.index(name), 0)),
+        win.view.selectionModel().select(win.proxy.mapFromSource(win.table.index(win.table.row_of(name), 0)),
                                          QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows)
     pb["Fix selected"].click()
     assert not P["theta"].fit and not P["x_OH"].fit and set(win.selected_params()) == {"theta", "x_OH"}
@@ -351,9 +351,9 @@ def test_tick_and_untick_many_scans_and_parameters(win, tmp_path):
     workflow.prepare(win.model, win.datasets, ["x_OH"], win._per_film())
     win._refresh_all()
     assert "thickness_mean_tl" in win.table.inactive and "x_OH" in win.table.inactive
-    row = P.names.index("thickness_mean_tl")
-    assert win.table.data(win.table.index(row, 1), QtCore.Qt.ForegroundRole) is not None
-    assert "Not used" in win.table.data(win.table.index(row, 1), QtCore.Qt.ToolTipRole)
+    row = win.table.row_of("thickness_mean_tl")
+    assert win.table.data(win.table.index(row, 1), QtCore.Qt.FontRole).bold()             # a master row
+    assert "own copy" in win.table.data(win.table.index(row, 1), QtCore.Qt.ToolTipRole)
     win.group.setCurrentText("film")
     pb["Fit shown"].click()
     assert not P["thickness_mean_tl"].fit and P["ds1.thickness_mean_tl"].fit and P["ds2.thickness_mean_tl"].fit
@@ -376,7 +376,7 @@ def test_model_colour_follows_the_selected_parameter(win):
     P = win.model.params
 
     def select(name):
-        idx = win.proxy.mapFromSource(win.table.index(P.names.index(name), 1))
+        idx = win.proxy.mapFromSource(win.table.index(win.table.row_of(name), 1))
         win.view.setCurrentIndex(idx)
         win.view.selectRow(idx.row())
         QtWidgets.QApplication.processEvents()
@@ -392,3 +392,50 @@ def test_model_colour_follows_the_selected_parameter(win):
     win._refresh_all()
     select("z_H2O")
     assert len(win.p_rod.figure.axes) == 2 and "linked" in win.status.text()
+
+
+def test_table_groups_copies_under_their_parameter_and_masters_fit_them(win, tmp_path):
+    """Each shared parameter is followed by its copies with the dataset they belong to; a shared parameter
+    every dataset overrides is a master row: its Fit box fits the free copies (one per film), its Min / Max
+    set their bounds, its value is not edited; Show 'selected dataset' lists what one dataset uses."""
+    from PyQt5 import QtCore
+    from ctrfit.fit import workflow
+    from test_scans import _file
+    win.clear_data()
+    paths = []
+    for i, (nm, film, u) in enumerate((("A", "7 nm", 0.5), ("B", "7 nm", 0.9), ("C", "4 nm", 0.5))):
+        d = _file(nm, u, 900 + i, film=film, scans=(f"#{2 * i}", f"#{2 * i + 1}"))
+        d.meta["thickness_nm"] = float(film.split()[0])
+        d.save(tmp_path / f"g{i}.csv")
+        paths.append(str(tmp_path / f"g{i}.csv"))
+    win.add_datasets(paths)
+    workflow.prepare(win.model, win.datasets, ["x_OH"], ["thickness_mean_tl"])
+    win._refresh_all()
+    t, P = win.table, win.model.params
+    r = t.row_of("thickness_mean_tl")
+    assert [t.name_at(r + k) for k in range(4)] == ["thickness_mean_tl", "ds1.thickness_mean_tl",
+                                                     "ds2.thickness_mean_tl", "ds3.thickness_mean_tl"]
+    col = lambda c: t.COLS.index(c)
+    text = lambda name, c: t.data(t.index(t.row_of(name), col(c)))
+    assert text("ds1.thickness_mean_tl", "Dataset") == "A" and text("ds2.thickness_mean_tl", "Dataset") == "B  (follows ds1)"
+    assert text("thickness_mean_tl", "Dataset") == "per film: 2 films, 3 datasets"
+    assert text("x_OH", "Dataset") == "per dataset: 3" and text("z_OH", "Dataset") == "shared"
+    assert "↳" in text("ds3.x_OH", "Name") and "…" in text("thickness_mean_tl", "Value")    # the copies' range
+    master = t.index(r, col("Fit"))
+    for n in ("ds1.thickness_mean_tl", "ds3.thickness_mean_tl"):
+        P[n].fit = False
+    assert t.data(master, QtCore.Qt.CheckStateRole) == QtCore.Qt.Unchecked
+    assert t.setData(master, QtCore.Qt.Checked, QtCore.Qt.CheckStateRole)
+    assert P["ds1.thickness_mean_tl"].fit and P["ds3.thickness_mean_tl"].fit and not P["thickness_mean_tl"].fit
+    assert "ds2.thickness_mean_tl" not in P.free_names                            # linked: follows ds1
+    P["ds3.thickness_mean_tl"].fit = False
+    assert t.data(master, QtCore.Qt.CheckStateRole) == QtCore.Qt.PartiallyChecked
+    assert not (t.flags(t.index(r, col("Value"))) & QtCore.Qt.ItemIsEditable)
+    assert t.setData(t.index(r, col("Max")), "30")
+    assert all(P[n].max == 30 for n in ("thickness_mean_tl", "ds1.thickness_mean_tl", "ds3.thickness_mean_tl"))
+    # one dataset's parameters
+    win.group.setCurrentText("selected dataset")
+    win.data_list.setCurrentRow(2)
+    shown = win.shown_params()
+    assert "ds3.thickness_mean_tl" in shown and "ds3.x_OH" in shown and "z_OH" in shown
+    assert "ds1.x_OH" not in shown and "x_OH" not in shown and "thickness_mean_tl" not in shown

@@ -41,7 +41,7 @@ from ..project import plots
 from ..project.project import Project
 from ..project.report import per_dataset_names, write_report
 
-GROUPS = ("all", "film", "surface", "scale", "instrument", "free")
+GROUPS = ("all", "film", "surface", "scale", "instrument", "free", "selected dataset")
 SCAN_COLS = ("Fit", "Scan", "Rod", "Points", "L", "Film", "Condition", "File", "Group")
 
 
@@ -49,7 +49,11 @@ SCAN_COLS = ("Fit", "Scan", "Rod", "Points", "L", "Film", "Condition", "File", "
 # parameter table
 # ==============================================================================================
 class ParamTable(QtCore.QAbstractTableModel):
-    COLS = ["Fit", "Name", "Value", "Error", "Min", "Max", "Unit", "Link", "Description"]
+    """The parameters, each shared parameter followed by its copies (one per dataset or film), with the
+    dataset each row belongs to. A shared parameter that every dataset replaces with its own copy is a
+    master row: its Fit box fits all the copies that are not linked (one per film for per-film
+    parameters), its Min / Max set their bounds; values are edited in the copies' own rows."""
+    COLS = ["Fit", "Name", "Dataset", "Value", "Error", "Min", "Max", "Unit", "Link", "Description"]
     EDITABLE = {"Value", "Min", "Max", "Link"}
     edited = Signal(str)          # error message, or "" after a good edit
 
@@ -58,16 +62,38 @@ class ParamTable(QtCore.QAbstractTableModel):
         self.params = params
         self.errors, self.flagged = {}, set()
         self.inactive = {}             # global name -> its copies, when every dataset uses its own copy
+        self.labels = {}               # dataset scope -> dataset name, in dataset order
         self.locked = False
         self.live = {}                 # best values during a running fit (shown instead of the parameters)
+        self.order = list(params.names)
+
+    def set_context(self, labels, inactive):
+        """The datasets (scope -> name) and the shared parameters every dataset overrides."""
+        self.labels, self.inactive = dict(labels), dict(inactive)
+
+    def _reorder(self):
+        P = self.params
+        rank = {sc: i for i, sc in enumerate(self.labels)}
+        copies = {}
+        for p in P:
+            if p.scope:
+                copies.setdefault(p.base, []).append(p.name)
+        order = []
+        for p in P:
+            if not p.scope:
+                order.append(p.name)
+                order += sorted(copies.pop(p.name, []), key=lambda n: (rank.get(n.rpartition(".")[0], 1e9), n))
+        self.order = order + [n for names in copies.values() for n in names]
 
     def set_params(self, params):
         self.beginResetModel()
         self.params, self.errors, self.flagged = params, {}, set()
+        self._reorder()
         self.endResetModel()
 
     def refresh(self):
         self.beginResetModel()
+        self._reorder()
         self.endResetModel()
 
     def refresh_cells(self):
@@ -80,7 +106,7 @@ class ParamTable(QtCore.QAbstractTableModel):
         self.dataChanged.emit(self.index(0, col), self.index(self.rowCount() - 1, col))
 
     def rowCount(self, parent=QtCore.QModelIndex()):
-        return 0 if parent.isValid() else len(self.params)
+        return 0 if parent.isValid() else len(self.order)
 
     def columnCount(self, parent=QtCore.QModelIndex()):
         return len(self.COLS)
@@ -90,19 +116,64 @@ class ParamTable(QtCore.QAbstractTableModel):
             return self.COLS[section]
         return None
 
-    def param(self, row):
-        return self.params[self.params.names[row]]
+    def name_at(self, row):
+        return self.order[row]
 
+    def row_of(self, name):
+        return self.order.index(name)
+
+    def param(self, row):
+        return self.params[self.order[row]]
+
+    # ------------------------------------------------------------------ master rows
+    def copies(self, name, free_only=False):
+        """The copies of a master row (those not linked, with free_only: the ones its Fit box sets)."""
+        out = [self.params[n] for n in self.inactive.get(name, ()) if n in self.params]
+        return [c for c in out if not c.linked] if free_only else out
+
+    def _master_state(self, name):
+        cs = self.copies(name, free_only=True)
+        n = sum(c.fit for c in cs)
+        return QtCore.Qt.Checked if cs and n == len(cs) else QtCore.Qt.PartiallyChecked if n else QtCore.Qt.Unchecked
+
+    def _scope_label(self, scope):
+        return self.labels[scope] if scope in self.labels else "(no dataset)"
+
+    def _dataset_text(self, p):
+        if p.scope:
+            text = self._scope_label(p.scope)
+            ref = (p.expr or "").strip()
+            if p.linked and ref.rpartition(".")[2] == p.base and ref.rpartition(".")[0] in self.labels:
+                text += f"  (follows {ref.rpartition('.')[0]})"
+            return text
+        if p.name in self.inactive:
+            cs = self.copies(p.name)
+            lead = [c for c in cs if not c.linked]
+            return f"per film: {len(lead)} films, {len(cs)} datasets" if len(lead) < len(cs) else \
+                f"per dataset: {len(cs)}"
+        return "shared" if len(self.labels) > 1 else ""
+
+    # ------------------------------------------------------------------ cells
     def data(self, index, role=QtCore.Qt.DisplayRole):
         if not index.isValid():
             return None
         p, col = self.param(index.row()), self.COLS[index.column()]
+        master = p.name in self.inactive
         if role == QtCore.Qt.CheckStateRole and col == "Fit":
+            if master:
+                return self._master_state(p.name)
             return QtCore.Qt.Checked if p.fit else QtCore.Qt.Unchecked
         if role == QtCore.Qt.ToolTipRole:
-            return f"{p.name} ({p.group}): {p.description}" + (f"\nlinked: {p.expr}" if p.linked else "") + \
-                (f"\nNot used: every dataset has its own copy ({', '.join(self.inactive[p.name])}); edit those"
-                 if p.name in self.inactive else "")
+            tip = f"{p.name} ({p.group}): {p.description}" + (f"\nlinked: {p.expr}" if p.linked else "")
+            if master:
+                tip += ("\nEvery dataset has its own copy (the rows below). Fit here fits all of them that are not "
+                        "linked (one per film for per-film parameters); Min / Max here set all their bounds; "
+                        "edit a value in its own row.")
+            return tip
+        if role == QtCore.Qt.FontRole and master:
+            f = QtGui.QFont()
+            f.setBold(True)
+            return f
         if role == QtCore.Qt.BackgroundRole:            # from the palette: readable in a dark theme too
             if p.name in self.flagged:
                 return tint(FLAG, 0.245)
@@ -110,18 +181,25 @@ class ParamTable(QtCore.QAbstractTableModel):
                 return tint(LINK, 0.085)
             return None
         if role == QtCore.Qt.ForegroundRole:
-            if p.name in self.inactive:
+            if master and col == "Value":
                 return muted_text()
             if p.name in self.flagged or p.linked:
                 return text_color()
             return None
         if role == QtCore.Qt.UserRole:          # for the group filter
-            return "free " + p.group if p.free else p.group
+            free = p.free or (master and self._master_state(p.name) != QtCore.Qt.Unchecked)
+            return "free " + p.group if free else p.group
         if role not in (QtCore.Qt.DisplayRole, QtCore.Qt.EditRole):
             return None
         if col == "Name":
-            return p.name
+            return f"    ↳ {p.name}" if p.scope and role == QtCore.Qt.DisplayRole else p.name
+        if col == "Dataset":
+            return self._dataset_text(p)
         if col == "Value":
+            if master:                           # the copies' values, edited in their rows
+                vals = [self.live.get(c.name, c.value) if self.locked else c.value for c in self.copies(p.name)]
+                lo, hi = (min(vals), max(vals)) if vals else (p.value, p.value)
+                return f"{lo:.6g}" if np.isclose(lo, hi) else f"{lo:.4g} … {hi:.4g}"
             v = self.live.get(p.name, p.value) if self.locked else p.value
             return f"{v:.6g}" if role == QtCore.Qt.DisplayRole else repr(v)
         if col == "Error":
@@ -143,9 +221,12 @@ class ParamTable(QtCore.QAbstractTableModel):
         if self.locked:
             return f
         col = self.COLS[index.column()]
+        p = self.param(index.row())
         if col == "Fit":
             return f | QtCore.Qt.ItemIsUserCheckable
-        if col in self.EDITABLE and not (col == "Value" and self.param(index.row()).linked):
+        if p.name in self.inactive and col in ("Value", "Link"):
+            return f                             # values in the copies' rows; a master is not linked
+        if col in self.EDITABLE and not (col == "Value" and p.linked):
             return f | QtCore.Qt.ItemIsEditable
         return f
 
@@ -153,9 +234,15 @@ class ParamTable(QtCore.QAbstractTableModel):
         if self.locked or not index.isValid():
             return False
         p, col = self.param(index.row()), self.COLS[index.column()]
+        master = p.name in self.inactive
         try:
             if col == "Fit" and role == QtCore.Qt.CheckStateRole:
-                p.fit = QtCore.Qt.CheckState(value) == QtCore.Qt.Checked if not isinstance(value, bool) else value
+                on = QtCore.Qt.CheckState(value) == QtCore.Qt.Checked if not isinstance(value, bool) else value
+                if master:                           # the copies, not the unused shared parameter
+                    for c in self.copies(p.name, free_only=True):
+                        c.fit = on
+                else:
+                    p.fit = on
             elif col == "Value":
                 v = float(value)
                 if not p.min <= v <= p.max:
@@ -163,10 +250,15 @@ class ParamTable(QtCore.QAbstractTableModel):
                 p.value = v
             elif col in ("Min", "Max"):
                 v = float(value) if str(value).strip() else (-np.inf if col == "Min" else np.inf)
-                lo, hi = (v, p.max) if col == "Min" else (p.min, v)
-                if lo > hi:
-                    raise ValueError(f"{p.name}: min must not exceed max")
-                p.min, p.max = lo, hi
+                for q in [p] + (self.copies(p.name) if master else []):
+                    lo, hi = (v, q.max) if col == "Min" else (q.min, v)
+                    if lo > hi:
+                        raise ValueError(f"{q.name}: min must not exceed max")
+                for q in [p] + (self.copies(p.name) if master else []):
+                    if col == "Min":
+                        q.min = v
+                    else:
+                        q.max = v
             elif col == "Link":
                 text = str(value).strip()
                 if text:
@@ -185,17 +277,27 @@ class ParamTable(QtCore.QAbstractTableModel):
 
 
 class GroupFilter(QtCore.QSortFilterProxyModel):
+    """Rows of one parameter group, the free ones, or those the selected dataset uses."""
+
     def __init__(self):
         super().__init__()
         self.group = "all"
+        self.only = None               # names the selected dataset uses ("selected dataset")
 
     def set_group(self, g):
         self.group = g
         self.invalidateFilter()
 
+    def set_only(self, names):
+        self.only = None if names is None else set(names)
+        if self.group == "selected dataset":
+            self.invalidateFilter()
+
     def filterAcceptsRow(self, row, parent):
         if self.group == "all":
             return True
+        if self.group == "selected dataset":
+            return self.only is None or self.sourceModel().name_at(row) in self.only
         tag = self.sourceModel().data(self.sourceModel().index(row, 0, parent), QtCore.Qt.UserRole) or ""
         return ("free" in tag.split()) if self.group == "free" else tag.endswith(self.group)
 
@@ -577,22 +679,30 @@ class FitWindow(QtWidgets.QMainWindow):
         self.say(text, error=True)
         QtWidgets.QMessageBox.warning(self, title, text.strip().splitlines()[-1])
 
+    def _table_context(self):
+        """The table's datasets (scope -> name) and master rows (shared parameters every dataset overrides)."""
+        self.table.set_context({ds.scope: ds.name for ds in self.datasets if ds.scope},
+                               shadowed(self.model.params, self.datasets))
+
+    def _dataset_params(self, i):
+        """The parameters dataset i uses: its own copies and the shared ones it does not override."""
+        if not 0 <= i < len(self.datasets):
+            return None
+        sc, P = self.datasets[i].scope, self.model.params
+        return [p.name for p in P if (sc and p.scope == sc) or (not p.scope and not (sc and f"{sc}.{p.name}" in P))]
+
     def _on_edit(self, msg):
         if msg:
             self.warn("Parameter not changed", msg)
         else:
-            self.table.inactive = shadowed(self.model.params, self.datasets) if len(self.datasets) > 1 else {}
+            self._table_context()
+            self.table.refresh_cells()
             self._update_free()
             self.show_rod()
-            row = self.proxy.mapToSource(self.view.currentIndex()).row()
-            name = self.table.params.names[row] if 0 <= row < len(self.table.params.names) else None
-            if name in self.table.inactive:
-                self.say(f"{name} is not used: every dataset has its own copy "
-                         f"({', '.join(self.table.inactive[name])}); change those instead")
 
     def _size_columns(self):
         cols = self.table.COLS
-        for c in ("Name", "Value", "Error", "Min", "Max", "Unit"):
+        for c in ("Name", "Dataset", "Value", "Error", "Min", "Max", "Unit"):
             self.view.resizeColumnToContents(cols.index(c))
         self.view.setColumnWidth(cols.index("Fit"), 34)
 
@@ -603,29 +713,37 @@ class FitWindow(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------ fit flags of many rows at once
     def shown_params(self):
         """Names of the parameters the Show filter lists, in table order."""
-        names = self.table.params.names
-        return [names[self.proxy.mapToSource(self.proxy.index(r, 0)).row()] for r in range(self.proxy.rowCount())]
+        return [self.table.name_at(self.proxy.mapToSource(self.proxy.index(r, 0)).row())
+                for r in range(self.proxy.rowCount())]
 
     def _current_param(self):
         """The parameter the table's current row shows, if that row is selected (else the first selected)."""
-        names = self.table.params.names
         rows = self.selected_params()
         idx = self.view.currentIndex()
-        cur = names[self.proxy.mapToSource(idx).row()] if idx.isValid() else None
+        cur = self.table.name_at(self.proxy.mapToSource(idx).row()) if idx.isValid() else None
         return cur if cur in rows else (rows[0] if rows else None)
 
     def selected_params(self):
-        names = self.table.params.names
         rows = {self.proxy.mapToSource(i).row() for i in self.view.selectionModel().selectedRows()}
-        return [names[r] for r in sorted(rows) if 0 <= r < len(names)]
+        return [self.table.name_at(r) for r in sorted(rows) if 0 <= r < self.table.rowCount()]
+
+    def _is_fit(self, name):
+        """Fit flag as the table shows it (a master row: all its free copies)."""
+        if name in self.table.inactive:
+            cs = self.table.copies(name, free_only=True)
+            return bool(cs) and all(c.fit for c in cs)
+        return self.model.params[name].fit
 
     def set_param_fit(self, names, fit=True):
-        """Tick (fit=True) or untick Fit for these parameters. Ticking skips linked parameters (a link
-        sets their value) and shared ones that every dataset overrides with its own copy."""
+        """Tick (fit=True) or untick Fit for these parameters. A master row (a shared parameter every
+        dataset overrides) stands for its copies that are not linked; ticking skips linked parameters
+        (a link sets their value)."""
         if self.worker is not None or not names:
             return
         P = self.model.params
-        skip = [n for n in names if fit and (P[n].linked or n in self.table.inactive)]
+        names = list(dict.fromkeys(c.name for n in names for c in (
+            self.table.copies(n, free_only=True) if n in self.table.inactive else [P[n]])))
+        skip = [n for n in names if fit and P[n].linked]
         changed = [n for n in names if n not in skip and P[n].fit != fit]
         for n in changed:
             P[n].fit = fit
@@ -645,12 +763,12 @@ class FitWindow(QtWidgets.QMainWindow):
                 return True
             if obj is self.view and self.selected_params():
                 names = self.selected_params()
-                self.set_param_fit(names, not all(self.model.params[n].fit for n in names))
+                self.set_param_fit(names, not all(self._is_fit(n) for n in names))
                 return True
         return super().eventFilter(obj, ev)
 
     def _refresh_all(self):
-        self.table.inactive = shadowed(self.model.params, self.datasets) if len(self.datasets) > 1 else {}
+        self._table_context()
         self.table.set_params(self.model.params)
         if self.result is not None:
             self.table.errors = dict(self.result.errors)
@@ -671,6 +789,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.data_list.setCurrentRow(0)
         self.data_list.blockSignals(False)
         self._sync_floor()
+        self.proxy.set_only(self._dataset_params(self.data_list.currentRow()))
         self._fill_scans()
         self.rod_pick.blockSignals(True)
         self.rod_pick.clear()
@@ -795,9 +914,11 @@ class FitWindow(QtWidgets.QMainWindow):
                 return
 
     def _on_dataset_picked(self):
-        """A dataset picked in the list: its floor, and the scans of its group selected in the scan table."""
+        """A dataset picked in the list: its floor, its parameters (Show: selected dataset), and the scans of
+        its group selected in the scan table."""
         self._sync_floor()
         i = self.data_list.currentRow()
+        self.proxy.set_only(self._dataset_params(i))
         if not 0 <= i < len(self.datasets):
             return
         name = self.datasets[i].name
@@ -993,6 +1114,8 @@ class FitWindow(QtWidgets.QMainWindow):
             return
         sens, sens_label, sens_max = None, "", None
         name = self._current_param() if values is None and self.sens_box.isChecked() else None
+        if name in self.table.inactive and f"{scope}.{name}" in self.model.params:
+            name = f"{scope}.{name}"             # a master row: this dataset's own copy
         if name is not None:                   # not during a fit: it moves the parameter for a moment
             err = self.result.errors.get(name) if self.result is not None else None
             try:

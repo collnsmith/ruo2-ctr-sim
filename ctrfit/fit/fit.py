@@ -51,14 +51,16 @@ class Fit:
         self.fom_name = fom
         self.rod_scale_penalty = rod_scale_penalty
         if len(self.datasets) > 1:
+            g = model.params["scale"]
             for i, ds in enumerate(self.datasets):
                 ds.scope = ds.scope or f"ds{i + 1}"
                 name = f"{ds.scope}.scale"
                 if name not in model.params:
-                    g = model.params["scale"]
                     model.params.add(name=name, value=g.value, min=g.min, max=g.max, fit=g.fit, unit=g.unit,
                                      group="scale", description=f"Scale of dataset {ds.name}")
-            model.params["scale"].fit = False
+                elif g.fit and not model.params[name].linked:   # the shared scale ticked: fit every copy
+                    model.params[name].fit = True
+            g.fit = False
         self.evaluators = [model.evaluator(ds.H, ds.K, ds.L, scope=ds.scope) for ds in self.datasets]
         self.history = []
         self.stages = []

@@ -80,3 +80,23 @@ def test_project_round_trip(tmp_path):
     (tmp_path / "bad.json").write_text("{}")
     with pytest.raises(ValueError):
         Project.load(tmp_path / "bad.json")
+
+
+def test_each_dataset_scale_is_fitted_after_prepare():
+    """Run fit with several datasets: prepare makes each dataset's scale, fitted when the shared scale was
+    ticked (it used to make them fixed, so a global fit kept every scale at its start value)."""
+    from ctrfit.fit.fit import Fit
+    from test_scans import _file, truth_model
+    m = truth_model()
+    a, b = _file("A", 0.5, 1), _file("B", 0.9, 2)
+    b.F *= 3.0
+    m.params.fit_only(["x_OH", "scale"])
+    workflow.prepare(m, [a, b], ["x_OH"], [])
+    assert m.params["ds1.scale"].fit and m.params["ds2.scale"].fit and not m.params["scale"].fit
+    fit = Fit(m, [a, b])
+    assert {"ds1.scale", "ds2.scale"} <= set(fit.names)
+    fit.refine()
+    assert m.params["ds2.scale"].value / m.params["ds1.scale"].value == pytest.approx(3.0, rel=0.01)
+    m.params["ds2.scale"].fit = False                     # a scale fixed by hand stays fixed
+    workflow.prepare(m, [a, b], ["x_OH"], [])
+    assert not m.params["ds2.scale"].fit

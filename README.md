@@ -143,9 +143,14 @@ dataset selects its scans; clicking a scan shows its rod, one colour per scan. T
 keeps the files and the choices. Many rows at once: Fit all / Leave all out and Fit selected / Leave
 out selected for the scans; Fit shown / Fix shown (the rows the Show filter lists, e.g. Show
 surface, then Fit shown) and Fit selected / Fix selected for the parameters; Space toggles Fit of
-the selected rows in either table. A shared parameter that every dataset overrides with its own copy
-(e.g. `thickness_mean_tl` once each film has `ds1.thickness_mean_tl`, ...) is greyed: it is not used,
-edit the copies; Fit shown skips it and linked parameters. "Colour by selected parameter" (above the
+the selected rows in either table. The parameter table lists each shared parameter followed by its
+copies (`↳ ds1.thickness_mean_tl`, ...), and the Dataset column says which dataset a copy belongs to
+(and which copy a per-film one follows), "shared" for one value for all, or "per film: 2 films, 3
+datasets" / "per dataset: 3" for a parameter that every dataset replaces with its own copy. Such a
+parameter is a master row (bold, its Value shows the copies' range): its Fit box fits every copy that
+is not linked (one per film for per-film parameters), its Min / Max set all their bounds; values are
+edited in the copies' rows. Show "selected dataset" lists only what the dataset picked in the list
+uses (its copies and the shared parameters). "Colour by selected parameter" (above the
 rod plot, on by default; untick for the plain red curve): the model curve is coloured by how much
 |F| changes when the parameter selected in the table moves by ±1σ (its fit error; before a fit, a
 small step: 2 % of the value, at most 1 % of its range), red for no change to blue for the largest

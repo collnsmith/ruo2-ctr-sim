@@ -123,12 +123,16 @@ def prepare(model, datasets, per_dataset=(), per_film=()):
 
 
 def _prepare_scales(model, datasets):
-    """Several datasets: give each a scope and a scale before the subsets are made."""
+    """Several datasets: give each a scope and its own scale before the subsets are made. The copies are
+    fitted when the shared scale was (which then stands for them and is no longer fitted itself)."""
     if len(datasets) > 1:
+        g = model.params["scale"]
         for i, ds in enumerate(datasets):
             ds.scope = ds.scope or f"ds{i + 1}"
             n = f"{ds.scope}.scale"
             if n not in model.params:
-                g = model.params["scale"]
-                model.params.add(name=n, value=g.value, min=g.min, max=g.max, fit=False, unit=g.unit, group="scale",
+                model.params.add(name=n, value=g.value, min=g.min, max=g.max, fit=g.fit, unit=g.unit, group="scale",
                                  description=f"Scale of dataset {ds.name}")
+            elif g.fit and not model.params[n].linked:
+                model.params[n].fit = True
+        g.fit = False

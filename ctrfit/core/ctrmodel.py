@@ -80,6 +80,9 @@ class CTRModel:
         self.relax_top = dict(M_6f=p["relax_M6f"], O_br=p["relax_Obr"], O_ip=p["relax_Oip"],
                               M_cus_vacant=p["relax_Mcus_vac"])
         self.extra_layers = parse_extra_layers(p["extra_layers"])
+        # interface polar shift: cation minus anion along [110], O moved by -shift, tapering from the interface
+        self.polar_A, self.polar_sub_A = float(p["polar_A"]), float(p["polar_sub_A"])
+        self.polar_tl, self.polar_sub_tl = max(float(p["polar_tl"]), 1e-9), max(float(p["polar_sub_tl"]), 1e-9)
         self.ns_tl = max(0, int(round(p["ns_tl"])))                 # near-surface oxygen
         self.ns_B_O, self.ns_du = float(p["ns_B_O"]), float(p["ns_du"])
         self.electrolyte = dict(on=p["water_on"], rho=p["water_rho"], z0=p["water_z0"],
@@ -157,6 +160,42 @@ class CTRModel:
     def ns_on(self):
         return self.ns_tl > 0 and (self.ns_B_O != 0 or self.ns_du != 0)
 
+    # ------------------------------------------------------------------ interface polar shift
+    POLAR_O = ("O_ip", "O_br", "O_br_lo")          # the lattice O of a trilayer (they move; the metals stay)
+    POLAR_EPS = 1e-3                                # the decay reaches 0 (smoothly) where exp(-n / length) = this
+
+    @classmethod
+    def polar_weight(cls, n, length):
+        """Weight of the polar shift in the n-th trilayer from the interface (n = 0 at the interface): exp(-n /
+        length), lowered so it reaches 0 continuously at exp(-n / length) = POLAR_EPS (no jump for a fit)."""
+        e = cls.POLAR_EPS
+        return max(0.0, (np.exp(-n / length) - e) / (1 - e))
+
+    def polar_film_shift(self, k):
+        """Polar shift (Å) of film trilayer k (k = 1: the first RuO2 trilayer); 0 when off."""
+        return self.polar_A * self.polar_weight(k - 1, self.polar_tl) if self.polar_A else 0.0
+
+    def polar_sub_shifts(self):
+        """[(j, shift)] for the substrate trilayers j = 0 (top, z = 0), 1, ... that the shift reaches."""
+        if not self.polar_sub_A:
+            return []
+        out, j = [], 0
+        while self.polar_weight(j, self.polar_sub_tl) > 0:
+            out.append((j, self.polar_sub_A * self.polar_weight(j, self.polar_sub_tl)))
+            j += 1
+        return out
+
+    def polar_sub_atoms(self, shifted):
+        """The lattice O of the substrate trilayers the polar shift reaches (at their heights), as they are
+        (shifted=False) or moved by -shift (shifted=True); with their CTR absorption weights in occ."""
+        at = self._new()
+        for j, dz in self.polar_sub_shifts():
+            w = float(np.exp(-self.alpha_abs * (j // 2)))       # the cell's weight in the CTR sum
+            relax = {name: -dz for name in self.POLAR_O} if shifted else None
+            self.add_trilayer(at, "Ti", j % 2, -j * self.D_SUB, self.D_SUB, self.p["tio2_u"], w, self.B_SUB["M"],
+                              self.B_SUB["O"], f"sub_polar{j}", skip=("M_6f", "M_cus"), relax=relax)
+        return self._done(at)
+
     def near_surface(self, k, n_film):
         """True for trilayers k in the near-surface region: the top ns_tl trilayers of a film of
         n_film trilayers, and every (partly occupied) trilayer above it."""
@@ -178,8 +217,10 @@ class CTRModel:
             on = o - e
             p_ = k % 2
             if on > 1e-9:
+                dz = self.polar_film_shift(k)
                 self.add_trilayer(at, "Ru", p_, z0, d_k, u + (self.ns_du if ns else 0.0), on, BF["M"],
-                                  BF["O"] + (self.ns_B_O if ns else 0.0), f"L{k}")
+                                  BF["O"] + (self.ns_B_O if ns else 0.0), f"L{k}",
+                                  relax={name: -dz for name in self.POLAR_O} if dz else None)
             if e <= 1e-9:
                 continue
             self.add_exposed_layer(at, p_, z0, d_k, e, comp, theta, f"L{k}s", ns=bool(ns))
@@ -240,7 +281,11 @@ class CTRModel:
 
     def F_sub(self, H, K, L):
         L = np.atleast_1d(np.asarray(L, float))
-        return self.sf_atoms(self.SUB_CELL, H, K, L) / (1 - np.exp(-2j * np.pi * L - self.alpha_abs))
+        F = self.sf_atoms(self.SUB_CELL, H, K, L) / (1 - np.exp(-2j * np.pi * L - self.alpha_abs))
+        if self.polar_sub_shifts():                 # the top trilayers' O moved by the interface polar shift
+            F = F + self.sf_atoms(self.polar_sub_atoms(True), H, K, L) - self.sf_atoms(self.polar_sub_atoms(False),
+                                                                                      H, K, L)
+        return F
 
     def exposed_planes(self, n_film=None):
         _, z, _, _, _, e = self.film_layers(self.n_film if n_film is None else n_film)
@@ -414,6 +459,9 @@ class CTRModel:
         elif self.relax_001 > 0:
             lines.append(f"Relaxation: film ({self.n_film} trilayers) is not thicker than the commensurate "
                          f"part ({self.n_coherent} trilayers), so it is treated as commensurate")
+        if self.polar_A or self.polar_sub_A:
+            lines.append(f"Interface polar shift (cation - anion along [110], O moved down): RuO2 {self.polar_A:+.3f} Å "
+                         f"(decay {self.polar_tl:g} TL), TiO2 {self.polar_sub_A:+.3f} Å (decay {self.polar_sub_tl:g} TL)")
         ru = self.f_anom.get("Ru", (0.0, 0.0))
         lines.append(f"Anomalous terms: {self.anom_src}; Ru f' = {ru[0]:+.3f}, f'' = {ru[1]:.3f}")
         if self.electrolyte["on"]:

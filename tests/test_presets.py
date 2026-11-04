@@ -87,3 +87,65 @@ def test_shipped_rao2017_preset():
     ev = m.evaluator(ds[0].H, ds[0].K, ds[0].L, scope=ds[0].scope)
     assert np.all(np.isfinite(ev()))
     assert json.loads((PRESETS / "rao2017_RuO2_110_acid_low_potential.json").read_text())["notes"]
+
+
+# ---------------------------------------------------------------------------- rules by film thickness
+def test_fields_for_thickness_then_potential():
+    from ctrfit.fit.presets import fields_for
+    spec = dict(value=1.0, min=0.0, max=5.0, fit=False, by_thickness=[[5.5, None, dict(value=2.0, fit=True)]],
+                by_potential=[[0.6, None, 3.0]])
+    assert fields_for(spec, None, 4.0) == dict(value=1.0, min=0.0, max=5.0, fit=False)
+    assert fields_for(spec, 0.2, 7.0) == dict(value=2.0, min=0.0, max=5.0, fit=True)
+    assert fields_for(spec, 0.7, 7.0)["value"] == 3.0 and fields_for(spec, 0.7, 7.0)["fit"]   # potential last
+    assert value_for(spec, None, 7.0) == 2.0
+    with pytest.raises(ValueError, match="min nm, max nm, value"):
+        check_preset(dict(parameters=dict(theta=dict(by_thickness=[[0, 1]]))))
+    with pytest.raises(ValueError, match="sets only"):
+        check_preset(dict(parameters=dict(theta=dict(by_thickness=[[0, 1, dict(vaule=1)]]))))
+
+
+def test_values_by_thickness_land_on_each_films_copy():
+    """Two 7 nm datasets and a 4 nm one: a fixed parameter whose rule differs between the films gets per-film
+    copies; the 7 nm film's copy takes the rule (value, bounds, fit), the other 7 nm dataset follows it."""
+    m, ds = truth_model(), _datasets()
+    preset = dict(per_film="relax_001, roughness_tl", parameters=dict(
+        relax_001=dict(value=0.0, fit=False, by_thickness=[[5.5, None, dict(value=0.3, max=0.8, fit=True)]]),
+        roughness_tl=dict(value=0.5, min=0.2, max=1.5, fit=True, by_thickness=[[5.5, None, 0.65]])))
+    assert not apply_preset(m, ds, preset)
+    P = m.params
+    assert P["ds1.relax_001"].value == 0.3 and P["ds1.relax_001"].fit and P["ds1.relax_001"].max == 0.8
+    assert P["ds2.relax_001"].linked and P["ds2.relax_001"].expr == "ds1.relax_001"            # same film
+    assert P["ds3.relax_001"].value == 0.0 and not P["ds3.relax_001"].fit                       # 4 nm
+    assert P["ds1.roughness_tl"].value == 0.65 and P["ds3.roughness_tl"].value == 0.5
+    v1, v3 = P.view("ds2"), P.view("ds3")
+    assert v1["relax_001"] == 0.3 and v3["relax_001"] == 0.0
+
+
+def test_one_dataset_takes_its_rules_and_a_shared_varying_parameter_is_noted():
+    m, ds = truth_model(), _datasets()
+    spec = dict(value=0.1, max=0.5, by_thickness=[[5.5, None, 0.3]], by_potential=[[0.6, None, 0.4]])
+    apply_preset(m, [ds[0]], dict(parameters=dict(relax_001=spec)))         # 7 nm at 0.35 V
+    assert m.params["relax_001"].value == 0.3
+    m = truth_model()
+    apply_preset(m, [ds[1]], dict(parameters=dict(relax_001=spec)))         # 7 nm at 0.7 V: potential wins
+    assert m.params["relax_001"].value == 0.4
+    m, ds = truth_model(), _datasets()
+    notes = apply_preset(m, ds, dict(parameters=dict(relax_001=spec)), per_dataset=[], per_film=[])
+    assert any("relax_001" in n and "shared" in n for n in notes) and m.params["relax_001"].value == 0.1
+
+
+def test_shipped_film_preset_after_the_surface_one():
+    m, ds = truth_model(), _datasets()
+    apply_preset(m, ds, read_preset(PRESETS / "rao2017_RuO2_110_acid_low_potential.json"))
+    notes = apply_preset(m, ds, read_preset(PRESETS / "jeong2026_RuO2_TiO2_110_films.json"))
+    assert not notes
+    P = m.params
+    assert P["ds2.z_H2O"].value == 2.4                                       # the surface preset's copies stay
+    assert P["ds3.eps_perp"].value == 1.65 and P["ds3.eps_perp"].min == 1.3 and P["ds1.eps_perp"].min == 1.0
+    assert P["ds1.relax_001"].fit and P["ds1.coherent_tl"].value == 19 and not P["ds3.relax_001"].fit
+    assert P["ds3.roughness_tl"].value == 0.51 and P["ds1.roughness_tl"].value == 0.65
+    assert P["interface_A"].value == 3.24 and not P["interface_A"].fit
+    assert P["polar_A"].value == 0.085 and P["polar_sub_tl"].value == 5.0 and not P["polar_A"].fit
+    for d in ds:
+        ev = m.evaluator(d.H, d.K, d.L, scope=d.scope)
+        assert np.all(np.isfinite(ev()))

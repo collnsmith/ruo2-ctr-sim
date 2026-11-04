@@ -8,8 +8,11 @@ with A the structure factor of a full buried trilayer, S that of an exposed tril
 species), on_k / e_k the buried / exposed occupancy of trilayer k for film thickness n, P_k the
 in-plane parity phase (-1)^(K k) and z_k the trilayer heights. A and S are built with the same
 CTRModel methods (add_trilayer, add_exposed_layer) as the reference engine. A buried and a relaxed
-(top) region have their own A and S, and so do trilayers in the near-surface oxygen region (An, Sn). Every intermediate is cached by the exact content it depends
-on (atom lists, heights, occupancies), so only what changed is recomputed.
+(top) region have their own A and S, and so do trilayers in the near-surface oxygen region (An, Sn). The
+interface polar shift (lattice O of the first trilayers moved) adds, for each buried trilayer it reaches, the
+change of that trilayer's A times its phase and buried occupancy, and to the substrate the change of its top
+trilayers. Every intermediate is cached by the exact content it depends on (atom lists, heights, occupancies),
+so only what changed is recomputed.
 """
 import numpy as np
 
@@ -107,8 +110,42 @@ class FastCTR:
 
     def substrate(self, m):
         def build():
-            return self.sf(m.SUB_CELL, "b", m) / (1 - np.exp(-2j * np.pi * self.pts.L - m.alpha_abs))
-        return self._cached("sub", _key(_atoms_key(m.SUB_CELL), m.alpha_abs, m.A1, m.A2, m.C3, m.f_anom), build)
+            F = self.sf(m.SUB_CELL, "b", m) / (1 - np.exp(-2j * np.pi * self.pts.L - m.alpha_abs))
+            if m.polar_sub_shifts():                 # the top trilayers' O moved by the interface polar shift
+                F = F + self.sf(m.polar_sub_atoms(True), "b", m) - self.sf(m.polar_sub_atoms(False), "b", m)
+            return F
+        return self._cached("sub", _key(_atoms_key(m.SUB_CELL), m.alpha_abs, m.A1, m.A2, m.C3, m.f_anom,
+                                        m.polar_sub_A, m.polar_sub_tl), build)
+
+    def _polar_film(self, m, lay):
+        """{unit: (points, thicknesses)} change of the film F from the interface polar shift: for each buried
+        trilayer it reaches, (A with its O moved - A) x its phase x its buried occupancy, per unit type
+        (b / t / bn / tn as in the blocks). Empty when the shift is off."""
+        if not m.polar_A:
+            return {}
+        ks = lay["ks"]
+        shifts = np.array([m.polar_film_shift(int(k)) for k in ks])
+        rows = np.flatnonzero(shifts != 0)
+        out = {}
+        for u, top, ns in (("b", False, False), ("t", True, False), ("bn", False, True), ("tn", True, True)):
+            C = lay["blk"][f"on_{u}"][rows]
+            if not rows.size or not np.any(C):
+                continue
+            region = "t" if top else "b"
+            unit = self._unit_bulk(m, top, ns)
+            O = {k: v[unit["el"] == "O"] for k, v in unit.items()}
+
+            def build(O=O, region=region):
+                qz, _, _ = self._qf(m, region)
+                par = np.where(ks[rows] % 2 == 1, self.pts.parity_odd[:, None], 1.0)
+                base = self.sf(O, region, m)
+                dA = np.column_stack([self.sf(dict(O, z=O["z"] - shifts[r]), region, m) - base for r in rows])
+                return np.exp(1j * np.outer(qz, lay["z"][rows])) * par * dA
+            a1 = m.a1_top if top else m.A1
+            G = self._cached(f"polar_{u}{'r' if lay['relaxed'] else 'c'}",
+                             _key(lay["z"][rows], ks[rows], shifts[rows], _atoms_key(O), a1, m.A2, m.C3, m.f_anom), build)
+            out[u] = G @ C
+        return out
 
     def _unit_bulk(self, m, top, ns=False):
         at = m._new()
@@ -171,7 +208,7 @@ class FastCTR:
                 blk["e"][:kk, j] = e
             top_any = blk["on_t"] + blk["ex_t"] + blk["on_tn"] + blk["ex_tn"]
             ns_any = blk["on_bn"] + blk["ex_bn"] + blk["on_tn"] + blk["ex_tn"]
-            out.append(dict(relaxed=relaxed, nw=nw, ks=ks, z=z, top=top,
+            out.append(dict(relaxed=relaxed, nw=nw, ks=ks, z=z, top=top, blk=blk,
                             C=np.hstack([blk[b] for b in BLOCKS]),
                             has_top=[bool(np.any(top_any[:, j] > 0)) for j in range(len(nw))],
                             has_ns=bool(np.any(ns_any > 0))))
@@ -230,14 +267,17 @@ class FastCTR:
             nn = len(lay["nw"])
             Ub = {b: U[:, i * nn:(i + 1) * nn] for i, b in enumerate(BLOCKS)}
             ns = lay["has_ns"]
+            pol = self._polar_film(m, lay)
             for j, (_, wn) in enumerate(lay["nw"]):
                 Fel = amp * Ub["e"][:, j] if el_on else 0.0
+                Fpb = sum(pol[u][:, j] for u in ("b", "bn") if u in pol)
+                Fpt = sum(pol[u][:, j] for u in ("t", "tn") if u in pol)
                 for (_, ws), s in zip(states, S):
-                    Fb = A["b"] * Ub["on_b"][:, j] + s["b"] * Ub["ex_b"][:, j] + Fel
+                    Fb = A["b"] * Ub["on_b"][:, j] + s["b"] * Ub["ex_b"][:, j] + Fel + Fpb
                     if ns:
                         Fb = Fb + A["bn"] * Ub["on_bn"][:, j] + s["bn"] * Ub["ex_bn"][:, j]
                     if lay["has_top"][j]:
-                        Ft = A["t"] * Ub["on_t"][:, j] + s["t"] * Ub["ex_t"][:, j]
+                        Ft = A["t"] * Ub["on_t"][:, j] + s["t"] * Ub["ex_t"][:, j] + Fpt
                         if ns:
                             Ft = Ft + A["tn"] * Ub["on_tn"][:, j] + s["tn"] * Ub["ex_tn"][:, j]
                         Ib = np.abs(Fs + Fb) ** 2

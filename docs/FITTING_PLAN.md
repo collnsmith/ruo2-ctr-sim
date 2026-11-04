@@ -32,6 +32,14 @@ Open issues found while building phases 0 to 5:
 - MCMC samples exp(-chi2/2); when the model misfits (reduced chi2 >> 1) use
   `mcmc(..., temper_by_red_chi2=True)` to match the scaled covariance errors.
 - Tests block xraydb so pinned numbers do not depend on the machine; real fits use xraydb if installed.
+- Defaults are the commensurate film ([1-10] strain 2.27 %, eps_perp 1.65 %, interface_A fit bounds
+  3.0 to 3.5 Å; `tests/reference.npz` regenerated for the eps_perp change). An interface polar shift
+  (`polar_A`, `polar_sub_A` and their decay lengths; off by default) moves the O next to the interface.
+  Presets set values per film thickness (`by_thickness`); `presets/fit/jeong2026_RuO2_TiO2_110_films.json`.
+- Real data (4.1 nm, 0 V): the rods' levels differed up to 7x between the H + K odd and even rods, more
+  than any film or O parameter within the published ranges gives. Free rod scales (wide bounds, no
+  penalty) fit the shapes with the published film values; check the normalisation (attenuators, count
+  rate) before reading the odd / even level ratio as surface structure.
 - The cloud image needs `pip install nvidia-cuda-runtime-cu12 emcee` for the CUDA-simulator, PTX and
   MCMC tests to run instead of skipping.
 

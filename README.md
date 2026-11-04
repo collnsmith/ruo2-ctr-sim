@@ -225,19 +225,28 @@ python -m ctrfit fit model.json data.csv --out fit_results
     model variant against the OH / H2O one by BIC.
 - Per dataset (default): `theta, x_OH, x_O, x_SO4, ns_B_O, ns_du, dz_Obr, t_liquid` (what the
   potential, or the cell, changes); per film (default): `thickness_mean_tl, thickness_spread_tl,
-  roughness_tl, eps_perp, relax_001, coherent_tl, b_top_extra, interface_A, b_film_Ru, b_film_O` (the
-  sample). Only the ticked ones get copies; everything else free is shared, e.g. the species heights
+  roughness_tl, eps_perp, relax_001, coherent_tl, b_top_extra, interface_A, polar_A, polar_sub_A, b_film_Ru,
+  b_film_O` (the sample). Only the ticked ones get copies; everything else free is shared, e.g. the species heights
   and B factors (properties of a species, not of the potential), the substrate and the window.
 - Parameter presets (File, "Apply parameter preset…", JSON files in `presets/fit/`): start values,
   bounds and fit flags, and the Per dataset / Per film lists, applied to the current model (its
   settings stay). With the datasets loaded, each dataset's copy gets the value for its potential
-  (`by_potential` rules; a dataset without a potential, OCV, takes the plain value). Shipped:
+  (`by_potential` rules) and its film thickness (`by_thickness` rules, matched to the dataset's
+  `thickness_nm`; a per-film copy takes its film's). A rule's last item is a value or an object of
+  value / min / max / fit, so a rule can also free a parameter for one film only. A dataset without a
+  potential (OCV) or thickness takes the plain value; with one dataset the rules apply to the
+  parameters themselves. Shipped:
   `rao2017_RuO2_110_acid_low_potential.json`, from the in situ CTR of RuO2(110) in 0.1 M HClO4 by Rao
   et al., Energy Environ. Sci. 10, 2626 (2017): one effective CUS species (x_OH = 0) whose height
   z_H2O is fitted per dataset from 2.65 Å (2.4 Å near 0.7 V), theta 0.95, protonated bridging O
   dz_Obr +0.35 Å (+0.2 near 0.7 V), CUS Ru -0.07 Å, z_OH 2.07 Å fixed, Kapton 7.6 µm fixed, t_liquid
   fitted; the file's notes (also in the Log tab) say where each value comes from. Potentials in V vs
-  RHE. Write your own the same way.
+  RHE. And `jeong2026_RuO2_TiO2_110_films.json`, film values for hybrid-MBE RuO2/TiO2(110) from Jeong
+  et al., PNAS (2026) and its SI (arXiv:2405.05838): eps_perp 1.65 % (1.3 to 2.0), roughness from AFM
+  (0.51 TL at 4 nm, 0.65 TL at 7 nm), interface_A 3.24 Å fixed, no relaxation below 5.5 nm and a relaxed
+  top (relax_001 fitted, coherent_tl 19) above, the measured interface polar shift (fixed). It holds
+  only film parameters, so apply a surface preset (Rao 2017) as well; the order does not matter. Write
+  your own the same way.
 - Less starting guess. The global search only needs bounds that bracket the answer:
   - The dataset scales are solved exactly for every trial of differential evolution (on by default,
     `run_de(solve_scales=False)` / "Solve scales exactly" in the window to search them instead).
@@ -299,6 +308,26 @@ parameter (`ns_du`). It models a change of the oxide below the surface, e.g. pro
 (the two Ru of the cell cancel), so this lowers both flanks of those peaks while the H + K even rods
 barely change; a change of the CUS species instead flips sign across a Bragg peak. Both values are
 fit parameters (`ns_B_O`, `ns_du`); `ns_tl` is a setting. With both at 0 the model is unchanged.
+
+## Film / substrate interface
+
+`interface_A` is the spacing from the top TiO2 metal plane to the first RuO2 metal plane (0 in the
+settings = the mean of the two (110) spacings, 3.24 Å for the default commensurate film; fit bounds
+3.0 to 3.5 Å). The defaults are the commensurate film: [1-10] strain +2.27 % (a(TiO2) / a(RuO2) - 1),
+out-of-plane strain +1.65 % (the elastic value; about 1.5 to 1.9 % in the 4 nm RSM of Jeong et al.;
+Ruf et al. 2021 measured +2.0 %).
+
+The interface polar shift (`polar_A`, `polar_sub_A`, Å; settings in the Film group) moves the lattice
+oxygen of the trilayers next to the interface against their cations: the n-th RuO2 trilayer above the
+interface (n = 0, 1, ...) has cation minus anion = `polar_A` x exp(-n / `polar_tl`) along [110] (+ points
+from TiO2 into RuO2), and the n-th TiO2 trilayer below it `polar_sub_A` x exp(-n / `polar_sub_tl`); the
+decay goes smoothly to 0 where the exponential falls below 0.001. The cations stay, so `interface_A` keeps
+its meaning. Only buried trilayers are moved (an exposed top trilayer keeps its surface structure). Jeong
+et al. (SI Figs. S10, S11, electron ptychography of 2.3 nm RuO2 buried in TiO2) measured about +0.085 Å
+decaying over about 1.5 trilayers in the RuO2 (metallic, screened) and +0.063 Å over about 5 in the
+TiO2. Off by default (both amplitudes 0). On the H + K odd rods, where the two cations of a trilayer
+cancel and the O carry the rod, those values change |F| by 5 to 10 % (up to about 35 % near minima); on
+the even rods by about 1 %.
 
 ## In-situ CV analysis
 

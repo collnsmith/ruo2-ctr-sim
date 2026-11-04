@@ -1,0 +1,27 @@
+{
+  "name": "RuO2/TiO2(110) hMBE films (Jeong et al. 2026)",
+  "notes": [
+    "Film and interface start values from Jeong et al., 'Altermagnetic polar metallic phase in ultra-thin epitaxially strained RuO2 films', PNAS (2026), main text and SI (arXiv:2405.05838): hybrid-MBE RuO2 on TiO2(110), the same growth as 4 and 7 nm films measured there.",
+    "Strain: 4 nm fully strained along [001] and [1-10] (RSMs at (310) and (332)); [001] relaxation from 6 nm (Fig. S3); [1-10] only partly relaxed at 17 nm. So no relaxation below 5.5 nm, and for thicker films a relaxed top above about 19 TL (6.1 nm) with relax_001 fitted. coherent_tl is a whole number of trilayers (least squares cannot move it): change it by hand or with DE.",
+    "eps_perp 1.65 %: the elastic value for a commensurate film, and d110 of about 3.23 A in the 4 nm (310) RSM (about 1.5 to 1.9 %, read off Fig. 2b). In this model it is the strain of the commensurate part, so it stays near 1.65 % for 7 nm too (the relaxed top gets its own spacing).",
+    "roughness_tl: AFM Sq 0.166 nm (4 nm film) and 0.209 nm (7 nm film), Fig. S1, i.e. 0.51 and 0.65 TL. AFM is ex situ and before electrochemistry, so the bounds allow up to 1.5 TL.",
+    "interface_A: no spacing is given; 3.24 A is the mean of the two (110) spacings. The measured polar shift changes the cation positions by at most about 0.1 A, so it is fixed with bounds 3.0 to 3.5 A.",
+    "polar_A / polar_sub_A: cation - anion displacement along [110], pointing from TiO2 into RuO2, from multislice electron ptychography (Figs. S10, S11): about 8.5, 5.5, 2, 0.7 pm in the first RuO2 planes (decay about 1.5 TL; metallic RuO2 screens) and 6.3, 5.6, 4.1, 4.5, 3 pm in the top TiO2 planes (decay about 5 TL). Measured in a 2.3 nm RuO2 layer buried in TiO2, not on an open film: fixed here; compare the fit with them at 0.",
+    "Only film parameters: apply a surface preset (e.g. Rao 2017) before or after this one; its Per dataset list is kept."
+  ],
+  "per_film": "thickness_mean_tl, thickness_spread_tl, roughness_tl, eps_perp, relax_001, coherent_tl, b_top_extra, interface_A, polar_A, polar_sub_A, b_film_Ru, b_film_O",
+  "parameters": {
+    "eps_perp": {"value": 1.65, "min": 1.3, "max": 2.0, "fit": true,
+                 "by_thickness": [[5.5, null, {"min": 1.0}]]},
+    "roughness_tl": {"value": 0.51, "min": 0.2, "max": 1.5, "fit": true,
+                     "by_thickness": [[5.5, null, 0.65]]},
+    "interface_A": {"value": 3.24, "min": 3.0, "max": 3.5, "fit": false},
+    "relax_001": {"value": 0.0, "fit": false,
+                  "by_thickness": [[5.5, null, {"value": 0.3, "min": 0.0, "max": 1.0, "fit": true}]]},
+    "coherent_tl": {"by_thickness": [[5.5, null, {"value": 19.0, "fit": false}]]},
+    "polar_A": {"value": 0.085, "min": -0.3, "max": 0.3, "fit": false},
+    "polar_sub_A": {"value": 0.063, "min": -0.3, "max": 0.3, "fit": false},
+    "polar_tl": {"value": 1.5, "min": 0.3, "max": 10.0, "fit": false},
+    "polar_sub_tl": {"value": 5.0, "min": 0.3, "max": 10.0, "fit": false}
+  }
+}

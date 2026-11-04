@@ -96,6 +96,8 @@ def test_every_parameter_changes_the_model(name):
     assert p.unit is not None and p.description, name
     model.params["wl_occ"].value = 0.5            # the default layer is empty
     model.params["x_SO4"].value = 0.2             # and the default surface has no sulfate
+    model.params["polar_A"].value = 0.1           # nor an interface polar shift (its decay lengths act only with it)
+    model.params["polar_sub_A"].value = 0.05
     L = np.linspace(0.31, 3.5, 60)
     rods = [(0, 0), (0, 1), (1, 1)]
     before = np.concatenate([model.F(H, K, L) for H, K in rods])

@@ -53,7 +53,7 @@ PRESET_DIR = Path(__file__).resolve().parents[2] / "presets" / "fit"     # param
 # Only the parameters that are fitted get copies; the rest stay shared until they are ticked.
 PER_DATASET_DEFAULT = "theta, x_OH, x_O, x_SO4, ns_B_O, ns_du, dz_Obr, t_liquid"
 PER_FILM_DEFAULT = ("thickness_mean_tl, thickness_spread_tl, roughness_tl, eps_perp, relax_001, coherent_tl, "
-                    "b_top_extra, interface_A, b_film_Ru, b_film_O")
+                    "b_top_extra, interface_A, polar_A, polar_sub_A, b_film_Ru, b_film_O")
 SCAN_COLS = ("Fit", "Scan", "Rod", "Points", "L", "Film", "Condition", "File", "Group")
 
 
@@ -1238,7 +1238,7 @@ class FitWindow(QtWidgets.QMainWindow):
 
     def apply_preset(self, path=None):
         """Start values, bounds, fit flags and the Per dataset / Per film lists from a preset (JSON), on the
-        current model and, with several datasets, on each dataset's copies (values by potential)."""
+        current model and, with several datasets, on each dataset's copies (values by potential / thickness)."""
         if self.worker is not None:
             self.say("A fit is running.")
             return None
@@ -1253,10 +1253,11 @@ class FitWindow(QtWidgets.QMainWindow):
         except (OSError, ValueError, KeyError) as ex:
             self.warn("Could not read the preset", f"{path}: {ex}")
             return None
+        text = lambda x: x if isinstance(x, str) else ", ".join(map(str, x))      # a list or 'a, b'
         if preset.get("per_dataset"):
-            self.per_dataset.setText(preset["per_dataset"])
+            self.per_dataset.setText(text(preset["per_dataset"]))
         if preset.get("per_film"):
-            self.per_film.setText(preset["per_film"])
+            self.per_film.setText(text(preset["per_film"]))
         try:
             notes = apply_preset(self.model, self.datasets, preset, self._per_dataset(), self._per_film())
         except (ValueError, KeyError) as ex:

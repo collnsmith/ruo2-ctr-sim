@@ -1,6 +1,7 @@
 """Parameter presets: start values, bounds and fit flags (and the Per dataset / Per film lists) applied
 to the current model, which keeps its settings (energy, lattice, ...). A value can depend on the
-dataset's potential: its copy in each dataset takes the rule that matches the dataset's potential_V.
+dataset's potential (by_potential, matched to potential_V) or on its film thickness (by_thickness, matched
+to thickness_nm): each dataset's copy takes the rule that matches it.
 
 A preset is a JSON file:
 
@@ -11,20 +12,28 @@ A preset is a JSON file:
          "z_OH":   {"value": 2.07, "fit": false},
          "theta":  {"value": 0.95, "min": 0.7, "max": 1.0, "fit": true},
          "dz_Obr": {"value": 0.35, "min": -0.1, "max": 0.5, "fit": true,
-                    "by_potential": [[0.6, 0.9, 0.2]]}}}       # [min V, max V, value]; null = open end
+                    "by_potential": [[0.6, 0.9, 0.2]]},          # [min V, max V, value]; null = open end
+         "relax_001": {"value": 0, "fit": false,
+                       "by_thickness": [[5.5, null, {"value": 0.3, "max": 1, "fit": true}]]}}}
+                                                                # [min nm, max nm, value or {value, min, max, fit}]
 
     notes = apply_preset(model, datasets, read_preset(path))
 
-With several datasets the per-dataset and per-film copies of the preset's fitted parameters are made
-first (workflow.prepare), so the potential rules land on each dataset's own copy. A dataset without a
-potential (OCV) takes the plain value.
+A rule's last item is a value or an object of value / min / max / fit. The plain fields apply first, then a
+matching by_thickness rule, then a matching by_potential rule (the first match of each). With several
+datasets the per-dataset and per-film copies are made first (workflow.prepare) for the preset's fitted
+parameters and for those whose rules differ between the datasets, so the rules land on each dataset's own
+copy (a per-film copy takes its film's thickness). With one dataset the rules apply to the parameters
+themselves. A dataset without a potential (OCV) or thickness takes the plain fields.
 """
 import json
 import math
 
 from . import workflow
 
-FIELDS = ("value", "min", "max", "fit", "by_potential")
+FIELDS = ("value", "min", "max", "fit", "by_potential", "by_thickness")
+RULE_FIELDS = ("value", "min", "max", "fit")
+RULES = (("by_thickness", "min nm, max nm, value"), ("by_potential", "min V, max V, value"))
 
 
 def read_preset(path):
@@ -42,9 +51,12 @@ def check_preset(preset):
         unknown = set(spec) - set(FIELDS)
         if unknown:
             raise ValueError(f"preset {name}: unknown fields {sorted(unknown)} (use {', '.join(FIELDS)})")
-        for rule in spec.get("by_potential", ()):
-            if len(rule) != 3:
-                raise ValueError(f"preset {name}: by_potential rules are [min V, max V, value]")
+        for key, form in RULES:
+            for rule in spec.get(key, ()):
+                if len(rule) != 3:
+                    raise ValueError(f"preset {name}: {key} rules are [{form}]")
+                if isinstance(rule[2], dict) and set(rule[2]) - set(RULE_FIELDS):
+                    raise ValueError(f"preset {name}: a {key} rule sets only {', '.join(RULE_FIELDS)}")
     return preset
 
 
@@ -55,13 +67,39 @@ def _names(names):
     return [n.strip() for n in str(names or "").replace(";", ",").split(",") if n.strip()]
 
 
-def value_for(spec, potential):
-    """The preset value for a dataset at this potential (None: no potential, the plain value)."""
-    if potential is not None:
-        for lo, hi, v in spec.get("by_potential", ()):
-            if (lo is None or potential >= lo) and (hi is None or potential <= hi):
-                return float(v)
-    return spec.get("value")
+def _match(rules, x):
+    """The fields of the first rule [lo, hi, value or {fields}] that contains x (None: no match)."""
+    if x is None:
+        return None
+    for lo, hi, v in rules:
+        if (lo is None or x >= lo) and (hi is None or x <= hi):
+            return dict(v) if isinstance(v, dict) else dict(value=float(v))
+    return None
+
+
+def fields_for(spec, potential=None, thickness=None):
+    """value / min / max / fit for a dataset at this potential (V) and film thickness (nm): the plain fields,
+    then the matching by_thickness rule, then the matching by_potential rule."""
+    out = {k: spec[k] for k in RULE_FIELDS if k in spec}
+    for key, x in (("by_thickness", thickness), ("by_potential", potential)):
+        hit = _match(spec.get(key, ()), x)
+        if hit:
+            out.update(hit)
+    return out
+
+
+def value_for(spec, potential, thickness=None):
+    """The preset value for a dataset at this potential and thickness (None: the plain value)."""
+    return fields_for(spec, potential, thickness).get("value")
+
+
+def _number(x):
+    return None if x is None or (isinstance(x, float) and math.isnan(x)) else float(x)
+
+
+def dataset_keys(ds):
+    """(potential V, thickness nm) of a dataset for the preset rules; None where unknown."""
+    return _number(ds.meta.get("potential_V")), _number(ds.meta.get("thickness_nm"))
 
 
 def _set(p, spec, value, notes):
@@ -86,28 +124,35 @@ def _set(p, spec, value, notes):
 
 def apply_preset(model, datasets=(), preset=None, per_dataset=None, per_film=None):
     """Apply a preset to the model (and to the copies of its datasets). per_dataset / per_film: the lists
-    to make copies for (default: the preset's, else none). Returns notes (unknown names, clipped values)."""
+    to make copies for (default: the preset's, else none). Returns notes (unknown names, clipped values,
+    rules that cannot apply because the parameter is shared)."""
     check_preset(preset)
     P, notes = model.params, []
     datasets = list(datasets)
-    pars = preset["parameters"]
-    for name, spec in pars.items():
+    pars = {n: spec for n, spec in preset["parameters"].items() if n in P}
+    for name in preset["parameters"]:
         if name not in P:
             notes.append(f"{name}: not a parameter of this model (skipped)")
-            continue
-        _set(P[name], spec, spec.get("value"), notes)
-    if len(datasets) > 1:                           # copies for the fitted ones, then the per-potential values
+    keys = [dataset_keys(ds) for ds in datasets]
+    for name, spec in pars.items():                 # one dataset: its rules apply to the parameter itself
+        _set(P[name], fields_for(spec, *keys[0]) if len(datasets) == 1 else spec,
+             value_for(spec, *keys[0]) if len(datasets) == 1 else spec.get("value"), notes)
+    if len(datasets) > 1:                           # copies for the fitted / varying ones, then each one's rules
         per = _names(per_dataset if per_dataset is not None else preset.get("per_dataset"))
         film = [n for n in _names(per_film if per_film is not None else preset.get("per_film")) if n not in per]
-        active = lambda names: [n for n in names if n in P and (P[n].fit or _has_copies(P, n, datasets))]
+        varies = {n for n, spec in pars.items() if len({repr(sorted(fields_for(spec, *k).items())) for k in keys}) > 1}
+        active = lambda names: [n for n in names if n in P and (P[n].fit or n in varies or _has_copies(P, n, datasets))]
         workflow.prepare(model, datasets, active(per), active(film))
-        for ds in datasets:
-            pot = ds.meta.get("potential_V")
-            pot = None if pot is None or (isinstance(pot, float) and math.isnan(pot)) else float(pot)
+        for name in sorted(varies):
+            if not _has_copies(P, name, datasets):
+                notes.append(f"{name}: its values differ by potential or thickness, but it is shared (not in the "
+                             "Per dataset / Per film lists): the plain value is used")
+        for ds, (pot, thick) in zip(datasets, keys):
             for name, spec in pars.items():
                 cn = f"{ds.scope}.{name}"
                 if ds.scope and cn in P:
-                    _set(P[cn], spec, value_for(spec, pot), notes)
+                    f = fields_for(spec, pot, thick)
+                    _set(P[cn], f, f.get("value"), notes)
     return notes
 
 

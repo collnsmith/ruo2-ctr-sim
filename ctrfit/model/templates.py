@@ -23,7 +23,15 @@ _SPECS = [
      "rms lateral thickness spread in trilayers (at least 0.3 TL is used, to keep the fit smooth)"),
     ("roughness_tl", "TL", 0.0, 5.0, True, "film", "rms roughness of the film top in trilayers"),
     ("eps_perp", "%", -5.0, 8.0, True, "film", "Out-of-plane strain of the commensurate film vs bulk RuO2"),
-    ("interface_A", "Å", 1.5, 5.0, False, "film", "Top TiO2 metal plane to first RuO2 metal plane"),
+    ("interface_A", "Å", 3.0, 3.5, False, "film",
+     "Top TiO2 metal plane to first RuO2 metal plane (about 3.24 Å: the mean of the two (110) spacings)"),
+    ("polar_A", "Å", -0.3, 0.3, False, "film",
+     "Interface polar shift in RuO2: cation minus anion along [110] in the first film trilayer (its O move down), "
+     "decaying as exp(-n / polar_tl) into the film (0: off)"),
+    ("polar_sub_A", "Å", -0.3, 0.3, False, "film",
+     "Interface polar shift in TiO2: the same in the top substrate trilayer, decaying with polar_sub_tl (0: off)"),
+    ("polar_tl", "TL", 0.3, 10.0, False, "film", "Decay length of the interface polar shift into the RuO2 film"),
+    ("polar_sub_tl", "TL", 0.3, 10.0, False, "film", "Decay length of the interface polar shift into the TiO2"),
     ("relax_001", "", 0.0, 1.0, False, "film",
      "[001] relaxation of the film above the commensurate part (0 commensurate, 1 bulk)"),
     ("coherent_tl", "TL", 0.0, 300.0, False, "film",
@@ -87,7 +95,8 @@ _DIRECT = {
     "dz_Rucus_OH": "oh_dz", "dz_Rucus_H2O": "h2o_dz", "dz_Rucus_O": "o_dz",
     "z_OH": "oh_z", "z_H2O": "h2o_z", "z_O": "o_z", "B_OH": "oh_B", "B_H2O": "h2o_B", "B_O": "o_B",
     "el_z0": "water_z0", "el_sigma": "water_sigma", "interface_A": "interface_A",
-    "ns_B_O": "ns_B_O", "ns_du": "ns_du",
+    "ns_B_O": "ns_B_O", "ns_du": "ns_du", "polar_A": "polar_A", "polar_sub_A": "polar_sub_A", "polar_tl": "polar_tl",
+    "polar_sub_tl": "polar_sub_tl",
     "z_SO4": "so4_z", "B_SO4": "so4_B", "dz_Rucus_SO4": "so4_dz",
 }
 NOT_SETTINGS = {"t_liquid": 0.0, "t_window": 0.0}      # parameters with no GUI setting (start values)

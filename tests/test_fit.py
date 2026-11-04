@@ -143,7 +143,8 @@ def test_d_degenerate_oh_h2o_mixture_warns():
 _SWEEP_SETTINGS = dict(DEFAULTS, relax_001=0.5, thickness_nm=6.0, coherent_nm=3.0,
                        comp_default="OH=0.3, H2O=0.3, O=0.2", extra_layers="O cus 3.6 0.5 5.0")
 _SO4_GEOMETRY = {"z_SO4", "B_SO4", "dz_Rucus_SO4"}    # no effect without sulfate: their own sweep below
-_SWEEP_SKIP = {"coherent_tl"} | _SO4_GEOMETRY      # coherent_tl: whole trilayers by construction (rounded)
+_SWEEP_SKIP = {"coherent_tl", "polar_tl", "polar_sub_tl"} | _SO4_GEOMETRY  # coherent_tl: whole trilayers
+                                        # (rounded); the polar decay lengths act only with a shift: test_interface.py
 
 
 @pytest.mark.parametrize("name", [n for n in Model.from_settings(_SWEEP_SETTINGS, water_layer=True).params.names

@@ -1,0 +1,50 @@
+[     0 s] 19 well-behaved scans, 13 OH scans
+[     0 s] film leads {'4.1 nm': 'ds1', '7 nm': 'ds17'}
+[   183 s] 1 film + surface on 19 scans, x_OH from 0.1: red chi2 18.14
+[   293 s] 1 film + surface on 19 scans, x_OH from 0.5: red chi2 18.14
+[   428 s] 1 film + surface on 19 scans, x_OH from 0.9: red chi2 18.14
+[   428 s]   film 4.1 nm {'thickness_mean_tl': (10.0, 0.301), 'eps_perp': (1.436, 0.05), 'roughness_tl': (0.627, 0.035), 'thickness_spread_tl': (2.794, 0.229), 'interface_A': (3.11, 0.02)}
+[   428 s]   film 7 nm {'thickness_mean_tl': (24.0, 0.216), 'eps_perp': (0.504, 0.022), 'roughness_tl': (1.263, 0.08), 'thickness_spread_tl': (1.462, 0.136), 'interface_A': (3.355, 0.016)}
+[   450 s] 2A OH (A shared per potential): red chi2 14.47, z_H2O 2.58
+[   530 s]    4.1 nm -0.1 V    x_OH best 0.45, allowed 0.05-1.00
+[   530 s]    7 nm -0.1 V      x_OH best 0.00, allowed 0.00-0.65
+[   530 s]    4.1 nm -0.238 V  x_OH best 0.10, allowed 0.00-0.95
+[   530 s]    4.1 nm 0 V       x_OH best 0.45, allowed 0.05-1.00
+[   530 s]    7 nm 0 V         x_OH best 0.00, allowed 0.00-0.75
+[   530 s]    4.1 nm 0.15 V    x_OH best 0.25, allowed 0.00-0.95
+[   530 s]    7 nm 0.15 V      x_OH best 0.00, allowed 0.00-0.75
+[   530 s]    4.1 nm 0.35 V    x_OH best 0.10, allowed 0.00-0.90
+[   530 s]    7 nm 0.35 V      x_OH best 0.00, allowed 0.00-0.95
+[   530 s]    4.1 nm 0.7 V     x_OH best 0.15, allowed 0.00-0.95
+[   530 s]    7 nm 0.7 V       x_OH best 0.00, allowed 0.00-0.90
+[   530 s]    4.1 nm OCV       x_OH best 0.00, allowed 0.00-0.30
+[   530 s]    7 nm OCV         x_OH best 0.30, allowed 0.00-0.70
+[   550 s] 2B OH (B fixed 0): red chi2 14.47, z_H2O 2.62
+[   564 s]    4.1 nm -0.1 V    x_OH best 0.50, allowed 0.25-0.80
+[   564 s]    7 nm -0.1 V      x_OH best 0.00, allowed 0.00-0.25
+[   564 s]    4.1 nm -0.238 V  x_OH best 0.60, allowed 0.30-0.85
+[   564 s]    4.1 nm 0 V       x_OH best 0.65, allowed 0.35-0.95
+[   564 s]    7 nm 0 V         x_OH best 0.15, allowed 0.00-0.45
+[   564 s]    4.1 nm 0.15 V    x_OH best 0.55, allowed 0.30-0.85
+[   564 s]    7 nm 0.15 V      x_OH best 0.30, allowed 0.00-0.65
+[   564 s]    4.1 nm 0.35 V    x_OH best 0.50, allowed 0.20-0.75
+[   564 s]    7 nm 0.35 V      x_OH best 0.45, allowed 0.10-0.75
+[   564 s]    4.1 nm 0.7 V     x_OH best 0.45, allowed 0.20-0.70
+[   564 s]    7 nm 0.7 V       x_OH best 0.35, allowed 0.10-0.60
+[   564 s]    4.1 nm OCV       x_OH best 0.00, allowed 0.00-0.05
+[   564 s]    7 nm OCV         x_OH best 0.15, allowed 0.00-0.45
+[   576 s] 2C OH (C Rao by potential): red chi2 14.85, z_H2O 2.57
+[   591 s]    4.1 nm -0.1 V    x_OH best 0.90, allowed 0.60-1.00
+[   591 s]    7 nm -0.1 V      x_OH best 0.45, allowed 0.15-0.70
+[   591 s]    4.1 nm -0.238 V  x_OH best 0.90, allowed 0.65-1.00
+[   591 s]    4.1 nm 0 V       x_OH best 1.00, allowed 0.70-1.00
+[   591 s]    7 nm 0 V         x_OH best 0.60, allowed 0.25-0.95
+[   591 s]    4.1 nm 0.15 V    x_OH best 0.95, allowed 0.65-1.00
+[   591 s]    7 nm 0.15 V      x_OH best 0.80, allowed 0.45-1.00
+[   591 s]    4.1 nm 0.35 V    x_OH best 0.85, allowed 0.60-1.00
+[   591 s]    7 nm 0.35 V      x_OH best 0.90, allowed 0.55-1.00
+[   591 s]    4.1 nm 0.7 V     x_OH best 0.75, allowed 0.50-1.00
+[   591 s]    7 nm 0.7 V       x_OH best 0.70, allowed 0.45-1.00
+[   591 s]    4.1 nm OCV       x_OH best 0.20, allowed 0.00-0.40
+[   591 s]    7 nm OCV         x_OH best 0.60, allowed 0.25-0.90
+[   591 s] done

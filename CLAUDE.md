@@ -81,6 +81,7 @@ ctrfit/cli.py    python -m ctrfit fit model.json data.csv | python -m ctrfit gui
 examples/        synthetic_ruo2: generated data, model.json, run_fit.py
 presets/         simulator settings (*.ini); fit/ parameter presets for the fitting window (*.json)
 tools/           quick standalone scripts kept out of the launcher on purpose (no @app tag): split_rods.py
+analysis/        fit sessions on real data: projects, the scripts that made them, summaries (one folder per session)
 ctr_engine.py, ctr_params.py, ctr_plots.py   compatibility names: each *is* the ctrfit module
 ctr_gui.py, ctr_notebook.py, ctr_viewer3d.py front ends; ctr_fit_gui.py, ctr_beamline.py, ctr_echem.py, ctr_data_tools.py launch the ctrfit windows
 ctr_processing.py launches the Processing tool alone

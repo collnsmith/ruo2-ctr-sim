@@ -1,0 +1,138 @@
+[     0 s] settings kept: {'relaxed_rod_mode': 'coherent_only'}
+[     0 s] 26 datasets, 2234 points; notes []
+[     1 s] film leads: {'4.1 nm|4.1': 'ds1', '7 nm|7': 'ds17'} | surface groups: {'4.1 nm|4.1 -0.1 V': 'ds1 (1 rods)', '4.1 nm|4.1 -0.238 V': 'ds2 (1 rods)', '4.1 nm|4.1 0 V': 'ds3 (4 rods)', '4.1 nm|4.1 0.7 V': 'ds7 (4 rods)', '4.1 nm|4.1 0.15 V': 'ds11 (1 rods)', '4.1 nm|4.1 0.35 V': 'ds12 (1 rods)', '4.1 nm|4.1 OCV': 'ds13 (4 rods)', '7 nm|7 -0.1 V': 'ds17 (1 rods)', '7 nm|7 0 V': 'ds18 (3 rods)', '7 nm|7 0.7 V': 'ds20 (3 rods)', '7 nm|7 0.15 V': 'ds23 (1 rods)', '7 nm|7 0.35 V': 'ds24 (1 rods)', '7 nm|7 OCV': 'ds25 (1 rods)'}
+[     6 s] 1 scales: red chi2 59.01 (26 free)
+[   850 s] 2 film: red chi2 48.59 (36 free)
+[   850 s]    film ds1 {'thickness_mean_tl': 11.0, 'eps_perp': 1.389, 'roughness_tl': 0.55, 'thickness_spread_tl': 1.929, 'interface_A': 3.191}
+[   850 s]    film ds17 {'thickness_mean_tl': 22.968, 'eps_perp': 0.477, 'roughness_tl': 1.198, 'thickness_spread_tl': 0.91, 'interface_A': 3.28}
+[   886 s] 3 surface (x_OH from 0.2): red chi2 46.94 (68 free)
+[  1218 s] 3 surface (x_OH from 0.8): red chi2 46.94 (68 free)
+[  2343 s] 4 everything: red chi2 46.55 (78 free)
+[  2343 s] saved project
+[  2343 s] shared: {'z_H2O': 2.665, 'dz_Ru6f': 0.036, 'b_surf_O': 0.3}
+[  2343 s] film ds1 {'thickness_mean_tl': (11.0, 0.246), 'eps_perp': (1.508, 0.057), 'roughness_tl': (0.468, 0.072), 'thickness_spread_tl': (2.08, 0.157), 'interface_A': (3.184, 0.014)}
+[  2343 s] film ds17 {'thickness_mean_tl': (22.067, 0.215), 'eps_perp': (0.639, 0.039), 'roughness_tl': (0.933, 0.118), 'thickness_spread_tl': (0.75, 0.106), 'interface_A': (3.225, 0.01)}
+[  2343 s]   4.1 nm -0.1 V   (1 rods): theta 1.00±6.92  x_OH 0.78±1.77  OH/CUS 0.78±7.11  dz_Obr +0.19  <z_O> 2.20
+[  2343 s]   4.1 nm -0.238 V (1 rods): theta 1.00±6.28  x_OH 0.73±2.88  OH/CUS 0.73±7.43  dz_Obr +0.11  <z_O> 2.23
+[  2343 s]   4.1 nm 0 V      (4 rods): theta 0.50±0.61  x_OH 0.00±2.14  OH/CUS 0.00±1.07  dz_Obr -0.14  <z_O> 2.66
+[  2343 s]   4.1 nm 0.15 V   (1 rods): theta 1.00±7.46  x_OH 0.80±1.83  OH/CUS 0.80±7.69  dz_Obr +0.19  <z_O> 2.19
+[  2343 s]   4.1 nm 0.35 V   (1 rods): theta 1.00±7.36  x_OH 0.77±1.60  OH/CUS 0.77±7.19  dz_Obr +0.22  <z_O> 2.21
+[  2343 s]   4.1 nm 0.7 V    (4 rods): theta 0.50±0.73  x_OH 0.00±1.91  OH/CUS 0.00±0.96  dz_Obr -0.08  <z_O> 2.66
+[  2343 s]   4.1 nm OCV      (4 rods): theta 0.50±0.93  x_OH 0.00±1.32  OH/CUS 0.00±0.66  dz_Obr +0.07  <z_O> 2.66
+[  2343 s]   7 nm   -0.1 V   (1 rods): theta 1.00±15.49  x_OH 0.73±0.59  OH/CUS 0.73±11.76  dz_Obr +0.40  <z_O> 2.23
+[  2343 s]   7 nm   0 V      (3 rods): theta 0.50±1.71  x_OH 0.00±3.09  OH/CUS 0.00±1.55  dz_Obr -0.03  <z_O> 2.66
+[  2343 s]   7 nm   0.15 V   (1 rods): theta 1.00±16.14  x_OH 1.00±3.92  OH/CUS 1.00±12.27  dz_Obr +0.40  <z_O> 2.07
+[  2343 s]   7 nm   0.35 V   (1 rods): theta 1.00±16.57  x_OH 1.00±4.01  OH/CUS 1.00±12.60  dz_Obr +0.40  <z_O> 2.07
+[  2343 s]   7 nm   0.7 V    (3 rods): theta 0.50±1.67  x_OH 0.00±2.98  OH/CUS 0.00±1.49  dz_Obr -0.03  <z_O> 2.66
+[  2343 s]   7 nm   OCV      (1 rods): theta 1.00±15.98  x_OH 0.98±3.50  OH/CUS 0.98±12.19  dz_Obr +0.40  <z_O> 2.08
+[  2343 s]   warning: ds17.theta and ds17.dz_Obr are strongly correlated (r = +0.99): the data cannot separate them. Fix one, link them, or add data that distinguishes them.
+[  2343 s]   warning: ds24.theta and ds24.x_OH are strongly correlated (r = -0.99): the data cannot separate them. Fix one, link them, or add data that distinguishes them.
+[  2343 s]   warning: ds23.theta and ds23.x_OH are strongly correlated (r = -0.99): the data cannot separate them. Fix one, link them, or add data that distinguishes them.
+[  2343 s]   warning: ds23.x_OH and ds23.dz_Obr are strongly correlated (r = -0.99): the data cannot separate them. Fix one, link them, or add data that distinguishes them.
+[  2343 s]   warning: ds24.x_OH and ds24.dz_Obr are strongly correlated (r = -0.99): the data cannot separate them. Fix one, link them, or add data that distinguishes them.
+[  2343 s]   warning: ... and 15 more parameter pairs with |r| > 0.9 (see the correlation matrix).
+[  2343 s]   warning: b_surf_O = 0.3 is within 1% of its lower bound (0.3); its error is not reliable.
+[  2343 s]   warning: ds1.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds2.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds3.theta = 0.5 is within 1% of its lower bound (0.5); its error is not reliable.
+[  2343 s]   warning: ds7.theta = 0.5 is within 1% of its lower bound (0.5); its error is not reliable.
+[  2343 s]   warning: ds11.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds12.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds13.theta = 0.5 is within 1% of its lower bound (0.5); its error is not reliable.
+[  2343 s]   warning: ds17.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds18.theta = 0.5 is within 1% of its lower bound (0.5); its error is not reliable.
+[  2343 s]   warning: ds20.theta = 0.5 is within 1% of its lower bound (0.5); its error is not reliable.
+[  2343 s]   warning: ds23.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds24.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds25.theta = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds3.x_OH = 8.117e-29 is within 1% of its lower bound (0); its error is not reliable.
+[  2343 s]   warning: ds7.x_OH = 4.747e-32 is within 1% of its lower bound (0); its error is not reliable.
+[  2343 s]   warning: ds13.x_OH = 2.737e-37 is within 1% of its lower bound (0); its error is not reliable.
+[  2343 s]   warning: ds18.x_OH = 1.734e-13 is within 1% of its lower bound (0); its error is not reliable.
+[  2343 s]   warning: ds20.x_OH = 1.535e-11 is within 1% of its lower bound (0); its error is not reliable.
+[  2343 s]   warning: ds23.x_OH = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds24.x_OH = 1 is within 1% of its upper bound (1); its error is not reliable.
+[  2343 s]   warning: ds17.dz_Obr = 0.4 is within 1% of its upper bound (0.4); its error is not reliable.
+[  2343 s]   warning: ds23.dz_Obr = 0.4 is within 1% of its upper bound (0.4); its error is not reliable.
+[  2343 s]   warning: ds24.dz_Obr = 0.4 is within 1% of its upper bound (0.4); its error is not reliable.
+[  2343 s]   warning: ds25.dz_Obr = 0.4 is within 1% of its upper bound (0.4); its error is not reliable.
+[  2343 s]   warning: ds1.thickness_mean_tl = 11 is within 1% of its lower bound (11); its error is not reliable.
+[  2343 s]   warning: b_surf_O = 0.3 +- 4.1: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds1.theta = 1 +- 6.9: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds2.theta = 1 +- 6.3: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds3.theta = 0.5 +- 0.61: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds7.theta = 0.5 +- 0.73: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds11.theta = 1 +- 7.5: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds12.theta = 1 +- 7.4: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds13.theta = 0.5 +- 0.93: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds17.theta = 1 +- 15: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds18.theta = 0.5 +- 1.7: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds20.theta = 0.5 +- 1.7: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds23.theta = 1 +- 16: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds24.theta = 1 +- 17: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds25.theta = 1 +- 16: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds1.x_OH = 0.7807 +- 1.8: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds2.x_OH = 0.7311 +- 2.9: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds3.x_OH = 8.117e-29 +- 2.1: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds7.x_OH = 4.747e-32 +- 1.9: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds11.x_OH = 0.7951 +- 1.8: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds12.x_OH = 0.7684 +- 1.6: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds13.x_OH = 2.737e-37 +- 1.3: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds18.x_OH = 1.734e-13 +- 3.1: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds20.x_OH = 1.535e-11 +- 3: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds23.x_OH = 1 +- 3.9: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds24.x_OH = 1 +- 4: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds25.x_OH = 0.9788 +- 3.5: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds1.dz_Obr = 0.1895 +- 1.1: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds2.dz_Obr = 0.1068 +- 1.2: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds3.dz_Obr = -0.1424 +- 0.46: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds7.dz_Obr = -0.07677 +- 0.48: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds11.dz_Obr = 0.1888 +- 1.2: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds12.dz_Obr = 0.2199 +- 1.1: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds13.dz_Obr = 0.0713 +- 0.45: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds17.dz_Obr = 0.4 +- 3.5: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds18.dz_Obr = -0.02835 +- 0.55: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds20.dz_Obr = -0.02836 +- 0.52: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds23.dz_Obr = 0.4 +- 3.7: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds24.dz_Obr = 0.4 +- 3.8: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   warning: ds25.dz_Obr = 0.4 +- 3.7: the relative error exceeds 100%, so the data do not determine it.
+[  2343 s]   chi2/pt ds1 4.1 nm|4.1 -0.1 V 0 -1 15.2
+[  2343 s]   chi2/pt ds2 4.1 nm|4.1 -0.238 V 0 -1 16.9
+[  2343 s]   chi2/pt ds3 4.1 nm|4.1 0 V -1 0 20.7
+[  2343 s]   chi2/pt ds4 4.1 nm|4.1 0 V -2 0 24.2
+[  2343 s]   chi2/pt ds5 4.1 nm|4.1 0 V 0 -1 16.5
+[  2343 s]   chi2/pt ds6 4.1 nm|4.1 0 V 0 2 108.8
+[  2343 s]   chi2/pt ds7 4.1 nm|4.1 0.7 V -1 0 20.8
+[  2343 s]   chi2/pt ds8 4.1 nm|4.1 0.7 V -2 0 23.3
+[  2343 s]   chi2/pt ds9 4.1 nm|4.1 0.7 V 0 -1 20.1
+[  2343 s]   chi2/pt ds10 4.1 nm|4.1 0.7 V 0 2 112.9
+[  2343 s]   chi2/pt ds11 4.1 nm|4.1 0.15 V 0 -1 17.5
+[  2343 s]   chi2/pt ds12 4.1 nm|4.1 0.35 V 0 -1 17.9
+[  2343 s]   chi2/pt ds13 4.1 nm|4.1 OCV -1 0 26.6
+[  2343 s]   chi2/pt ds14 4.1 nm|4.1 OCV -2 0 23.9
+[  2343 s]   chi2/pt ds15 4.1 nm|4.1 OCV 0 -1 25.3
+[  2343 s]   chi2/pt ds16 4.1 nm|4.1 OCV 0 2 114.4
+[  2343 s]   chi2/pt ds17 7 nm|7 -0.1 V 0 1 18.6
+[  2343 s]   chi2/pt ds18 7 nm|7 0 V 0 1 21.5
+[  2343 s]   chi2/pt ds19 7 nm|7 0 V 2 0 94.5
+[  2343 s]   chi2/pt ds20 7 nm|7 0.7 V 0 1 22.0
+[  2343 s]   chi2/pt ds21 7 nm|7 0.7 V 0 2 60.1
+[  2343 s]   chi2/pt ds22 7 nm|7 0.7 V 2 0 98.1
+[  2343 s]   chi2/pt ds23 7 nm|7 0.15 V 0 1 20.4
+[  2343 s]   chi2/pt ds24 7 nm|7 0.35 V 0 1 20.8
+[  2343 s]   chi2/pt ds25 7 nm|7 OCV 0 1 18.8
+[  2343 s]   chi2/pt ds26 7 nm|7 0 V 0 2 61.7
+[  2346 s]   profile 4.1 nm -0.1 V: best x_OH 0.8, allowed 0.0-1.0
+[  2348 s]   profile 4.1 nm -0.238 V: best x_OH 0.7, allowed 0.0-1.0
+[  2355 s]   profile 4.1 nm 0 V: best x_OH 0.0, allowed 0.0-0.9
+[  2363 s]   profile 4.1 nm 0.7 V: best x_OH 0.0, allowed 0.0-0.8
+[  2365 s]   profile 4.1 nm 0.15 V: best x_OH 0.8, allowed 0.0-1.0
+[  2368 s]   profile 4.1 nm 0.35 V: best x_OH 0.8, allowed 0.0-1.0
+[  2381 s]   profile 4.1 nm OCV: best x_OH 0.0, allowed 0.0-0.2
+[  2384 s]   profile 7 nm -0.1 V: best x_OH 0.7, allowed 0.0-1.0
+[  2389 s]   profile 7 nm 0 V: best x_OH 0.0, allowed 0.0-1.0
+[  2394 s]   profile 7 nm 0.7 V: best x_OH 0.0, allowed 0.0-1.0
+[  2395 s]   profile 7 nm 0.15 V: best x_OH 1.0, allowed 0.4-1.0
+[  2397 s]   profile 7 nm 0.35 V: best x_OH 1.0, allowed 0.5-1.0
+[  2399 s]   profile 7 nm OCV: best x_OH 1.0, allowed 0.3-1.0
+[  2399 s] done

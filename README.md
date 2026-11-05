@@ -140,7 +140,13 @@ that mixes potentials or films is allowed and noted in the log (one surface stru
 it; a mixed film is a film of its own). A group keeps its parameter copies, scale and floor while
 its name stays; a new group starts from the copies of the dataset its scans came from. Clicking a
 dataset selects its scans; clicking a scan shows its rod, one colour per scan. The project file
-keeps the files and the choices. Many rows at once: Fit all / Leave all out and Fit selected / Leave
+keeps the files and the choices. Two tabs at the top: Fit (all of the above) and Cut data, to cut
+points out of a file: the same scan table on the left; pick a scan (and a Rod) to plot that file's rod,
+then drag along L on the plot to cut a window (every scan of that rod in that file; overlapping
+windows merge), right-click a shaded window to put its points back, or use Remove window / Clear rod /
+Clear file. The files stay as loaded: the fitted datasets leave the cut points out, the scan table's
+Points says how many are cut ("65 (18 cut)"), the Fit tab's rod plot draws them as hollow purple
+squares, and the project file and Ctrl+Z / Ctrl+Y keep the cuts. Many rows at once: Fit all / Leave all out and Fit selected / Leave
 out selected for the scans; Fit shown / Fix shown (the rows the Show filter lists, e.g. Show
 surface, then Fit shown) and Fit selected / Fix selected for the parameters; Space toggles Fit of
 the selected rows in either table. The parameter table lists each shared parameter followed by its

@@ -27,6 +27,7 @@ except ImportError:  # older matplotlib
     from matplotlib.backends.backend_qt5agg import NavigationToolbar2QT as NavToolbar
 import numpy as np
 from matplotlib.figure import Figure
+from matplotlib.widgets import SpanSelector
 
 from ..core.settings import DEFAULTS, read_ini
 from .widgets import FLAG, LINK, ElidedLabel, muted_text, text_color, tint
@@ -695,7 +696,11 @@ class FitWindow(QtWidgets.QMainWindow):
         split.addWidget(right)
         split.setStretchFactor(1, 1)
         split.setSizes([480, 800, 280])
-        self.setCentralWidget(split)
+        self.main_tabs = QtWidgets.QTabWidget()      # at the top: fitting, and cutting points out of the files
+        self.main_tabs.addTab(split, "Fit")
+        self.main_tabs.addTab(self._build_cut_tab(), "Cut data")
+        self.main_tabs.currentChanged.connect(self._on_main_tab)
+        self.setCentralWidget(self.main_tabs)
         self.status = ElidedLabel("Ready")     # progress text changes every generation: fixed width
         self.statusBar().addWidget(self.status, 1)
         self._menus()
@@ -1012,11 +1017,227 @@ class FitWindow(QtWidgets.QMainWindow):
         for i, ds in enumerate(self.datasets):
             out = self.project.scans.left_out(ds.name)
             extra = [lab for lab in (out.rod_labels if out is not None else []) if lab not in ds.rod_labels]
-            for lab in ds.rod_labels + extra:          # a rod whose scans are all left out: still shown
-                self.rod_pick.addItem(f"{ds.name}: ({lab} L)" + (" (left out)" if lab in extra else ""), (i, lab))
+            cp = self.project.scans.cut_points(ds.name)
+            cut = [lab for lab in (cp.rod_labels if cp is not None else []) if lab not in ds.rod_labels + extra]
+            for lab in ds.rod_labels + extra + cut:    # a rod whose scans are all left out or cut: still shown
+                self.rod_pick.addItem(f"{ds.name}: ({lab} L)" + (" (left out)" if lab in extra else "")
+                                      + (" (cut)" if lab in cut else ""), (i, lab))
         self.rod_pick.blockSignals(False)
         self._sync_current_dataset()
         self.show_rod()
+        self.show_cut_rod()
+
+    # ------------------------------------------------------------------ cut data (the second tab)
+    def _build_cut_tab(self):
+        """The Cut data tab: the scans of the loaded files (as in the Fit tab's scan table), and a plot of the
+        picked file's rod on which a drag along L cuts a window out of that rod (every scan of it in that file)."""
+        self._cut_target = (None, None)            # (file, rod) shown
+        self._span = None
+        self.cut_table = QtWidgets.QTableWidget(0, len(SCAN_COLS))
+        self.cut_table.setHorizontalHeaderLabels(SCAN_COLS)
+        self.cut_table.verticalHeader().setVisible(False)
+        self.cut_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.cut_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.cut_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.cut_table.horizontalHeader().setStretchLastSection(True)
+        self.cut_table.setToolTip("The scans of the loaded files. Pick one to plot its file's rod and cut points "
+                                  "from it; Points says how many are cut.")
+        self.cut_rod = QtWidgets.QComboBox()
+        self.cut_rod.setToolTip("The rod of the picked file to cut from")
+        self.p_cut = PlotPanel("Add data, then pick a scan on the left to cut points from its rod.")
+        self.cut_list = QtWidgets.QListWidget()
+        self.cut_list.setToolTip("The cut windows of this file's rod")
+        self.cut_list.setMaximumHeight(110)
+        self.cut_buttons = [QtWidgets.QPushButton(t) for t in ("Remove window", "Clear rod", "Clear file")]
+        self.cut_buttons[0].setToolTip("Put the points of the selected window back")
+        self.cut_buttons[1].setToolTip("Put every cut point of this rod of this file back")
+        self.cut_buttons[2].setToolTip("Put every cut point of this file back")
+        for b, fn in zip(self.cut_buttons, (self.remove_selected_cut, lambda: self.clear_cuts("rod"),
+                                            lambda: self.clear_cuts("file"))):
+            b.clicked.connect(lambda _=False, f=fn: f())
+        self.cut_info = ElidedLabel("Drag along L on the plot to cut a window; right-click a shaded window to "
+                                    "put its points back. The files are not changed.")
+        self.cut_table.currentCellChanged.connect(lambda r, *_: self._on_cut_row(r))
+        self.cut_rod.currentIndexChanged.connect(lambda *_: self._on_cut_rod())
+        self.p_cut.canvas.mpl_connect("button_press_event", self._on_cut_click)
+        top = QtWidgets.QHBoxLayout()
+        top.addWidget(QtWidgets.QLabel("Rod"))
+        top.addWidget(self.cut_rod, 1)
+        side = QtWidgets.QVBoxLayout()
+        for b in self.cut_buttons:
+            side.addWidget(b)
+        side.addStretch(1)
+        bottom = QtWidgets.QHBoxLayout()
+        bottom.addWidget(self.cut_list, 1)
+        bottom.addLayout(side)
+        right = QtWidgets.QWidget()
+        rl = QtWidgets.QVBoxLayout(right)
+        rl.setContentsMargins(0, 0, 0, 0)
+        rl.addLayout(top)
+        rl.addWidget(self.p_cut, 1)
+        rl.addWidget(self.cut_info)
+        rl.addLayout(bottom)
+        split = QtWidgets.QSplitter()
+        split.addWidget(self.cut_table)
+        split.addWidget(right)
+        split.setStretchFactor(1, 1)
+        split.setSizes([480, 900])
+        return split
+
+    def _on_main_tab(self, i):
+        if i == 1:                                  # Cut data: nothing picked yet: the first scan
+            if self._cut_target[0] is None and getattr(self, "_scan_rows", []):
+                self._on_cut_row(0)
+            else:
+                self.show_cut_rod()
+
+    def _fill_cut_table(self):
+        """The Cut data tab's table: the same scans as the scan table (read-only), the shown file's row kept."""
+        if not hasattr(self, "cut_table"):
+            return
+        t = self.cut_table
+        rows = getattr(self, "_scan_rows", [])
+        t.blockSignals(True)
+        t.setRowCount(len(rows))
+        grey = QtGui.QBrush(muted_text())
+        for i, r in enumerate(rows):
+            cond = r.condition or (f"{r.potential_V:g} V" if r.potential_V is not None else "")
+            vals = ("✓" if r.use else "", r.scan, ", ".join(r.rods),
+                    str(r.n) + (f" ({r.n_cut} cut)" if r.n_cut else ""), f"{r.L_min:.2f}–{r.L_max:.2f}",
+                    r.film or "", cond, r.source, r.group)
+            for c, v in enumerate(vals):
+                it = QtWidgets.QTableWidgetItem(v)
+                it.setFlags(QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled)
+                if not r.use:
+                    it.setForeground(grey)
+                t.setItem(i, c, it)
+        t.resizeColumnsToContents()
+        src, rod = self._cut_target
+        if src is not None and self.project.scans.source(src) is None:
+            self._cut_target = (None, None)
+        else:
+            row = next((i for i, r in enumerate(rows) if r.source == src and rod in r.rods), None)
+            if row is not None:
+                t.setCurrentCell(row, 1)
+        t.blockSignals(False)
+
+    def _on_cut_row(self, row):
+        rows = getattr(self, "_scan_rows", [])
+        if not 0 <= row < len(rows):
+            return
+        r = rows[row]
+        self.show_cut(r.source, r.rods[0] if r.rods else None)
+
+    def _on_cut_rod(self):
+        src = self._cut_target[0]
+        if src is not None and self.cut_rod.currentText():
+            self._cut_target = (src, self.cut_rod.currentText())
+            self.show_cut_rod()
+
+    def show_cut(self, source, rod=None):
+        """Plot this file's rod in the Cut data tab (rod None: its first)."""
+        src = self.project.scans.source(source)
+        if src is None:
+            return
+        rods = list(dict.fromkeys(src.rod.tolist()))
+        rod = rod if rod in rods else rods[0]
+        self.cut_rod.blockSignals(True)
+        self.cut_rod.clear()
+        self.cut_rod.addItems(rods)
+        self.cut_rod.setCurrentText(rod)
+        self.cut_rod.blockSignals(False)
+        self._cut_target = (source, rod)
+        self.show_cut_rod()
+
+    def show_cut_rod(self):
+        """Draw the shown file's rod with its cut windows, and arm the drag selector on it."""
+        if not hasattr(self, "cut_list"):
+            return
+        source, rod = self._cut_target
+        sel = self.project.scans
+        src = sel.source(source) if source is not None else None
+        self.cut_list.clear()
+        if src is None or rod is None:
+            self._span = None
+            return
+        k = src.rod == rod
+        if not k.any():
+            return
+        H, K = src.rod_hk(rod)
+        L = src.L[k]
+        windows = sel.cuts_of(source, rod)
+        cut = sel.cut_mask(src)[k]
+        err = self.p_cut.draw(plots.draw_cut_rod, L, src.F[k], src.sigma_eff[k], src.point_scans()[k], cut, windows,
+                              substrate_bragg_L(H, K, L.min() - 0.1, L.max() + 0.1), f"{source}: ({H} {K} L)")
+        for lo, hi in windows:
+            self.cut_list.addItem(f"L {lo:.3f} – {hi:.3f}")
+        if err is None and self.p_cut.figure.axes:
+            self._span = SpanSelector(self.p_cut.figure.axes[0], self._on_span, "horizontal", minspan=1e-3,
+                                      useblit=True, button=1,
+                                      props=dict(facecolor=plots.CUT_COLOUR, alpha=0.25))
+        self.cut_info.setText(f"{int(cut.sum())} of {int(k.sum())} points of ({rod}) cut in {source}. Drag along L "
+                              "to cut a window; right-click a shaded window to put its points back.")
+
+    def _on_span(self, lo, hi):
+        if self.worker is not None:
+            self.say("A fit is running: cut after it.")
+            return
+        if hi - lo >= 1e-3:
+            self.add_cut(lo, hi)
+
+    def _on_cut_click(self, event):
+        """Right-click inside a cut window: put its points back."""
+        if event.button != 3 or event.inaxes is None or event.xdata is None or self.worker is not None:
+            return
+        source, rod = self._cut_target
+        if source is not None and self.project.scans.remove_cut(source, rod, float(event.xdata)):
+            self._regroup(f"uncut ({rod}) of {source}")
+            self.say(f"Window put back in ({rod}) of {source}: {self.project.scans.summary()}")
+
+    def add_cut(self, lo, hi, source=None, rod=None):
+        """Cut the points with lo <= L <= hi from a rod of a file (default: the one shown in the Cut data tab)."""
+        if self.worker is not None:
+            return None
+        source = source or self._cut_target[0]
+        rod = rod or self._cut_target[1]
+        try:
+            windows = self.project.scans.add_cut(source, rod, lo, hi)
+        except (KeyError, ValueError) as ex:
+            self.say(f"Not cut: {ex}", error=True)
+            return None
+        if (source, rod) != self._cut_target:
+            self._cut_target = (source, rod)
+        self._regroup(f"cut ({rod}) L {min(lo, hi):.3f}–{max(lo, hi):.3f}")
+        src = self.project.scans.source(source)
+        n = int((self.project.scans.cut_mask(src) & (src.rod == rod)).sum())
+        self.say(f"Cut L {min(lo, hi):.3f}–{max(lo, hi):.3f} from ({rod}) of {source}: {n} points of that rod cut "
+                 f"({len(windows)} window{'s' if len(windows) != 1 else ''}); {self.project.scans.summary()}")
+        return windows
+
+    def remove_selected_cut(self):
+        source, rod = self._cut_target
+        row = self.cut_list.currentRow()
+        windows = self.project.scans.cuts_of(source, rod) if source else []
+        if not 0 <= row < len(windows):
+            self.say("Select a cut window in the list first.")
+            return
+        lo, hi = windows[row]
+        self.project.scans.remove_cut(source, rod, 0.5 * (lo + hi))
+        self._regroup(f"uncut ({rod}) of {source}")
+        self.say(f"Window L {lo:.3f}–{hi:.3f} put back in ({rod}) of {source}")
+
+    def clear_cuts(self, which="rod"):
+        """Put the cut points back: of the shown rod ('rod') or of the whole shown file ('file')."""
+        source, rod = self._cut_target
+        if source is None or self.worker is not None:
+            return
+        sel = self.project.scans
+        if which == "file":
+            sel.clear_cuts(source)
+        else:
+            sel.remove_cut(source, rod)
+        self._regroup(f"uncut {'all of ' + source if which == 'file' else f'({rod}) of {source}'}")
+        self.say(f"Cut points put back ({'the whole file' if which == 'file' else f'rod {rod}'})")
 
     # ------------------------------------------------------------------ scans
     def _fill_scans(self):
@@ -1031,8 +1252,8 @@ class FitWindow(QtWidgets.QMainWindow):
         grey = QtGui.QBrush(muted_text())
         for i, r in enumerate(self._scan_rows):
             cond = r.condition or (f"{r.potential_V:g} V" if r.potential_V is not None else "")
-            vals = ("", r.scan, ", ".join(r.rods), str(r.n), f"{r.L_min:.2f}–{r.L_max:.2f}", r.film or "", cond,
-                    r.source, r.group)
+            vals = ("", r.scan, ", ".join(r.rods), str(r.n) + (f" ({r.n_cut} cut)" if r.n_cut else ""),
+                    f"{r.L_min:.2f}–{r.L_max:.2f}", r.film or "", cond, r.source, r.group)
             for c, v in enumerate(vals):
                 it = QtWidgets.QTableWidgetItem(v)
                 flags = QtCore.Qt.ItemIsSelectable | QtCore.Qt.ItemIsEnabled
@@ -1057,6 +1278,7 @@ class FitWindow(QtWidgets.QMainWindow):
                 sm.select(t.model().index(row, 0), QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows)
         self._filling = False
         self.scan_info.setText(sel.summary())
+        self._fill_cut_table()
 
     def selected_scans(self):
         """Keys of the scans selected in the scan table."""
@@ -1068,14 +1290,14 @@ class FitWindow(QtWidgets.QMainWindow):
         return [r.key for r in self.project.scans.rows()
                 if (source is None or r.source == source) and (scan is None or r.scan == scan)]
 
-    def _regroup(self):
+    def _regroup(self, label="scans"):
         """Rebuild the fitted datasets from the files and the scan choices; parameters follow (fit.scans)."""
         self.project.datasets, notes = regroup(self.model, self.project.scans, self.project.datasets)
         for n in notes:
             self.log.appendPlainText(n)
         self._rod_cache = {}
         self._refresh_all()
-        self._record("scans")
+        self._record(label)
         return notes
 
     def set_scan_use(self, keys, use=True):
@@ -1365,13 +1587,16 @@ class FitWindow(QtWidgets.QMainWindow):
             out = self.project.scans.left_out(ds.name)
             k = None if out is None else out.rod == lab
             left = None if k is None or not k.any() else (out.L[k], out.F[k], out.sigma_eff[k])
-            H, K = ds.rod_hk(lab) if idx.size else out.rod_hk(lab)
-            Lall = ds.L[idx] if left is None else np.concatenate([ds.L[idx], left[0]])
+            cp = self.project.scans.cut_points(ds.name)
+            k = None if cp is None else cp.rod == lab
+            cut = None if k is None or not k.any() else (cp.L[k], cp.F[k], cp.sigma_eff[k])
+            H, K = ds.rod_hk(lab) if idx.size else out.rod_hk(lab) if left is not None else cp.rod_hk(lab)
+            Lall = np.concatenate([ds.L[idx]] + [x[0] for x in (left, cut) if x is not None])
             Ld = np.linspace(Lall.min(), Lall.max(), 400)
             hit = (self.model.evaluator(ds.H[idx], ds.K[idx], ds.L[idx], scope=scope) if idx.size else
                    (lambda v: np.zeros(0)),
                    self.model.evaluator(np.full(Ld.size, H), np.full(Ld.size, K), Ld, scope=scope), Ld, scope,
-                   left)
+                   left, cut)
             self._rod_cache = {key: hit}
         return hit
 
@@ -1392,7 +1617,7 @@ class FitWindow(QtWidgets.QMainWindow):
         ds = self.datasets[i]
         idx = ds.rods().get(lab, np.zeros(0, int))
         try:
-            ev_pts, ev_dense, Ld, scope, left = self._rod_evaluators(i, lab)
+            ev_pts, ev_dense, Ld, scope, left, cut = self._rod_evaluators(i, lab)
             v = self.model.params.view(scope) if values is None else scoped_view(values, scope)
             Fc, Fd = ev_pts(v), ev_dense(v)
             H, K = ev_dense.rods[0]
@@ -1426,7 +1651,8 @@ class FitWindow(QtWidgets.QMainWindow):
                         f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd,
                         hold=values is not None,       # a running fit: the axes stay with the data
                         scans=ds.point_scans()[idx][keep], left_out=left, sensitivity=sens,
-                        sensitivity_label=sens_label, sensitivity_max=sens_max, skipped=skipped, bragg=bragg)
+                        sensitivity_label=sens_label, sensitivity_max=sens_max, skipped=skipped, bragg=bragg,
+                        cut=cut)
 
     def _on_skip_bragg(self, _value=None):
         """The Bragg skip changed: say how many points the next run leaves out, and redraw."""
@@ -1491,7 +1717,8 @@ class FitWindow(QtWidgets.QMainWindow):
         for b in self.step_buttons:
             b.setEnabled(not on)
         for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del, self.cores,
-                  self.rods, self.skip_bragg, self.thick_scan, *self.scan_buttons, *self.param_buttons):
+                  self.rods, self.skip_bragg, self.thick_scan, *self.scan_buttons, *self.param_buttons,
+                  self.cut_rod, *self.cut_buttons):
             w.setEnabled(not on)
 
     # ------------------------------------------------------------------ undo / redo

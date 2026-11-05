@@ -679,3 +679,67 @@ def test_skip_near_bragg(win, tmp_path):
     assert "off" in win.status.text()
     win.open_project(str(path))
     assert win.skip_bragg.value() == pytest.approx(0.15)
+
+
+def test_cut_data_tab(win, tmp_path):
+    """The Cut data tab: the scans of the files, a drag along L on the plot cuts a window from the picked
+    file's rod (the fitted dataset loses those points, the scan table says so, the main plot draws them),
+    right-click puts them back, undo / the buttons / the project keep step, a run fits without them."""
+    from matplotlib.backend_bases import MouseEvent
+    app = QtWidgets.QApplication.instance()
+    n0 = len(win.datasets[0])
+    win.main_tabs.setCurrentIndex(1)
+    app.processEvents()
+    src, rod = win._cut_target
+    assert src == win.project.scans.sources[0].name and rod == win.cut_rod.currentText()
+    assert win.cut_table.rowCount() == win.scan_table.rowCount()
+    canvas, ax = win.p_cut.canvas, win.p_cut.figure.axes[0]
+    canvas.draw()
+    s = win.project.scans.source(src)
+    L = np.sort(s.L[s.rod == rod])
+    lo, hi = L[len(L) // 3], L[len(L) // 2]
+    y = float(np.sqrt(np.prod(ax.get_ylim())))
+
+    def mouse(name, x_L, button=1):
+        x, yy = ax.transData.transform((x_L, y))
+        canvas.callbacks.process(name, MouseEvent(name, canvas, x, yy, button=button))
+    mouse("button_press_event", lo)
+    mouse("motion_notify_event", hi)
+    mouse("button_release_event", hi)
+    (a, b), = win.project.scans.cuts_of(src, rod)
+    assert a == pytest.approx(lo, abs=0.02) and b == pytest.approx(hi, abs=0.02)
+    n_cut = int(win.project.scans.cut_mask(s).sum())
+    assert n_cut > 2 and len(win.datasets[0]) == n0 - n_cut
+    from ctrfit.app.fit_window import SCAN_COLS
+    points = [win.scan_table.item(i, SCAN_COLS.index("Points")).text() for i in range(win.scan_table.rowCount())]
+    assert sum(f"({n_cut} cut)" in t for t in points) == 1
+    assert win.cut_list.count() == 1 and "cut" in win.cut_info.text()
+    i = next(i for i in range(win.rod_pick.count()) if win.rod_pick.itemData(i)[1] == rod)
+    win.rod_pick.setCurrentIndex(i)
+    app.processEvents()
+    assert "cut" in [t.get_text() for t in win.p_rod.figure.axes[0].get_legend().get_texts()]
+    # a run fits without them
+    win.method.setCurrentText("refine only")
+    win.model.params.fit_only(["scale"])
+    win.run_or_stop()
+    assert win.wait(120) and win.result.fom["N"] == n0 - n_cut
+    # right-click inside the window puts the points back; undo cuts them again
+    win.main_tabs.setCurrentIndex(1)
+    app.processEvents()
+    canvas.draw()
+    ax = win.p_cut.figure.axes[0]
+    mouse("button_press_event", 0.5 * (a + b), button=3)
+    assert not win.project.scans.cuts_of(src, rod) and len(win.datasets[0]) == n0
+    win.undo()
+    assert win.project.scans.cuts_of(src, rod) and len(win.datasets[0]) == n0 - n_cut
+    # the project keeps the cuts; the buttons put them back
+    path = tmp_path / "cut.ctrproj.json"
+    win.save_project(str(path))
+    win.clear_cuts("file")
+    assert not win.project.scans.cuts and len(win.datasets[0]) == n0
+    win.open_project(str(path))
+    assert win.project.scans.cuts_of(src, rod) and len(win.datasets[0]) == n0 - n_cut
+    win.show_cut(src, rod)
+    win.cut_list.setCurrentRow(0)
+    win.remove_selected_cut()
+    assert not win.project.scans.cuts_of(src, rod)

@@ -199,3 +199,62 @@ def test_shared_parameters_every_dataset_overrides():
     sh = shadowed(model.params, [a, b])
     assert sh["x_OH"] == ["ds1.x_OH", "ds2.x_OH"] and "thickness_mean_tl" in sh and "scale" in sh
     assert "z_OH" not in sh                                          # shared: used by both
+
+
+# ---------------------------------------------------------------------------- cut windows
+def test_cut_windows_leave_points_out_of_the_fitted_datasets():
+    a, b = _file("a", 0.5, 1), _file("b", 0.5, 2)
+    sel = ScanSelection([a, b])
+    rod = a.rod_labels[0]
+    L = a.L[a.rod == rod]
+    lo, hi = float(L[3]), float(L[6])
+    assert sel.add_cut("a", rod, hi, lo) == [(lo, hi)]                       # ends in any order
+    assert sel.add_cut("a", rod, hi - 0.05, hi + 0.2) == [(lo, hi + 0.2)]   # an overlapping window merges
+    sel.add_cut("a", rod, 5.0, 5.2)
+    cut = sel.cut_mask(sel.source("a"))
+    e = 1e-9                                                                  # the ends are included
+    k = (a.rod == rod) & (((a.L >= lo - e) & (a.L <= hi + 0.2 + e)) | ((a.L >= 5.0 - e) & (a.L <= 5.2 + e)))
+    assert np.array_equal(cut, k) and cut.sum() > 4
+    ds, notes = sel.build()
+    da = next(d for d in ds if d.name == "a")
+    assert len(da) == len(a) - cut.sum() and not np.any(np.isin(da.L[da.rod == rod], a.L[cut]))
+    assert len(next(d for d in ds if d.name == "b")) == len(b)                 # another file: untouched
+    r = next(r for r in sel.rows() if r.source == "a" and r.rods == [rod])
+    assert r.n == int((a.rod == rod).sum()) and r.n_cut == int(cut.sum())     # the file's points stay counted
+    assert len(sel.cut_points("a")) == cut.sum() and sel.cut_points("b") is None
+    # grouped with the other file: the cut still applies
+    sel.set_group(sel.keys_of("a") + sel.keys_of("b"), "both")
+    both = sel.build()[0][0]
+    assert len(both) == len(a) + len(b) - cut.sum() and len(sel.cut_points("both")) == cut.sum()
+    # round trip, removal, clearing
+    back = ScanSelection.from_dict(sel.to_dict())
+    assert back.cuts == sel.cuts and len(back.build()[0][0]) == len(both)
+    assert sel.remove_cut("a", rod, 5.1) and sel.cuts_of("a", rod) == [(lo, hi + 0.2)]
+    assert not sel.remove_cut("a", rod, 9.0)
+    sel.clear_cuts("a")
+    assert sel.cuts == {} and len(sel.build()[0][0]) == len(a) + len(b)
+    with pytest.raises(ValueError):
+        sel.add_cut("a", rod, 1.0, 1.0)
+    with pytest.raises(KeyError):
+        sel.add_cut("nope", rod, 1.0, 2.0)
+
+
+def test_a_fully_cut_group_is_not_fitted_and_a_removed_file_drops_its_cuts():
+    a, b = _file("a", 0.5, 1), _file("b", 0.7, 2)
+    sel = ScanSelection([a, b])
+    for rod in a.rod_labels:
+        sel.add_cut("a", rod, -1.0, 10.0)
+    ds, notes = sel.build()
+    assert [d.name for d in ds] == ["b"] and any("every point is cut" in n for n in notes)
+    sel.remove(["a"])
+    assert sel.cuts == {}
+
+
+def test_to_dict_is_a_snapshot():
+    """An undo snapshot must not change with later edits (scan ticks and cuts)."""
+    a = _file("a", 0.5, 1)
+    sel = ScanSelection([a])
+    d = sel.to_dict()
+    sel.set_use(sel.keys_of("a")[:1], False)
+    sel.add_cut("a", a.rod_labels[0], 1.0, 2.0)
+    assert d["choices"] == {} and d["cuts"] == {}

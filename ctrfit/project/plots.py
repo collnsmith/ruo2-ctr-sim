@@ -315,7 +315,7 @@ SENSITIVITY_CMAP = LinearSegmentedColormap.from_list("sensitivity", ["#d62728", 
 
 def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hold=False, scans=None,
                  left_out=None, sensitivity=None, sensitivity_label="", sensitivity_max=None, skipped=None,
-                 bragg=None):
+                 bragg=None, cut=None):
     """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma.
     hold: the axes keep the data's range (|F|) and +-LIVE_RESIDUAL_RANGE (residuals) instead of
     following the model, so a live view of a running fit does not jump from one trial to the next.
@@ -326,7 +326,8 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
     all rods of the dataset, so a rod the parameter hardly touches stays red; default: this curve's
     largest), with a colour bar in % and sensitivity_label.
     skipped: (L, F, sigma) of points not fitted because they sit near a Bragg peak, drawn hollow (no
-    residuals); bragg: (peak L values, half width), each window shaded in both panels."""
+    residuals); bragg: (peak L values, half width), each window shaded in both panels; cut: (L, F, sigma)
+    of points cut by hand (the Cut data tab), drawn as hollow squares (no residuals)."""
     fig.clear()
     a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
     L, F, sigma, Fc = (np.asarray(x, float) for x in (L, F, sigma, Fc))
@@ -348,6 +349,12 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
     if has_out:
         a.errorbar(left_out[0], left_out[1], yerr=left_out[2], fmt="o", ms=3.5, mfc="none", color="0.6",
                    ecolor="0.8", elinewidth=0.7, label="left out")
+    if cut is not None and len(cut[0]):
+        a.errorbar(cut[0], cut[1], yerr=cut[2], fmt="s", ms=3.2, mfc="none", color="tab:purple", ecolor="0.8",
+                   elinewidth=0.7, label="cut")
+        left_out = (np.concatenate([left_out[0], cut[0]]), np.concatenate([left_out[1], cut[1]]),
+                    np.concatenate([left_out[2], cut[2]])) if has_out else cut
+        has_out = True                                  # the live view's range includes them
     has_skip = skipped is not None and len(skipped[0])
     if has_skip:
         a.errorbar(skipped[0], skipped[1], yerr=skipped[2], fmt="D", ms=3.2, mfc="none", color="tab:orange",
@@ -405,6 +412,46 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
         b.set_ylim(-LIVE_RESIDUAL_RANGE, LIVE_RESIDUAL_RANGE)
     for ax in (a, b):
         ax.grid(alpha=0.25)
+
+
+CUT_COLOUR = "tab:red"
+
+
+def draw_cut_rod(fig, L, F, sigma, scans=None, cut=None, windows=(), bragg=(), title=""):
+    """One rod of one data file for cutting: the points with error bars (one colour per scan), the cut
+    windows shaded (windows: [(L_lo, L_hi)]), the cut points (bool mask `cut`) hollow, the TiO2 Bragg peaks
+    dotted (bragg: their L). Returns the axes (the window's drag selector works on it)."""
+    fig.clear()
+    ax = fig.add_subplot(111)
+    L, F, sigma = (np.asarray(x, float) for x in (L, F, sigma))
+    cut = np.zeros(L.size, bool) if cut is None else np.asarray(cut, bool)
+    labels = np.full(L.size, "data") if scans is None else np.asarray(scans, str)
+    names = list(dict.fromkeys(labels.tolist()))
+    for lo, hi in windows:
+        ax.axvspan(lo, hi, color=CUT_COLOUR, alpha=0.15, lw=0, zorder=0)
+    for j, nm in enumerate(names):
+        k = (labels == nm) & ~cut
+        c = SCAN_COLOURS[j % len(SCAN_COLOURS)] if len(names) > 1 else "0.25"
+        ax.errorbar(L[k], F[k], yerr=sigma[k], fmt="o", ms=3, color=c, ecolor="0.7", elinewidth=0.7,
+                    label=nm if len(names) > 1 else "kept")
+    if cut.any():
+        ax.errorbar(L[cut], F[cut], yerr=sigma[cut], fmt="o", ms=3.5, mfc="none", color=CUT_COLOUR, ecolor="0.85",
+                    elinewidth=0.7, label=f"cut ({int(cut.sum())})")
+    if L.size:
+        lo, hi = L.min(), L.max()
+        for Lb in np.asarray(bragg, float):
+            if lo - 0.05 <= Lb <= hi + 0.05:
+                ax.axvline(Lb, color="0.45", ls=":", lw=0.9)
+    pos = F[np.isfinite(F) & (F > 0)]
+    if pos.size:
+        ax.set_yscale("log")
+    ax.set_xlabel("L (r.l.u.)")
+    ax.set_ylabel("|F| (e)")
+    ax.set_title(title, fontsize=10)
+    if names:
+        ax.legend(fontsize=8, ncol=2 if len(names) > 4 else 1)
+    ax.grid(alpha=0.25)
+    return ax
 
 
 def draw_fom_history(fig, history):

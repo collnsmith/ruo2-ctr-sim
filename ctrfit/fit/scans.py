@@ -13,6 +13,9 @@ surface structure. By default each file is one group, so the fitted datasets are
     sel.set_group(sel.keys_of("film7 CA 0.5 V repeat"), "film7 CA 0.5 V")   # fit the repeat with it
     datasets, notes = regroup(model, sel, previous=datasets)
 
+Points can also be cut: L windows per file and rod (sel.add_cut("film7 CA 0.5 V", "0 1", 2.9, 3.1)) leave
+those points of every scan of that rod in that file out of the fitted datasets; the files stay as loaded.
+
 Group names are free text: scans given the same group are fitted together, from one file or several,
 and a file's scans can be split into several groups. A group that mixes films or potentials is
 allowed (e.g. to test whether the potential changes anything) and noted: it gets one surface
@@ -48,6 +51,7 @@ class ScanRow:
     use: bool = True
     group: str = ""        # the group it is fitted in (the source's name unless set)
     custom: bool = False   # group set by the user
+    n_cut: int = 0         # its points inside a cut window (left out of the fit)
 
 
 def _unique(name, taken):
@@ -63,6 +67,7 @@ class ScanSelection:
     def __init__(self, sources=(), choices=None):
         self.sources = []
         self.choices = {}          # key -> {"use": bool, "group": str} (only what differs from the default)
+        self.cuts = {}             # source name -> {rod label: [[L_lo, L_hi], ...]} (points left out)
         self.placed = {}           # key -> name of the dataset it went to in the last build
         for ds in sources:
             self.add(ds)
@@ -98,15 +103,18 @@ class ScanSelection:
         self.sources = [s for s in self.sources if s.name not in names]
         for k in [k for k in self.choices if k.split(SEP, 1)[0] in names]:
             del self.choices[k]
+        for n in names:
+            self.cuts.pop(n, None)
 
     def clear(self):
-        self.sources, self.choices, self.placed = [], {}, {}
+        self.sources, self.choices, self.placed, self.cuts = [], {}, {}, {}
 
     # ------------------------------------------------------------------ choices
     def rows(self):
         out = []
         for src in self.sources:
             meta = src.meta
+            cut = self.cut_mask(src)
             for scan, idx in src.scans().items():
                 k = self.key(src.name, scan)
                 c = self.choices.get(k, {})
@@ -115,7 +123,7 @@ class ScanSelection:
                 out.append(ScanRow(k, src.name, scan, list(dict.fromkeys(src.rod[idx].tolist())), int(idx.size),
                                    float(L.min()), float(L.max()), meta.get("film"), meta.get("thickness_nm"),
                                    meta.get("potential_V"), meta.get("condition"), bool(c.get("use", True)),
-                                   group, group != src.name))
+                                   group, group != src.name, int(cut[idx].sum())))
         return out
 
     def keys_of(self, source):
@@ -147,6 +155,75 @@ class ScanSelection:
     def reset(self):
         self.choices = {}
 
+    # ------------------------------------------------------------------ cuts: L windows left out per file and rod
+    def cuts_of(self, source, rod):
+        """The cut windows [(L_lo, L_hi)] of rod `rod` (a label such as '0 1') in file `source`."""
+        return [tuple(w) for w in self.cuts.get(source, {}).get(rod, [])]
+
+    def add_cut(self, source, rod, lo, hi):
+        """Leave out the points of rod `rod` in file `source` with lo <= L <= hi, in every scan of that rod in
+        the file. Windows that overlap or touch are merged. Returns the rod's windows."""
+        if self.source(source) is None:
+            raise KeyError(f"no loaded file {source!r}")
+        lo, hi = sorted((float(lo), float(hi)))
+        if not hi > lo:
+            raise ValueError("a cut window needs two different L")
+        merged = []
+        for a, b in sorted(self.cuts_of(source, rod) + [(lo, hi)]):
+            if merged and a <= merged[-1][1]:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+            else:
+                merged.append((a, b))
+        self.cuts.setdefault(source, {})[rod] = [list(w) for w in merged]
+        return merged
+
+    def remove_cut(self, source, rod, L=None):
+        """Remove the window of this rod that holds L (L None: all its windows). True if one was removed."""
+        ws = self.cuts_of(source, rod)
+        keep = [] if L is None else [w for w in ws if not w[0] <= L <= w[1]]
+        if len(keep) == len(ws):
+            return False
+        if keep:
+            self.cuts[source][rod] = [list(w) for w in keep]
+        else:
+            self.cuts[source].pop(rod, None)
+            if not self.cuts[source]:
+                del self.cuts[source]
+        return True
+
+    def clear_cuts(self, source=None):
+        """Remove every cut of a file (None: of every file)."""
+        if source is None:
+            self.cuts = {}
+        else:
+            self.cuts.pop(source, None)
+
+    def cut_mask(self, src):
+        """True for the points of a loaded file (Dataset) inside one of its cut windows (ends included)."""
+        mask = np.zeros(len(src), bool)
+        for rod, ws in self.cuts.get(src.name, {}).items():
+            on = src.rod == rod
+            for lo, hi in ws:
+                mask |= on & (src.L >= lo - 1e-9) & (src.L <= hi + 1e-9)
+        return mask
+
+    def _uncut(self, src):
+        mask = self.cut_mask(src)
+        return src.subset(~mask) if mask.any() else src
+
+    def cut_points(self, name):
+        """The cut points of the scans fitted in group `name` (for plotting), or None."""
+        parts = []
+        for r in self.rows():
+            if r.use and r.group == name and r.n_cut:
+                src = self.source(r.source)
+                parts.append(src.subset((src.point_scans() == r.scan) & self.cut_mask(src)))
+        if not parts:
+            return None
+        cat = lambda a: np.concatenate([getattr(p, a) for p in parts])
+        return Dataset(cat("H"), cat("K"), cat("L"), cat("F"), cat("sigma"), cat("rod"), name=f"{name} (cut)",
+                       sys_floor=parts[0].sys_floor, scan=cat("scan"))
+
     # ------------------------------------------------------------------ building
     def build(self, previous=()):
         """([Dataset] one per group with used scans, notes). A group keeps the scope and error floor of
@@ -160,6 +237,9 @@ class ScanSelection:
         for name, rows in groups.items():
             ds, n = self._merge(name, rows)
             notes += n
+            if not len(ds):
+                notes.append(f"group {name}: every point is cut; it is not fitted")
+                continue
             old = prev.get(name)
             ds.scope = old.scope if old is not None else ""
             if old is not None:
@@ -174,7 +254,7 @@ class ScanSelection:
         by_src = {}
         for r in rows:
             by_src.setdefault(r.source, []).append(r.scan)
-        srcs = [self.source(s) for s in by_src]
+        srcs = [self._uncut(self.source(s)) for s in by_src]        # without the points of cut windows
         whole = len(srcs) == 1 and srcs[0].name == name and len(by_src[name]) == len(srcs[0].scan_labels)
         if whole:
             ds = srcs[0].copy()
@@ -216,13 +296,17 @@ class ScanSelection:
 
     # ------------------------------------------------------------------ io
     def to_dict(self):
-        return dict(sources=[s.to_dict() for s in self.sources], choices=self.choices)
+        return dict(sources=[s.to_dict() for s in self.sources],          # copies: a snapshot stays as it was
+                    choices={k: dict(v) for k, v in self.choices.items()},
+                    cuts={src: {rod: [list(w) for w in ws] for rod, ws in rods.items()} for src, rods in self.cuts.items()})
 
     @classmethod
     def from_dict(cls, d):
         sel = cls()
         sel.sources = [Dataset.from_dict(x) for x in d.get("sources", [])]
         sel.choices = {k: dict(v) for k, v in d.get("choices", {}).items()}
+        sel.cuts = {src: {rod: [[float(a), float(b)] for a, b in ws] for rod, ws in rods.items()}
+                    for src, rods in d.get("cuts", {}).items()}
         return sel
 
 

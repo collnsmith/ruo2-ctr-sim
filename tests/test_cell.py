@@ -116,3 +116,51 @@ def test_rod_offsets_per_dataset_scope():
     p = m.params["ds2.dL_0_1"]
     assert p.value == 0 and not p.fit and p.unit == "r.l.u." and p.group == "instrument"
     assert m.params.view("ds2")["dL_0_1"] == 0 and "dL_0_1" not in m.params.view("ds1")
+
+
+# ---------------------------------------------------------------------------- L resolution
+def test_resolution_off_by_default_and_its_average():
+    from ctrfit.model.model import resolution_nodes
+    m = Model.from_settings(DEFAULTS)
+    assert m.params["res_L"].value == 0 and not m.params["res_L"].fit and m.params["res_L"].group == "instrument"
+    x, w = resolution_nodes()
+    assert w.sum() == pytest.approx(1) and np.sum(w * x) == pytest.approx(0, abs=1e-12)
+    assert np.sum(w * x ** 2) == pytest.approx(1)                      # the nodes are in units of sigma
+    L = np.linspace(1.4, 2.6, 49)
+    L = L[np.abs(L - 2) > 0.06]
+    m7 = Model.from_settings(dict(DEFAULTS, thickness_nm=7.0))
+    sharp = m7.F(0, 2, L)
+    m7.params["res_L"].value = 0.015
+    smooth = m7.F(0, 2, L)
+    k = (L > 2.1) & (L < 2.5)
+    assert smooth[k].max() / smooth[k].min() < 0.85 * sharp[k].max() / sharp[k].min()   # minima filled
+
+
+@pytest.mark.parametrize("over", [{}, dict(mix_mode="domains")])
+def test_fast_equals_reference_with_resolution(over):
+    m = Model.from_settings(dict(DEFAULTS, thickness_nm=7.0, **over))
+    m.params.update(dict(res_L=0.012, t_liquid=10.0))
+    m.add_rod_offsets([(0, 1)])
+    m.params["dL_0_1"].value = 0.01
+    L = np.linspace(0.3, 3.7, 31)
+    ev = m.evaluator(*_points(RODS, L))
+    np.testing.assert_allclose(ev(), np.concatenate([m.F(h, k, L) for h, k in RODS]), rtol=1e-9)
+    m.params["res_L"].value = 0.02                                     # a new width: its own spread points
+    np.testing.assert_allclose(ev(), np.concatenate([m.F(h, k, L) for h, k in RODS]), rtol=1e-9)
+    m.params["res_L"].value = m.params["dL_0_1"].value = 0.0
+    assert ev._fast_for(m.params.view()) is ev.fast
+
+
+def test_resolution_recovered():
+    """A 7 nm film's fringes measured with an rms L resolution of 0.015: res_L comes back from 0.006 (a start
+    above 0: at 0 its effect, of second order, has no slope)."""
+    truth = Model.from_settings(dict(DEFAULTS, thickness_nm=7.0))
+    truth.params["res_L"].value = 0.015
+    data = make_dataset(truth, rods=[(0, 2), (0, 1)], noise_rel=0.02, seed=83, step=0.01, L_min=1.3, L_max=3.4)
+    model = Model.from_settings(dict(DEFAULTS, thickness_nm=7.0))
+    model.params["res_L"].value = 0.006
+    model.params.fit_only(["res_L", "scale"])
+    fit = Fit(model, data)
+    fit.refine()
+    res = fit.report()
+    assert abs(res.values["res_L"] - 0.015) <= 3 * res.errors["res_L"] and res.errors["res_L"] < 0.003

@@ -26,6 +26,18 @@ ROD_SCALE_BOUNDS = (0.5, 2.0)
 ROD_OFFSET_BOUND = 0.05            # r.l.u.
 
 
+RES_NODES = 9
+
+
+def resolution_nodes(n=RES_NODES):
+    """(x, w): Gauss-Hermite nodes in units of the resolution sigma and weights summing to 1, for the average
+    of |F|^2 over a Gaussian along L. Near a Bragg peak (within a few sigma) |F|^2 changes too fast for them:
+    skip or cut those points when res_L is used."""
+    from numpy.polynomial.hermite_e import hermegauss
+    x, w = hermegauss(n)
+    return x, w / w.sum()
+
+
 def rod_scale_name(H, K, scope=""):
     return (scope + "." if scope else "") + f"rodscale_{H}_{K}"
 
@@ -113,8 +125,14 @@ class Model:
     def F(self, H, K, L, values=None, scope=""):
         v = self.params.view(scope) if values is None else values
         L = np.atleast_1d(np.asarray(L, float))
-        return (v["scale"] * self.rod_scale(v, H, K) * self.absorption(v, H, K, L)
-                * np.sqrt(self.intensity(H, K, L + self.rod_offset(v, H, K), v)))
+        Lm = L + self.rod_offset(v, H, K)
+        res = float(v.get("res_L", 0.0))
+        if res > 0:                                 # |F|^2 averaged over the L resolution (Gauss-Hermite)
+            x, w = resolution_nodes()
+            I = sum(wk * self.intensity(H, K, Lm + res * xk, v) for xk, wk in zip(x, w))
+        else:
+            I = self.intensity(H, K, Lm, v)
+        return v["scale"] * self.rod_scale(v, H, K) * self.absorption(v, H, K, L) * np.sqrt(I)
 
     def evaluator(self, H, K, L, free=None, scope=""):
         """Fast vectorized |F| for many points (see ctrfit.model.evaluator)."""

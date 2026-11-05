@@ -224,6 +224,11 @@ python -m ctrfit fit model.json data.csv --out fit_results
     more for a thicker film); refraction near the critical angle is not included, so leave out points
     with an exit angle below about twice the critical angle (L below about 0.15). Set t_window to your
     window's thickness (fixed) and fit t_liquid, per dataset since the film is set anew by the cell.
+  - `res_L` (r.l.u., group instrument, 0 = off): the rms L resolution. Each point's model |F|^2 is the
+    average over a Gaussian of this width along L (9 Gauss-Hermite nodes, so a fit with it costs about 9
+    times as much), e.g. the spread in L that the detector window integrates. It fills sharp fringe minima
+    of thick films. Its effect is of second order, so it has no slope at 0: fit it from a start such as
+    0.005. Within a few res_L of a Bragg peak the average is poor: skip those points (Skip near Bragg).
   - Model menu, "Add an L offset per scan (rod) in each dataset": `dL_H_K` (r.l.u., ±0.05, fixed at 0
     until ticked) per rod of each dataset, one per scan with one scan per rod: the model is taken at
     L + dL, for a scan whose Bragg peak sits off its nominal L. Fit them only where the substrate peak

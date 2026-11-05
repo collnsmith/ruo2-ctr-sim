@@ -12,7 +12,9 @@ substrate and the buried film are therefore computed once.
 
 The absorption in the electrolyte and window (t_liquid, t_window) multiplies |F| per point through the
 exit angle, precomputed for the points. Per-rod L offsets (dL_H_K, when present and not 0) move the
-points: the shifted points get their own cached engine (recomputed whenever an offset changes).
+points, and an L resolution (res_L > 0) averages |F|^2 over Gauss-Hermite nodes around each point: the
+moved / spread points get their own cached engine (recomputed whenever an offset or res_L changes; with
+res_L on, each evaluation costs RES_NODES times as much).
 """
 import numpy as np
 
@@ -20,6 +22,7 @@ from ..core.absorption import path_factor, transmission_F
 from ..core.fast import FastCTR
 from ..core.film import FilmCTRModel
 from ..core.sf import resolve_anomalous
+from .model import RES_NODES, resolution_nodes
 
 
 class Evaluator:
@@ -39,7 +42,7 @@ class Evaluator:
         from .model import lattice
         self.energy = s["energy_kev"]
         self.path = path_factor(self.pts.H, self.pts.K, self.pts.L, self.energy, lattice(s), s["alpha_in_deg"])
-        self._shifted = None                 # (offsets, FastCTR at the shifted points)
+        self._shifted = None                 # (offsets, res_L, FastCTR at the shifted / spread points)
 
     @property
     def n(self):
@@ -54,20 +57,32 @@ class Evaluator:
         return FilmCTRModel(s, geometry, anomalous=self.anomalous), comp
 
     def _fast_for(self, v):
-        """The engine at the points, moved by the rods' L offsets (the unshifted one when all are 0)."""
+        """The engine at the points, moved by the rods' L offsets and spread over the resolution nodes when
+        res_L > 0 (the plain one when all offsets are 0 and the resolution is off)."""
         off = np.array([float(v.get(f"dL_{H}_{K}", 0.0)) for H, K in self.rods])
-        if not off.any():
+        res = max(float(v.get("res_L", 0.0)), 0.0)
+        if not off.any() and not res:
             return self.fast
-        if self._shifted is None or not np.array_equal(self._shifted[0], off):
-            self._shifted = (off, FastCTR(self.pts.H, self.pts.K, self.pts.L + off[self.rod_index]))
-        return self._shifted[1]
+        if self._shifted is None or not np.array_equal(self._shifted[0], off) or self._shifted[1] != res:
+            L = self.pts.L + off[self.rod_index]
+            H, K = self.pts.H, self.pts.K
+            if res:
+                x, _ = resolution_nodes()
+                L = (L[None, :] + res * x[:, None]).ravel()
+                H, K = np.tile(H, RES_NODES), np.tile(K, RES_NODES)
+            self._shifted = (off, res, FastCTR(H, K, L))
+        return self._shifted[2]
 
     def intensity(self, values=None):
-        """|F|^2 without scale factors (at L + the rod's offset)."""
+        """|F|^2 without scale factors (at L + the rod's offset, averaged over the L resolution)."""
         v = self.values(values)
         m, comp = self.engine(v)
         self.n_calls += 1
-        return self._fast_for(v).intensity(m, comp)
+        I = self._fast_for(v).intensity(m, comp)
+        if I.size != self.pts.n:                     # the resolution nodes: their weighted mean per point
+            _, w = resolution_nodes()
+            I = w @ I.reshape(RES_NODES, self.pts.n)
+        return I
 
     def scales(self, values=None):
         """scale x rod scale x absorption in the electrolyte and window, per point."""

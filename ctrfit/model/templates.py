@@ -74,6 +74,9 @@ _SPECS = [
     # ---------------------------------------------------------------- instrument (in situ cell)
     ("t_liquid", "µm", 0.0, 200.0, False, "instrument",
      "Electrolyte film above the surface: absorption of both beams through the exit angle (0: off)"),
+    ("res_L", "r.l.u.", 0.0, 0.05, False, "instrument",
+     "Rms L resolution: the model |F|^2 is averaged over a Gaussian of this width along L at each point, e.g. the "
+     "detector window's spread in L, which fills sharp fringe minima (0: off; fit it from a start above 0)"),
     ("t_window", "µm", 0.0, 100.0, False, "instrument",
      "Window film (Kapton) above it: absorption like t_liquid (0: off; 0.0003 inch = 7.6 µm)"),
     # ---------------------------------------------------------------- scale
@@ -99,7 +102,7 @@ _DIRECT = {
     "polar_sub_tl": "polar_sub_tl",
     "z_SO4": "so4_z", "B_SO4": "so4_B", "dz_Rucus_SO4": "so4_dz",
 }
-NOT_SETTINGS = {"t_liquid": 0.0, "t_window": 0.0}      # parameters with no GUI setting (start values)
+NOT_SETTINGS = {"t_liquid": 0.0, "t_window": 0.0, "res_L": 0.0}      # parameters with no GUI setting (start values)
 
 DEFAULT_OPTIONS = dict(water_layer=False, water_layer_site="cus")
 

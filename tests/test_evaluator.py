@@ -55,7 +55,8 @@ def test_fast_equals_reference_random_parameters(seed, over):
     L = np.sort(rng.uniform(0.3, 4.0, 40))
     ev = model.evaluator(*stack(rods, L))
     for _ in range(3):
-        v = _random_values(model, rng, [n for n in model.params.names if n != "scale"])
+        v = _random_values(model, rng, [n for n in model.params.names if n not in ("scale", "res_L")])  # raw |F|^2:
+        # no instrument terms here (the L resolution against Model.F: test_cell.py)
         v["relax_001"] = float(rng.choice([0.0, rng.uniform(0.1, 1.0)]))
         ref = np.concatenate([model.intensity(H, K, L, v) for H, K in rods])
         np.testing.assert_allclose(ev.intensity(v), ref, rtol=1e-9, atol=0)

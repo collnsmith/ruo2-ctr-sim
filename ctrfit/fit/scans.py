@@ -424,4 +424,6 @@ def regroup(model, selection, previous=()):
             desc = p.description[:-len(tail)] + f"({ds.name})" if p.description.endswith(tail) else p.description
             P.add(name=name, value=float(np.clip(v, p.min, p.max)), min=p.min, max=p.max, fit=p.fit, unit=p.unit,
                   group=p.group, description=desc)
+    from .global_fit import complete_per_film
+    notes += complete_per_film(model, datasets)    # e.g. a new file of a film whose datasets share copies
     return datasets, notes

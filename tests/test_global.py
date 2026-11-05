@@ -146,3 +146,32 @@ def test_cli_global_fit(tmp_path):
     res = json.loads((tmp_path / "out" / "result.json").read_text())
     assert {"ds1.x_OH", "ds2.x_OH"} <= set(res["names"])
     assert (tmp_path / "out" / "series_x_OH.png").exists()
+
+
+def test_a_films_dataset_without_its_copy_joins_the_film():
+    """Per-film copies made while two films were fitted; then only one film is fitted and a new file of it is
+    added: the new dataset follows the film's copy (not the shared value), on regroup and before a run."""
+    from ctrfit.fit import workflow
+    from ctrfit.fit.global_fit import complete_per_film, make_per_film
+    from ctrfit.fit.scans import ScanSelection, regroup
+    truth = truth_model()
+    mk = lambda name, film, seed: make_dataset(truth, rods=ODD[:1], noise_rel=0.03, seed=seed, step=0.2, name=name,
+                                               film=film, thickness_nm=7.0 if film == "7 nm" else 4.1)
+    a, b, c = mk("a", "7 nm", 1), mk("b", "7 nm", 2), mk("c", "4 nm", 3)
+    model = truth_model()
+    sel = ScanSelection([a, b, c])
+    datasets, _ = regroup(model, sel)
+    make_per_film(model, datasets, ["eps_perp"])
+    P = model.params
+    lead = next(d.scope for d in datasets if d.name == "a")
+    P[f"{lead}.eps_perp"].value = 1.2
+    sel.set_use(sel.keys_of("c"), False)                 # one film left: no new per-film copies are made
+    sel.add(mk("d", "7 nm", 4))                          # a new file of the 7 nm film
+    datasets, notes = regroup(model, sel, datasets)
+    d = next(x for x in datasets if x.name == "d")
+    assert P[f"{d.scope}.eps_perp"].linked and P.view(d.scope)["eps_perp"] == pytest.approx(1.2)
+    assert any("follows its film's" in n for n in notes)
+    assert complete_per_film(model, datasets) == []      # nothing more to do
+    P.remove(f"{d.scope}.eps_perp")                      # and before a run (prepare) when it is missing
+    workflow.prepare(model, datasets)
+    assert P[f"{d.scope}.eps_perp"].linked and P.view(d.scope)["eps_perp"] == pytest.approx(1.2)

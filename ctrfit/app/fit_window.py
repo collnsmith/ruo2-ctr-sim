@@ -1541,6 +1541,9 @@ class FitWindow(QtWidgets.QMainWindow):
         except (OSError, ValueError, KeyError) as ex:
             self.warn("Could not open the project", f"{path}: {ex}")
             return
+        from ..fit.global_fit import complete_per_film
+        for n in complete_per_film(self.project.model, self.project.datasets):   # an older project's stragglers
+            self.log.appendPlainText(n)
         self.result = FitResult(**{k: v for k, v in self.project.results[-1].items() if k != "summary"}) \
             if self.project.results else None
         self._result_index = len(self.project.results) - 1 if self.project.results else None

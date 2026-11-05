@@ -113,6 +113,8 @@ def prepare(model, datasets, per_dataset=(), per_film=()):
     and one value per film of `per_film` (call this on the thread that owns the parameter table)."""
     datasets = datasets if isinstance(datasets, (list, tuple)) else [datasets]
     _prepare_scales(model, datasets)
+    from .global_fit import complete_per_film
+    complete_per_film(model, datasets)            # a film's dataset without its copy follows the film's
     if len(datasets) > 1 and per_dataset:
         from .global_fit import make_per_dataset
         make_per_dataset(model, datasets, [n for n in per_dataset if n in model.params])

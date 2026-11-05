@@ -118,6 +118,41 @@ def films(datasets):
     return out
 
 
+def complete_per_film(model, datasets):
+    """A film whose datasets follow one copy of a parameter (one value per film) and a dataset of that film
+    without a copy of its own (e.g. a file added after the copies were made, or a fit with only this film,
+    where no new per-film copies are made) would use the shared value instead of the film's. Give it a copy
+    that follows the same lead copy. Returns notes (one per copy added)."""
+    P = model.params
+    notes = []
+    for group in films(datasets).values():
+        scopes = {ds.scope for ds in group if ds.scope}
+        bases = sorted({n.rpartition(".")[2] for n in P.names if n.rpartition(".")[0] in scopes})
+        for base in bases:
+            leads = set()
+            for sc in scopes:
+                cn = f"{sc}.{base}"
+                if cn in P and P[cn].linked and re.fullmatch(r"[A-Za-z_][\w.]*", P[cn].expr.strip()):
+                    try:
+                        ref = P.resolve(P[cn].expr.strip(), sc)
+                    except Exception:
+                        continue
+                    if ref.rpartition(".")[2] == base and ref.rpartition(".")[0] in scopes:
+                        leads.add(ref)
+            if len(leads) != 1:
+                continue
+            lead = leads.pop()
+            for ds in group:
+                cn = f"{ds.scope}.{base}"
+                if ds.scope and cn not in P:
+                    q = P[lead]
+                    P.add(name=cn, value=q.value, min=q.min, max=q.max, fit=False, unit=q.unit, group=q.group,
+                          description=f"{P[base].description if base in P else q.description} ({ds.name})")
+                    P.link(cn, lead)
+                    notes.append(f"{ds.name} had no copy of {base}: it now follows its film's {lead}")
+    return notes
+
+
 def make_per_film(model, datasets, names):
     """One value per film of the parameters in `names`: every dataset gets its copy, and the copies of
     a film's later datasets follow its first one (links), so all potentials of a film share it."""

@@ -15,6 +15,7 @@ starting guess, only bounds that bracket the answer.
 """
 import numpy as np
 
+from ..core.ctrmodel import substrate_bragg_L
 from .fit import Fit
 
 FILM_PARAMS = ["thickness_mean_tl", "roughness_tl", "eps_perp", "scale"]
@@ -220,6 +221,44 @@ def rod_subsets(datasets, rods):
     if rods == "all":
         return datasets
     return _subsets(datasets, {"even": 0, "odd": 1}[rods])
+
+
+def near_bragg(ds, half_width, model=None, values=None):
+    """True for the points of dataset `ds` within ±half_width (r.l.u., edge included) of a TiO2 Bragg peak
+    of their rod (core.ctrmodel.substrate_bragg_L: only where the substrate scatters, e.g. L = 3 and 5 on
+    (0 1), not L = 1). A rod's L offset in this dataset (from `values`, the dataset's parameter values, else
+    the model's) moves its peaks: the model is taken at L + dL, so the data's peak sits at L_Bragg - dL."""
+    near = np.zeros(len(ds), bool)
+    if not half_width or half_width <= 0 or not len(ds):
+        return near
+    if values is None:
+        values = model.params.view(ds.scope) if model is not None else {}
+    for lab, idx in ds.rods().items():
+        H, K = ds.rod_hk(lab)
+        L = ds.L[idx] + float(values.get(f"dL_{H}_{K}", 0.0))
+        peaks = substrate_bragg_L(H, K, L.min() - half_width, L.max() + half_width)
+        if peaks.size:
+            near[idx] = np.abs(L[:, None] - peaks[None, :]).min(axis=1) <= half_width + 1e-9   # edge included
+    return near
+
+
+def skip_bragg(datasets, half_width, model=None):
+    """(the datasets without their points near TiO2 Bragg peaks, notes). Each subset keeps its dataset's
+    scope; a dataset with nothing left sits the run out (noted). 0: everything kept."""
+    out, notes = [], []
+    for ds in datasets:
+        near = near_bragg(ds, half_width, model)
+        if not near.any():
+            out.append(ds)
+        elif near.all():
+            notes.append(f"{ds.name}: every point is within ±{half_width:g} of a Bragg peak; it sits this run out")
+        else:
+            out.append(ds.subset(~near))
+            notes.append(f"{ds.name}: {int(near.sum())} of {len(ds)} points within ±{half_width:g} of a TiO2 Bragg "
+                         "peak skipped")
+    if datasets and not out:
+        raise ValueError(f"every point is within ±{half_width:g} of a Bragg peak")
+    return out, notes
 
 
 def unused_free(model, datasets):

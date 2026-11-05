@@ -647,3 +647,35 @@ def test_undo_and_redo(win, tmp_path):
     # a new change after an undo: no redo
     assert win.table.setData(_cell(win, "z_OH", "Value"), "2.2")
     assert not win.redo_action.isEnabled()
+
+
+def test_skip_near_bragg(win, tmp_path):
+    """Skip near Bragg ±L: the count of points it leaves out is said, the plot shows them hollow with the
+    windows shaded, a run fits without them (and the report too), the project keeps the value."""
+    from ctrfit.fit.workflow import near_bragg
+    ds = win.datasets[0]
+    n = int(near_bragg(ds, 0.15, win.model).sum())
+    assert n > 0
+    win.skip_bragg.setValue(0.15)
+    assert f"{n} of {len(ds)} points" in win.status.text()
+    i = next(i for i in range(win.rod_pick.count()) if near_bragg(ds, 0.15, win.model)[ds.rods()[win.rod_pick.itemData(i)[1]]].any())
+    win.rod_pick.setCurrentIndex(i)
+    QtWidgets.QApplication.instance().processEvents()
+    labels = [t.get_text() for t in win.p_rod.figure.axes[0].get_legend().get_texts()]
+    assert "near Bragg (skipped)" in labels
+    win.method.setCurrentText("refine only")
+    win.model.params.fit_only(["scale"])
+    win.run_or_stop()
+    assert not win.skip_bragg.isEnabled()                     # not changed during a run
+    assert win.wait(120) and win.skip_bragg.isEnabled()
+    assert win.result.fom["N"] == len(ds) - n
+    assert any("skip near Bragg" in line for line in win.log.toPlainText().splitlines())
+    win.fit = None                                            # e.g. after an undo: the report fit is rebuilt
+    win.export_report(str(tmp_path / "rep"))
+    assert win.fit.n_data == len(ds) - n
+    path = tmp_path / "p.ctrproj.json"
+    win.save_project(str(path))
+    win.skip_bragg.setValue(0.0)
+    assert "off" in win.status.text()
+    win.open_project(str(path))
+    assert win.skip_bragg.value() == pytest.approx(0.15)

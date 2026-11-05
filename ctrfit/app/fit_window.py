@@ -35,6 +35,7 @@ from ..fit import workflow
 from ..fit.fit import Fit, FitResult
 from ..fit import parallel
 from ..fit.global_fit import series, shadowed
+from ..core.ctrmodel import substrate_bragg_L
 from ..fit.presets import apply_preset, read_preset
 from ..fit.sensitivity import curve_effect, target
 from ..fit.scans import SEP, regroup
@@ -594,6 +595,13 @@ class FitWindow(QtWidgets.QMainWindow):
         self.rods.setToolTip("The rods a run fits: all, the even ones (H + K even: mostly the film) or the odd ones "
                              "(H + K odd: mostly O, the surface). Datasets without such rods sit the run out, their "
                              "own free parameters held fixed for it.")
+        self.skip_bragg = QtWidgets.QDoubleSpinBox(minimum=0.0, maximum=0.5, singleStep=0.01, decimals=3, value=0.0)
+        self.skip_bragg.setSpecialValueText("off")
+        self.skip_bragg.setToolTip("Leave the points within ± this (in L) of each rod's TiO2 Bragg peaks out of the fit: "
+                                   "only where the substrate scatters (e.g. L = 3 and 5 on (0 1), L = 2, 4 on (1 0); "
+                                   "not L = 1 on (0 1), the forbidden (100)), moved with a rod's L offset. They stay "
+                                   "in the plot, hollow, with the windows shaded. 0: off (every point fitted).")
+        self.skip_bragg.valueChanged.connect(self._on_skip_bragg)
         self.thick_scan = QtWidgets.QCheckBox("Thickness scan after DE")
         self.thick_scan.setToolTip("After the global search, a chi2 profile of each free film thickness (±3 TL in "
                                    "0.5 TL steps around its value, the others refined at each point) keeps the best "
@@ -612,6 +620,7 @@ class FitWindow(QtWidgets.QMainWindow):
         form = QtWidgets.QFormLayout()
         form.addRow("Method", self.method)
         form.addRow("Rods", self.rods)
+        form.addRow("Skip near Bragg ±L", self.skip_bragg)
         form.addRow(self.thick_scan)
         form.addRow("Figure of merit", self.fom)
         form.addRow("DE generations", self.maxiter)
@@ -1314,6 +1323,9 @@ class FitWindow(QtWidgets.QMainWindow):
             if self.project.results else None
         self._result_index = len(self.project.results) - 1 if self.project.results else None
         self.fit = None
+        self.skip_bragg.blockSignals(True)
+        self.skip_bragg.setValue(float(self.project.options.get("skip_bragg", 0.0)))
+        self.skip_bragg.blockSignals(False)
         self._refresh_all()
         if self.result is not None:
             self._show_result()
@@ -1325,6 +1337,7 @@ class FitWindow(QtWidgets.QMainWindow):
     def save_project(self, path=None):
         path = path or self._save_name("Save project", "fit.ctrproj.json", "ctrfit project (*.ctrproj.json)")
         if path:
+            self.project.options["skip_bragg"] = self.skip_bragg.value()
             self.project.save(path)
             self.say(f"Saved project {Path(path).name}")
 
@@ -1333,7 +1346,7 @@ class FitWindow(QtWidgets.QMainWindow):
             self.say("Run a fit first.")
             return
         if self.fit is None:                    # e.g. after opening a project or an undo: the model as it is
-            self.fit = Fit(self.model, self.datasets)
+            self.fit = Fit(self.model, workflow.skip_bragg(self.datasets, self.skip_bragg.value(), self.model)[0])
         folder = folder or QtWidgets.QFileDialog.getExistingDirectory(self, "Report folder", str(self.settings_dir))
         if folder:
             files = write_report(self.fit, self.result, folder)
@@ -1403,11 +1416,27 @@ class FitWindow(QtWidgets.QMainWindow):
             if sens is None:
                 self.status.setText(f"Colour: {sens_label}")
                 sens_label = ""
-        self.p_rod.draw(plots.draw_fit_rod, ds.L[idx], ds.F[idx], ds.sigma_eff[idx], Fc,
+        w = self.skip_bragg.value()                    # points near the rod's TiO2 Bragg peaks: not fitted
+        near = workflow.near_bragg(ds, w, values=v)[idx] if w > 0 else np.zeros(idx.size, bool)
+        keep = ~near
+        skipped = (ds.L[idx][near], ds.F[idx][near], ds.sigma_eff[idx][near]) if near.any() else None
+        dL = float(v.get(f"dL_{H}_{K}", 0.0))
+        bragg = (substrate_bragg_L(H, K, Ld.min() + dL - w, Ld.max() + dL + w) - dL, w) if w > 0 else None
+        self.p_rod.draw(plots.draw_fit_rod, ds.L[idx][keep], ds.F[idx][keep], ds.sigma_eff[idx][keep], Fc[keep],
                         f"{ds.name}: ({H} {K} L)" + (f"  {note}" if note else ""), Ld, Fd,
                         hold=values is not None,       # a running fit: the axes stay with the data
-                        scans=ds.point_scans()[idx], left_out=left, sensitivity=sens, sensitivity_label=sens_label,
-                        sensitivity_max=sens_max)
+                        scans=ds.point_scans()[idx][keep], left_out=left, sensitivity=sens,
+                        sensitivity_label=sens_label, sensitivity_max=sens_max, skipped=skipped, bragg=bragg)
+
+    def _on_skip_bragg(self, _value=None):
+        """The Bragg skip changed: say how many points the next run leaves out, and redraw."""
+        w = self.skip_bragg.value()
+        if self.datasets:
+            n = sum(int(workflow.near_bragg(ds, w, self.model).sum()) for ds in self.datasets)
+            total = sum(len(ds) for ds in self.datasets)
+            self.say(f"Skip near Bragg ±{w:g}: {n} of {total} points left out of the next run (each rod's TiO2 "
+                     "peaks)" if w > 0 else "Skip near Bragg: off (every point fitted)")
+            self.show_rod()
 
     def show_series(self):
         name = self.series_pick.currentText()
@@ -1462,7 +1491,7 @@ class FitWindow(QtWidgets.QMainWindow):
         for b in self.step_buttons:
             b.setEnabled(not on)
         for w in (self.floor, self.data_list, self.rod_pick, self.scan_table, self.b_add, self.b_del, self.cores,
-                  self.rods, self.thick_scan, *self.scan_buttons, *self.param_buttons):
+                  self.rods, self.skip_bragg, self.thick_scan, *self.scan_buttons, *self.param_buttons):
             w.setEnabled(not on)
 
     # ------------------------------------------------------------------ undo / redo
@@ -1498,7 +1527,8 @@ class FitWindow(QtWidgets.QMainWindow):
         prev = [SimpleNamespace(name=n, scope=sc, sys_floor=fl) for n, sc, fl in st["datasets"]]
         datasets, _ = sel.build(previous=prev)
         old = self.project
-        self.project = Project(Model.from_dict(st["model"]), datasets, old.results, old.name, old.notes, scans=sel)
+        self.project = Project(Model.from_dict(st["model"]), datasets, old.results, old.name, old.notes, scans=sel,
+                               options=old.options)
         self.per_dataset.setText(st["per_dataset"])
         self.per_film.setText(st["per_film"])
         i = st["result"]
@@ -1593,9 +1623,12 @@ class FitWindow(QtWidgets.QMainWindow):
                          self._active(self._per_film()) if len(self.datasets) > 1 else [])
         try:
             data = workflow.rod_subsets(self.datasets, self.rods.currentText())
+            data, skipped = workflow.skip_bragg(data, self.skip_bragg.value(), self.model)
         except ValueError as ex:
             self.warn("Nothing to fit on these rods", str(ex))
             return
+        for n in skipped:
+            self.log.appendPlainText(f"skip near Bragg: {n}")
         held = workflow.unused_free(self.model, data)          # copies of datasets that sit this run out
         for n in held:
             self.model.params[n].fit = False

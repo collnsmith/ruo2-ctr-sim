@@ -314,7 +314,8 @@ SENSITIVITY_CMAP = LinearSegmentedColormap.from_list("sensitivity", ["#d62728", 
 
 
 def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hold=False, scans=None,
-                 left_out=None, sensitivity=None, sensitivity_label="", sensitivity_max=None):
+                 left_out=None, sensitivity=None, sensitivity_label="", sensitivity_max=None, skipped=None,
+                 bragg=None):
     """Data with error bars and model |F| (log scale) above normalized residuals (F - Fc) / sigma.
     hold: the axes keep the data's range (|F|) and +-LIVE_RESIDUAL_RANGE (residuals) instead of
     following the model, so a live view of a running fit does not jump from one trial to the next.
@@ -323,7 +324,9 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
     sensitivity: one value per point of the model curve (L_model), e.g. the relative change of |F| for a
     parameter: the curve is coloured red (no change) to blue (sensitivity_max, e.g. the largest change over
     all rods of the dataset, so a rod the parameter hardly touches stays red; default: this curve's
-    largest), with a colour bar in % and sensitivity_label."""
+    largest), with a colour bar in % and sensitivity_label.
+    skipped: (L, F, sigma) of points not fitted because they sit near a Bragg peak, drawn hollow (no
+    residuals); bragg: (peak L values, half width), each window shaded in both panels."""
     fig.clear()
     a, b = fig.subplots(2, 1, sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
     L, F, sigma, Fc = (np.asarray(x, float) for x in (L, F, sigma, Fc))
@@ -345,6 +348,20 @@ def draw_fit_rod(fig, L, F, sigma, Fc, title="", L_model=None, F_model=None, hol
     if has_out:
         a.errorbar(left_out[0], left_out[1], yerr=left_out[2], fmt="o", ms=3.5, mfc="none", color="0.6",
                    ecolor="0.8", elinewidth=0.7, label="left out")
+    has_skip = skipped is not None and len(skipped[0])
+    if has_skip:
+        a.errorbar(skipped[0], skipped[1], yerr=skipped[2], fmt="D", ms=3.2, mfc="none", color="tab:orange",
+                   ecolor="0.8", elinewidth=0.7, label="near Bragg (skipped)")
+        left_out = (np.concatenate([left_out[0], skipped[0]]), np.concatenate([left_out[1], skipped[1]]),
+                    np.concatenate([left_out[2], skipped[2]])) if has_out else skipped
+        has_out = True                                  # the live view's range includes them
+    xs = [x for x in (L, np.asarray(left_out[0], float) if has_out else np.zeros(0)) if x.size]
+    if bragg is not None and bragg[1] > 0 and xs:
+        lo, hi = min(x.min() for x in xs), max(x.max() for x in xs)
+        for Lb in np.asarray(bragg[0], float):
+            if lo - bragg[1] <= Lb <= hi + bragg[1]:
+                for ax in (a, b):
+                    ax.axvspan(Lb - bragg[1], Lb + bragg[1], color="0.88", alpha=0.6, lw=0, zorder=0)
     sens = None if sensitivity is None or L_model is None else np.asarray(sensitivity, float)
     if sens is not None and sens.shape == np.shape(L_model) and sens.size > 1:
         Lm, Fm = np.asarray(L_model, float), np.asarray(F_model, float)

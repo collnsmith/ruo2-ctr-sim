@@ -161,7 +161,11 @@ small step: 2 % of the value, at most 1 % of its range), red for no change to bl
 change over all rods of the dataset, so a rod the parameter hardly touches stays red; the colour bar
 gives the change in %. It shows where the data constrain a parameter (e.g. x_OH on the odd rods,
 the thickness around the fringes). A linked parameter, or one that this dataset replaces with its
-own copy, leaves the curve red and says why in the status bar. Right: fit settings,
+own copy, leaves the curve red and says why in the status bar. Right: fit settings (Skip near Bragg ±L
+leaves the points within that distance of each rod's TiO2 Bragg peaks out of the fit: only where the
+substrate scatters, from its structure factor, e.g. L = 3 and 5 on (0 1) but not L = 1 there, the
+forbidden (100); moved with a rod's L offset; drawn hollow in orange with the windows shaded; kept
+in the project; `--skip-bragg` on the command line; off by default),
 Run / Stop (Solve scales exactly, Refine starts and Fringe hops: see "Less starting guess" below; during a fit the model curve of the shown rod and the Value column follow the best
 parameters after every differential-evolution generation and as least squares improves; the rod
 plot keeps the data's axes meanwhile and the residuals stay within ±10 σ, so the view does not jump
@@ -559,7 +563,8 @@ in a dialog):
   propagated `_err` column (without it the counting error is a lower bound, flagged in Notes).
   5: every kept point is written as measured: nothing is merged or averaged, so overlapping scans
   of one rod and symmetry equivalents stay separate points (each with its scan and rod); points
-  within a distance of integer L are left out and a systematic floor is written for the fit. A hand
+  within a distance of their rod's TiO2 Bragg peaks are left out (only where the substrate scatters, e.g.
+  L = 3 and 5 on (0 1), not L = 1) and a systematic floor is written for the fit. A hand
   scale per scan is in the table; "Scale later scans of a rod to the first on their overlap" (off by
   default) multiplies a scan by its median ratio to the earlier scans of its rod where they overlap. The table lists the scans (Use, rod, L range, points, scale, ROI, notes; the ROI column picks
   the signal ROI of each scan when it changes between scans, "(default)" being the one under

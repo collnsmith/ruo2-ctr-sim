@@ -47,6 +47,7 @@ import numpy as np
 
 from ..data.dataset import Dataset
 from ..core.absorption import surface_angles  # noqa: F401  (one formula for the exit angle)
+from ..core.ctrmodel import near_substrate_bragg
 from ..data.io import intensities_to_F, write_csv
 from ..echem.external import parse_roi_sums
 from .specfile import parse_spec_file
@@ -76,7 +77,7 @@ class Options:
     sample_mm: float = 5.0               # sample length along the beam
     l_tol: float = 0.01                  # H K L moving less than this: a stationary scan; overlap range padding
     match_overlaps: bool = False         # scale later scans of a rod to the first on their overlap
-    exclude_bragg: float = 0.0           # leave out |L - integer| < this (0: keep all)
+    exclude_bragg: float = 0.0           # leave out points within ± this of their rod's TiO2 Bragg peaks (0: keep all)
     floor_pct: float = 5.0               # systematic error floor for the fit (% of F)
     scan_scale: dict = field(default_factory=dict)   # scan -> extra scale factor (by hand)
     scan_use: dict = field(default_factory=dict)     # scan -> False to leave a scan out
@@ -318,7 +319,7 @@ def process_scan(number, cols, scan, opt, monitor_ref=None):
     span = max(float(np.ptp(x)) if x.size else 0.0 for x in (H, K, L))
     stationary = I.size > 1 and span <= opt.l_tol
     if opt.exclude_bragg > 0 and not stationary:
-        near = np.abs(L - np.round(L)) < opt.exclude_bragg
+        near = near_substrate_bragg(H, K, L, opt.exclude_bragg)      # only where the substrate scatters
         keep &= ~near
     F, sF = intensities_to_F(np.nan_to_num(I_c), np.nan_to_num(s_c, nan=1.0))
     return ScanResult(number, img, H, K, L, I, s, I_n, s_n, I_c, s_c, F, sF, a_deg, b_deg, P, C_rod, C_area,
@@ -504,7 +505,7 @@ def write_master(path, results, opt=None, spec_scans=None, spec_path="", sum_pat
              f"polarisation={'%g' % opt.pol_fraction if opt.polarization else 'off'} "
              f"rod_interception={'on' if opt.rod_interception else 'off'} area={'on' if opt.area else 'off'} "
              f"lattice={' '.join('%g' % a for a in opt.lattice)}",
-             f"# output: skip |L - integer| < {opt.exclude_bragg:g}, overlap scaling "
+             f"# output: skip within ±{opt.exclude_bragg:g} of each rod's TiO2 Bragg peaks, overlap scaling "
              f"{'on' if opt.match_overlaps else 'off'}, systematic floor {opt.floor_pct:g} %, stationary "
              f"tolerance {opt.l_tol:g}",
              "#", "# [scans]", "# " + "\t".join(MASTER_SCAN_COLUMNS)]

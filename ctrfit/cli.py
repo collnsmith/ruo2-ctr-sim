@@ -35,6 +35,9 @@ def build_parser():
     f.add_argument("--floor", type=float, default=None, help="systematic error floor (relative) for all data")
     f.add_argument("--intensities", action="store_true", help="data files hold I and sigma_I, not F")
     f.add_argument("--rods", default=None, help="only these rods, e.g. '0 1; 1 0'")
+    f.add_argument("--skip-bragg", type=float, default=0.0, metavar="DL",
+                   help="leave out the points within +-DL (in L) of each rod's TiO2 Bragg peaks (only where the "
+                        "substrate scatters, e.g. L = 3, 5 on 0 1; moved with a rod's L offset); 0: off")
     f.add_argument("--per-dataset", default="", help="global fit of several data files: parameters fitted "
                    "separately per dataset, e.g. 'x_OH,z_OH' (all other free parameters are shared)")
     f.add_argument("--per-film", default="", help="global fit: parameters with one value per film (datasets "
@@ -336,6 +339,11 @@ def cmd_fit(a):
         if a.rods:
             ds = ds.select_rods(parse_rods(a.rods))
         datasets.append(ds)
+    if a.skip_bragg > 0:
+        from .fit.workflow import skip_bragg
+        datasets, notes = skip_bragg(datasets, a.skip_bragg, model)
+        for n in notes:
+            print(f"skip near Bragg: {n}")
     per = [n.strip() for n in a.per_dataset.split(",") if n.strip()]
     per_film = [n.strip() for n in a.per_film.split(",") if n.strip()]
     if per or per_film:

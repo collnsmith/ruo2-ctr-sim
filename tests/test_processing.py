@@ -120,6 +120,9 @@ def test_options_change_the_result(tmp_path):
     skip, pts, _ = pr.run_files(pr.sum_files(folder), str(spec), opts(exclude_bragg=0.05))
     assert pts.L.size == int(skip[0].keep.sum())
     assert (~skip[0].keep).any() and np.all(np.abs(skip[0].L[~skip[0].keep] - np.round(skip[0].L[~skip[0].keep])) < 0.05)
+    out = skip[0].L[~skip[0].keep]                       # the (1 1) rod's TiO2 peaks are at L = 1 and 3, not 2
+    assert np.all(np.minimum(np.abs(out - 1), np.abs(out - 3)) <= 0.05 + 1e-9)
+    assert skip[0].keep[np.abs(skip[0].L - 2) < 0.05].all()
     # no _err column: sqrt(|I|) with a note
     text = (folder / "scan_sums.txt").read_text().splitlines()
     (folder / "scan_sums.txt").write_text("\n".join("\t".join(l.split("\t")[:3]) for l in text) + "\n")

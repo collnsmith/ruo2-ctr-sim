@@ -470,6 +470,38 @@ class CTRModel:
         return "\n".join(lines + [f"Note: {n}" for n in self.notes])
 
 
+_BRAGG_CELL = []
+
+
+def substrate_bragg_L(H, K, L_lo, L_hi):
+    """The whole L in [L_lo, L_hi] where the TiO2 cell scatters: the substrate Bragg peaks of rod (H K),
+    with the rutile extinctions (none at L = 1 on the (0 1) rod, the forbidden (100); none at L = 3 on (0 3)).
+    They follow from the structure's symmetry, so the default cell serves any rutile substrate."""
+    Ls = np.arange(np.ceil(L_lo), np.floor(L_hi) + 1, dtype=float)
+    if not Ls.size:
+        return Ls
+    if not _BRAGG_CELL:
+        _BRAGG_CELL.append(CTRModel(dict(DEFAULTS, anom_mode="off")))
+    m = _BRAGG_CELL[0]
+    return Ls[np.abs(m.sf_atoms(m.SUB_CELL, H, K, Ls)) > 1e-4]
+
+
+def near_substrate_bragg(H, K, L, half_width):
+    """True for the points (H K L) within ±half_width (edge included) of a TiO2 Bragg peak of their rod
+    (H and K rounded to whole numbers); all False for half_width 0."""
+    H, K, L = (np.atleast_1d(np.asarray(x, float)) for x in (H, K, L))
+    near = np.zeros(L.shape, bool)
+    if not half_width or half_width <= 0 or not L.size:
+        return near
+    Hr, Kr = np.round(H).astype(int), np.round(K).astype(int)
+    for h, k in set(zip(Hr.tolist(), Kr.tolist())):
+        m = (Hr == h) & (Kr == k)
+        peaks = substrate_bragg_L(h, k, L[m].min() - half_width, L[m].max() + half_width)
+        if peaks.size:
+            near[m] = np.abs(L[m][:, None] - peaks[None, :]).min(axis=1) <= half_width + 1e-9
+    return near
+
+
 def relaxation_study(params, points, thick_nm, relax_vals, comp_a, comp_b, progress=None):
     """Relative A/B change at fixed points versus film thickness and [001] relaxation."""
     out = {}

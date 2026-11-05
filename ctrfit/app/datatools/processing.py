@@ -154,7 +154,9 @@ class ProcessingWindow(StatusMixin, QMainWindow):
                                            "table). On: a scan is multiplied by the median ratio to the earlier "
                                            "scans of its rod and group where they overlap in L (no averaging).")
         self._bragg = _spin(0, 0.5, 0.0, 3, 0.01)
-        self._bragg.setToolTip("Leave out points with |L - integer| below this (0: keep all)")
+        self._bragg.setToolTip("Leave out the points within ± this (in L) of each rod's TiO2 Bragg peaks: only where "
+                               "the substrate scatters (e.g. L = 3 and 5 on (0 1), L = 2, 4 on (1 0); not L = 1 on "
+                               "(0 1), the forbidden (100)). 0: keep all")
         self._floor = _spin(0, 50, 5.0, 1, 0.5, " %")
         self._floor.setToolTip("Systematic error floor written for the fit (sys_floor): % of F added in quadrature "
                                "to the counting error")
@@ -163,7 +165,7 @@ class ProcessingWindow(StatusMixin, QMainWindow):
         self._chk_scale_overlap.toggled.connect(ch)
         mf.addRow("Stationary tolerance", self._ltol)
         mf.addRow(self._chk_scale_overlap)
-        mf.addRow("Skip near integer L", self._bragg)
+        mf.addRow("Skip near Bragg ±L", self._bragg)
         mf.addRow("Systematic floor", self._floor)
 
         left = QWidget()

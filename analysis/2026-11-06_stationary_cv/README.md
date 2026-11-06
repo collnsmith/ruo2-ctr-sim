@@ -280,13 +280,20 @@ film's connection to the CE / RE:
   The monitor is steady to 0.5 %. The logbook says the cell window broke during the rod.
 - **No L offset:** with the SPEC L, the (0 -1 1) and (0 -1 3) Bragg peaks fall at exactly 1.00 and 3.00. The earlier
   "0.02-0.05 below nominal" came from the wrong start and is withdrawn.
-- **Usable range:** the signal ROI (18 x 26 px) is fixed. Below L about 2.4 the spot leaves it during the scan
-  (step-shaped profiles whose floor equals the background), so those points scatter by a factor 3-10 and are not used.
-  SPEC's own Eiger ROI (Eiger1, about 6,500 px) shows a clean rocking peak for L 0.45-1.45, but at high L that peak runs
-  off the end of the scan, so neither ROI integrates the whole rod. From 2.40 up, each scan's mean (normalised by
-  transm and monitor) is used as a stationary point. Points within 0.08 of the Bragg peak are left out.
-- **CV positions (#Q):** 120 at L 2.755, 125 at 3.257, 222 / 223 at 3.168, each at K -1.006 to -1.007 (the peak maximum
-  found by hand).
+- **Usable range:** the ROI sums are raw (unprocessed) and the signal is inside ROI1 on almost all frames (the
+  user's check of the images). Below L about 2.4 the signal is weak and the frame-to-frame profiles are step-shaped:
+  the edge of the phi rocking profile, not the spot leaving the ROI (an earlier version of this section said so;
+  withdrawn). From 2.40 up each scan's mean over the frames (normalised by transm and monitor) is used as a
+  stationary point; points within 0.08 of the Bragg peak are left out.
+- **Check against the CVs (same ROI size, counts per 1 s frame):**
+  - CV 222 at L 3.168 gives 153k. The rod scans give 181k at 3.15 and 91k at 3.20, so the rod scans measure the same
+    intensity as the CV that shares their UB.
+  - CV 120 (2.755) and CV 125 (3.257) give 2-3x less than the rod at the same L. Both were measured with the older UB,
+    before the orientation was re-anchored on the measured (0 -1 3) peak at 16:22. They were probably off the rod
+    maximum, or part of the spot fell outside their own ROI.
+- **CV positions (#Q):** 120 at L 2.755 and 125 at 3.257 (older UB), 222 / 223 at 3.168 (the rod's UB), each at K -1.006
+  to -1.007 by #Q. The detector arm (nu) sat about 0.04 deg from the calculated position, so this #Q K offset is mostly
+  the detector, not the sample.
 - **Shape:** the 3.3 nm film puts a strong hump at L 3.10-3.20, then a minimum at 3.30. CV 3.168 sits on the hump;
   CV 3.257 sits on the steep edge just before the minimum (d ln I / dL about -30). A shift of 0.005 in L there is -13 %.
 - **Fit** (film from the 4.1 nm fit, surface at the 7 nm 0.7 V state; free thickness, spread, eps_perp, roughness, L

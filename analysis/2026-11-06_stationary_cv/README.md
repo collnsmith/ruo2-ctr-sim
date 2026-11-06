@@ -24,7 +24,7 @@ No SPEC file: no monitor or filter normalisation, and the time comes from the po
    - -0.24 to 0.15 V: 0.35 Å
    - 0.35 V: 0.2 Å
    - 0.7 V: 0 Å
-   - OCV: 0.2 Å (assumed about 0.9 V RHE)
+   - OCV: 0.2 Å (measured OCV 0.35 to 0.4 V Ag/AgCl = 0.61 to 0.66 V RHE, the same bin as 0.35 V)
 
    Output `ohfit_c2_summary.json`.
 

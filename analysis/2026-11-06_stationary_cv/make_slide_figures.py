@@ -67,8 +67,7 @@ def slide02():
             ax.plot(x, y, MK[f], ms=11, color=COL[f], mfc="white", mew=2, zorder=3)
         else:
             ax.plot(x, y, MK[f], ms=11, color=COL[f], mec="white", mew=1.2, zorder=3)
-    ax.set_yscale("log"); ax.set_ylim(0.1, 80)
-    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.set_ylim(-1.5, 42)
     ax.set_xticks([0, 1, 2]); ax.set_xticklabels(["3.3 nm", "4.1 nm", "7 nm"], fontsize=14)
     for t, f in zip(ax.get_xticklabels(), ("3.3", "4.1", "7")):
         t.set_color(COL[f])

@@ -274,30 +274,79 @@ film's connection to the CE / RE:
 
 ## 3.3 nm (0 -1 L) rod at 0.65 V, scans 153-221 (`rod153.py`, `rod153.json`, `fig_rod153.py`, `fig_rod153.png`)
 
-- **Data:** phi rocking scans (dscan phi -0.1 0.1 60) from L 0.35 to 3.75 in steps of 0.05 (69 scans, 153-221, as in the logbook).
-  ROI sums only: no SPEC file, so no monitor, filters or angles. The logbook says the cell window broke during the rod.
-- **Usable range:** the signal ROI (18 x 26 px) is fixed. Below L about 2.4 the spot leaves it during the scan (step-shaped profiles
-  whose floor equals the background), so those points scatter by a factor 3-10 and are not used. From 2.45 up the spot stays in the
-  ROI and the 0.2 deg scan is narrower than the rocking width, so each scan is used as a stationary point (mean over the images).
-  Scans 205-208 (Bragg region, 206 / 207 attenuated mid-scan) are left out.
-- **L offset:** the (0 -1 1) and (0 -1 3) Bragg peaks are crossed between nominal 1.00-1.05 and 3.00-3.05: the scans sit 0.02-0.05
-  below nominal. The day-2 CVs used the same alignment, so the rod and the CVs share the frame.
-- **Shape:** the 3.3 nm film puts a strong hump at L 3.15-3.25. CV 3.16 sits on its top, CV 3.25 on its steep falling edge (the
-  intensity drops about 8x from 3.20 to 3.30, d ln I / dL about -21).
-- **Fit** (film from the 4.1 nm fit, surface at the 7 nm 0.7 V state, free thickness, spread, eps_perp, roughness, L offset, a slope
-  for the missing corrections, scale solved): reduced chi2 about 60 with a 5 % floor. Two structures fit about equally (5.0 TL on
-  the bound with eps 0.52 %, or 12.7 TL with eps 1.76 % and dL -0.048). The rod does not pin the 3.3 nm structure.
-- **CV changes at 0.7 V, predicted from the CTR states (both rod fits, three dz_Obr assumptions) vs measured on 3.3 nm:**
+- **Data:** phi rocking scans (`dscan phi -0.1 0.1 60`) with the ROI sums, plus the SPEC file (`data/08_9_3.3nm.spec`). From SPEC:
+  L runs 0.30 to 3.70 in steps of 0.05; the logbook's 0.35 start is one step off, which an earlier version of this section
+  used. L is constant within each phi scan (phi moves H only). Filters: 170 (transmission 0.19), 206 (part), 207 and 208 (0.036).
+  The monitor is steady to 0.5 %. The logbook says the cell window broke during the rod.
+- **No L offset:** with the SPEC L, the (0 -1 1) and (0 -1 3) Bragg peaks fall at exactly 1.00 and 3.00. The earlier
+  "0.02-0.05 below nominal" came from the wrong start and is withdrawn.
+- **Usable range:** the signal ROI (18 x 26 px) is fixed. Below L about 2.4 the spot leaves it during the scan
+  (step-shaped profiles whose floor equals the background), so those points scatter by a factor 3-10 and are not used.
+  SPEC's own Eiger ROI (Eiger1, about 6,500 px) shows a clean rocking peak for L 0.45-1.45, but at high L that peak runs
+  off the end of the scan, so neither ROI integrates the whole rod. From 2.40 up, each scan's mean (normalised by
+  transm and monitor) is used as a stationary point. Points within 0.08 of the Bragg peak are left out.
+- **CV positions (#Q):** 120 at L 2.755, 125 at 3.257, 222 / 223 at 3.168, each at K -1.006 to -1.007 (the peak maximum
+  found by hand).
+- **Shape:** the 3.3 nm film puts a strong hump at L 3.10-3.20, then a minimum at 3.30. CV 3.168 sits on the hump;
+  CV 3.257 sits on the steep edge just before the minimum (d ln I / dL about -30). A shift of 0.005 in L there is -13 %.
+- **Fit** (film from the 4.1 nm fit, surface at the 7 nm 0.7 V state; free thickness, spread, eps_perp, roughness, L
+  offset, a slope for the geometry corrections; scale solved): reduced chi2 about 57, thickness on the 5 TL bound, and
+  dL +0.047. With wide bounds (3-32 TL, eps -3 to 3 %), local minima from 4 to 29 TL, all with reduced chi2 48-80.
+  The rod, as extracted, does not determine the 3.3 nm structure.
+- **CV changes at 0.7 V, predicted from the CTR states (best rod fits, three dz_Obr assumptions) vs measured on 3.3 nm:**
 
   | L | predicted | measured 3.3 nm | measured 7 nm |
   |---|---|---|---|
-  | 2.75 | -3 to -9 % | -13 % | -27 % |
-  | 3.16 | +4 to +9 % | +11 % | +18 % |
-  | 3.25 | +6 to +8 % | -13 % | +6 % |
+  | 2.755 | -1 to -8 % | -13 % | -27 % |
+  | 3.168 | +4 to +9 % | +11 % | +18 % |
+  | 3.257 | +7 to +10 % | -13 % | +6 % |
 
-  2.75 and 3.16 agree in sign. 3.25 does not, under any structure the rod allows or the 7 nm structure.
-- **A uniform potential-dependent film strain does not fix it:** it moves 3.16 and 3.25 together (best change +0.1 %, rms barely
-  improves).
-- **Status:** the 3.25 decrease on 3.3 nm is not explained by film thickness or strain in this model. It is the only remaining film
-  difference, but it is one scan (125) on the steepest part of the rod, where a shift of 0.007 in L gives -13 %. A proper rod
-  (images re-processed with an ROI that holds the moving spot, plus the SPEC file) is needed before it can carry a claim.
+- **Which structures give the 3.3 nm pattern (-, +, -)?** We scanned a grid of 2,430 film structures (4-30 TL, eps -1 to
+  2.5 %, spread 0.5-3 TL, roughness 0.6 / 1.2 TL). The pattern needs every change beyond 2 %:
+  - **A (dz_Obr fitted):** 0 structures.
+  - **B (dz_Obr = 0):** 3 structures, all at eps 2.5 %.
+  - **C' (Rao):** 15 structures, all with a sharp thickness (spread 0.5 TL) at 13-14 or 21-26 TL, so that 3.257 sits
+    next to a fringe minimum.
+
+  So the decrease at 3.257 is not generic. It needs a film with sharp fringes placed just so. The minimum seen at L
+  3.30 is a hint of that, but this rod cannot show it.
+- **A uniform potential-dependent film strain does not fix it:** it moves 3.168 and 3.257 together.
+- **Status:** the 3.3 vs 7 nm sign difference at L 3.25 is the only remaining film difference. It rests on one scan
+  (125), and whether it is structural (fringes) or a different surface response cannot be decided from this rod. The
+  next step is to re-process the images of 153-221 with an ROI that holds the moving spot (the Processing tool,
+  with this SPEC file). That gives a proper rod and a real 3.3 nm structure.
+
+## Net anodic current on days 2 and 3, and shorts on the WE side
+
+- **Net charge per CV cycle** (current integrated over whole cycles):
+  - 3.3 nm: +970 to +1,260 uC (mean +3.5 to +4.5 uA; about +8 uA at 0.7 V, about 0 at 0 V).
+  - 7 nm 311, 316: +7,400 uC (+56 uA at 0.7 V); 314: +35,000 uC (+293 uA at 0.7 V); 344: +14,600 uC.
+  - 7 nm 356: +350 uC.
+  - 4.1 nm: 0.
+
+  A clean RuO2 film in this window should be close to reversible. Something is oxidised every cycle on days 2 and 3, and
+  the CV charges quoted above are dominated by it. Two candidates:
+  - Ga-In exposed to the electrolyte. Ga and In dissolve anodically at every potential in the window.
+  - Beam radiolysis products (H2, H2O2) oxidised at the film.
+
+  The test: a beam-driven current follows the shutter and the filters; Ga-In corrosion does not. The EC times can be
+  synced to the SPEC epochs to check this.
+- **Short outside the cell, WE side to the diffractometer:**
+  - *Grounded potentiostat (WE at ground):* the film is still under potential, with an error equal to the ground-loop
+    voltage between the diffractometer and the potentiostat (mV to tens of mV, plus hum). Part of the current returns
+    through the diffractometer and is not recorded; how much depends on the resistance of the short against the WE
+    lead and the ammeter input.
+  - *Floating potentiostat:* a single short to ground changes nothing.
+
+  This fits all the day-4 facts: Ewe tracks, about zero current, a real OCV that reacts to the beam, and no overload.
+  To lose more than 99.9 % of the current, the short must be far lower in resistance than the WE lead path. A good
+  clip with a metal short would more likely split the current than remove it.
+- **Short inside the cell, Au wire or Ga-In touching the electrolyte:**
+  - The exposed metal becomes part of the WE, so the film stays under potential. The error is the film current times
+    the 500 Ohm contact, well below 1 mV.
+  - The recorded current is the film's plus the metal's. Au adds little below about 0.9 V Ag/AgCl. Ga-In adds a
+    steady, irreversible anodic dissolution current that rises with potential, and it pulls the OCV toward its own
+    corrosion potential, far below RuO2's.
+  - Ga3+ / In3+ go into the electrolyte, and the eutectic is slowly eaten.
+  - This cannot explain day 4: zero current and an OCV of +0.37 V. It is one of the two candidates for the net anodic
+    current on days 2 and 3, together with their low OCVs (about 0 V).

@@ -1,14 +1,15 @@
 """3.3 nm (0 -1 L) rod at 0.65 V from the phi rocking scans 153-221 (ROI sums only, no SPEC file), a 3.3 nm film
 structure fitted to it, and the 3.3 nm CV changes predicted from the CTR-fitted surface states (as ctr2cv.py does for 7 nm).
 
-Scan numbering: the logbook macro runs L 0.35 to 3.75 in steps of 0.05, which is exactly 69 scans (153-221).
-Signal: ROI1 (raw sum, 18 x 26 px) minus the mean of ROI2 / ROI3 scaled to the ROI1 area.
+L, filters (transm) and monitor of every image come from the SPEC file (data/08_9_3.3nm.spec): L runs 0.30 to 3.70 in
+steps of 0.05 (the logbook's 0.35 start is wrong by one step), constant within each phi scan.
+Signal: ROI1 (raw sum, 18 x 26 px) minus the mean of ROI2 / ROI3 scaled to the ROI1 area, divided by transm and by the
+monitor relative to its mean.
 Why the scans are used as stationary points: the ROI is fixed for every image; below L ~2.45 the spot walks out of it
 during the 0.2 deg phi scan (step-shaped profiles, the floor equals the background), above it the spot stays in the ROI
-for the whole scan and the scan is narrower than the rod's rocking width (flat profiles). So the fit uses L >= 2.45,
-the mean over the images of each scan, a free scale, a free slope for the missing geometry corrections (no angles,
-monitor or filters without the SPEC file), and a free L offset. Scans 205-208 (Bragg region, 206/207 attenuated
-mid-scan) are left out."""
+for the whole scan and the scan is narrower than the rod's rocking width (flat profiles). So the fit uses L >= 2.40,
+the mean over the images of each scan, a free scale, a free slope for the geometry corrections, and a free L offset
+(it should come out near 0). Points within 0.08 of the Bragg peak (scans 206-208) are left out."""
 import json, os, sys
 here = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(here, "..", ".."))
@@ -17,17 +18,22 @@ import numpy as np, pandas as pd
 from scipy.optimize import least_squares
 from ctrfit.fit.global_fit import film_of
 from ctrfit.project.project import Project
+from ctrfit.datatools.specfile import parse_spec_file
 
 d = pd.read_csv(os.path.join(here, "data", "ROIs_s153_221_sums.txt"), sep="\t", comment="#", dtype={"image": str})
 AREA = 18 * 26 / (64 * 102)
+SPEC = parse_spec_file(os.path.join(here, "data", "08_9_3.3nm.spec"))
+MON = np.mean([np.mean(SPEC[n].data["Monitor"]) for n in range(153, 222)])
 rows = []
 for s, g in d.groupby("scan"):
-    g = g.iloc[:61]
-    sig = g.ROI1.values - 0.5 * (g.ROI2.values + g.ROI3.values) * AREA
+    sp = SPEC[int(s)].data; n = min(len(g), len(sp["L"]))
+    g = g.iloc[:n]
+    norm = sp["transm"][:n] * sp["Monitor"][:n] / MON
+    sig = (g.ROI1.values - 0.5 * (g.ROI2.values + g.ROI3.values) * AREA) / norm
     sm = np.convolve(sig, np.ones(5) / 5, "same")
     plateau = sig[sm >= 0.5 * sm[2:-2].max()]           # images with the spot in the ROI (used only below L 2.45)
-    rows.append(dict(scan=int(s), L_nom=round(0.35 + 0.05 * (s - 153), 2), mean=sig.mean(), plateau=plateau.mean(),
-                     err=np.sqrt(np.sum(g.ROI1_err.values ** 2)) / len(g)))
+    rows.append(dict(scan=int(s), L_nom=round(float(np.mean(sp["L"])), 3), mean=sig.mean(), plateau=plateau.mean(),
+                     err=np.sqrt(np.sum((g.ROI1_err.values / norm) ** 2)) / len(g), transm=float(np.min(sp["transm"]))))
 rod = pd.DataFrame(rows)
 
 # model: the CTR fit project (4.1 and 7 nm); start from the 4.1 nm film (fully strained, about 10 TL)
@@ -48,7 +54,7 @@ def state(var, e, film="7 nm"):
 def I(v, L):
     return np.asarray(m.intensity(0, -1, np.atleast_1d(L), v), float)
 
-use = rod[(rod.L_nom >= 2.45) & ~rod.scan.between(205, 208)].reset_index(drop=True)
+use = rod[(rod.L_nom >= 2.40) & ((rod.L_nom - 3).abs() > 0.08)].reset_index(drop=True)
 Ld, Fd = use.L_nom.values, np.sqrt(np.clip(use["mean"].values, 1, None))
 sF = 0.5 * np.sqrt(use.err.values ** 2 + (0.05 * use["mean"].values) ** 2) / Fd   # 5 % floor on I
 
@@ -82,7 +88,7 @@ cv = json.load(open(os.path.join(here, "cv3.json")))
 def measured(s, E):
     c = cv[s]["sum"]["curves"]
     return float(np.mean([np.interp(E, c[b]["E"], c[b]["dI"]) for b in ("anodic", "cathodic")]))
-CVS = {2.75: ["120"], 3.16: ["222"], 3.25: ["125"], 1.25: ["147"]}
+CVS = {2.755: ["120"], 3.168: ["222"], 3.257: ["125"], 1.25: ["147"]}   # L from each CV scan's #Q
 pred = {}
 for var, f in fits.items():
     x = f["x"]; v33 = dict(base, **dict(zip(FREE, x[:4])))

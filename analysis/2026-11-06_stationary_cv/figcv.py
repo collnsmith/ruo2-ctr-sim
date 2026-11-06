@@ -20,7 +20,7 @@ for ax, s in zip(axs.flat, order):
     ax.annotate("", xy=(0.75, q), xytext=(0.75, 0), arrowprops=dict(arrowstyle="->", color="#2471a3", lw=1.5))
     ax.axhline(0, color="0.8", lw=0.6)
     lo, hi = ax.get_ylim(); ax.set_ylim(min(lo, q - 3, -5), max(hi, q + 3, 5))
-    flag = " (timing?)" if s == "147" else (" control" if s == "356" else "")
+    flag = " (hysteretic)" if s == "147" else (" control" if s == "356" else "")
     ax.set_title(f"{s}: {r['film']} nm ({r['H']} {r['K']} {r['L']:g}){flag}", fontsize=9)
     ax.tick_params(labelsize=8); ax.set_xlim(-0.02, 0.79)
 axs[1, 4].axis("off")

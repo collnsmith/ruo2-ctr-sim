@@ -1,0 +1,23 @@
+# rms of ln(I_a / I_b) over the OH rod, one free scale, +-0.08 around the TiO2 Bragg peak left out (timeline_rods.py)
+# 7 nm a/b: the two measurements at -0.1 V and 0.7 V (README); '->' = measured back to back
+comparison,rms_ln_ratio
+7 nm OCV -> 0.7 Va,0.0519742
+7 nm 0.7 Va -> 0.35 V,0.0194831
+7 nm 0.35 V -> 0.15 V,0.0332727
+7 nm 0.15 V -> 0 V,0.028486
+7 nm 0 V -> -0.1 Va,0.0255
+7 nm -0.1 Va -> -0.1 Vb,0.0871235
+7 nm -0.1 Vb -> 0.7 Vb,0.0796292
+7 nm repeat 0.7 V,0.0394156
+7 nm repeat -0.1 V,0.0404118
+4.1 nm 0 V -> -0.1 V,0.0359544
+4.1 nm -0.1 V -> 0.15 V,0.0381874
+4.1 nm 0.15 V -> 0.7 V,0.0311153
+4.1 nm 0.7 V -> -0.238 V,0.0385406
+4.1 nm -0.238 V -> 0.35 V,0.0433134
+4.1 nm 0.35 V -> OCV,0.109816
+7 nm 0.7 Va vs 0 V,0.0612863
+7 nm 0.7 Va vs -0.1 Va,0.0766317
+7 nm 0.35 V vs -0.1 Va,0.0728863
+7 nm OCV vs 0 V,0.0202615
+7 nm OCV vs 0.35 V,0.0464066

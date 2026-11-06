@@ -212,3 +212,12 @@ so they are not used (slide outline, backup B7).
   signal.
 - (1 0 1.75) is an odd rod that the model calls OH-blind. Its flat response shows the selection follows the model's OH
   sensitivity, not just odd vs even rods.
+
+## Scan 147 corrected, and the plot data (`extract2.py`, `make_plot_data.py`)
+
+- **147:** the hold starts at the logged Start (image 50), as before. The period now comes from the Ru peaks (150, 221, 293:
+  about 72 images), not from the summed signal (162, twice the cycle). The Ru spot drops on the first anodic sweep, then
+  stays 20-34% low and recovers only partly (to -12%) at 0.3-0.4 V on the later anodic sweeps, about 80 s after the potential
+  returns to 0 V. It is hysteretic and is still left out of the fits. No other scan changed.
+- **`plot_data/`:** every plotted quantity as a CSV, sorted by folder (see `plot_data/README.md`). The rebuilt CV curves
+  match `cv3.json` to the 6 printed digits.

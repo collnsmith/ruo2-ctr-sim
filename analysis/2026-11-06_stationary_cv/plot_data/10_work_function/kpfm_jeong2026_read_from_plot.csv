@@ -1,0 +1,13 @@
+# Jeong et al., Nat. Commun. 17, 2516 (2026): KPFM on different samples from ours; values read by eye from the plot (+-0.02 eV)
+thickness_nm,work_function_eV
+1.5,4.25
+2.5,4.38
+3,4.35
+3.2,4.73
+3.8,5.4
+4,4.86
+5,4.78
+5.2,4.84
+7,4.44
+8,4.66
+17,5.05

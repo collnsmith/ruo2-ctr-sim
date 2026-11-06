@@ -25,7 +25,7 @@ for s, r in info.items():
     a.plot(x, y, MK[f], ms=8, color=COL[f], mec="white", mew=1.2, zorder=3, label=f"{f} nm" if f not in seen else None)
     seen.add(f)
     if s == "147":
-        a.annotate("147: timing unclear,\nRu+Ti mostly Ti here", (x, y), (x + 0.25, y * 1.9), fontsize=7.5, color=MUTED,
+        a.annotate("147: hysteretic (Ru);\nRu+Ti mostly Ti here", (x, y), (x + 0.25, y * 1.9), fontsize=7.5, color=MUTED,
                    arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.6))
 pn = json.load(open(os.path.join(here, "process_new.json")))
 b3 = json.load(open(os.path.join(here, "process_batch3.json")))

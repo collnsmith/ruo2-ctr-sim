@@ -6,6 +6,10 @@ from ctrfit.echem.analysis import dominant_period
 exec(open(__file__.replace("extract2.py", "extract.py")).read().split("rows = info()")[0])   # info, load, potential
 
 FCA = CA / CYCLE                                 # the 30 s hold in cycles
+# 147 (0 -1 1.25): the summed signal and the large first drop give twice the cycle; the Ru peaks (150, 221, 293) give
+# 71.5 images. The hold starts at the logged Start (50) with no shift (the response lags; see README).
+PERIOD_OVERRIDE = {147: 71.5}
+SHIFT_FIXED = {147: 0.0}
 rows = info()
 out = {}
 for r in rows:
@@ -19,6 +23,8 @@ for r in rows:
         P0 = dominant_period(n[a:b], sig[a:b], min_period=40)
         if P0:
             break
+    if r["scan"] in PERIOD_OVERRIDE:
+        P0 = PERIOD_OVERRIDE[r["scan"]]
     if P0:
         N = max(0.5, round(2 * (span / P0 - FCA)) / 2)              # whole or half cycles
         how = "period from the data"
@@ -37,6 +43,8 @@ for r in rows:
         if np.isfinite(c) and abs(c) > abs(best[1]):
             best = (d, c)
     d = best[0] if P0 else 0.0
+    if r["scan"] in SHIFT_FIXED:
+        d = SHIFT_FIXED[r["scan"]]
     E, br = potential(n, a + FCA * P + d, P)
     k = np.arange(a, b)
     k = k[(br[k] != 0)]

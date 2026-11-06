@@ -1,0 +1,42 @@
+# OH fraction on the CUS sites from the (0 +-1) CTR fits, film fixed; lo/hi: delta chi2 <= 4 red chi2 (profiles).
+# OCV rows are not comparable between films (different rest potentials and, for 4.1 nm, a different spot).
+assumption,film_nm,condition,E_V_AgAgCl,E_V_RHE,x_OH_best,x_OH_lo,x_OH_hi,dz_Obr_A,red_chi2
+Rao 2017 (logbook RHE scale),4.1,-0.1 V,-0.1,0.138,0.9,0.6,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),4.1,-0.238 V,-0.238,0,0.9,0.65,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),4.1,0 V,0,0.238,1,0.7,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),4.1,0.15 V,0.15,0.388,0.95,0.7,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),4.1,0.35 V,0.35,0.588,0.85,0.6,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),4.1,0.7 V,0.7,0.938,0.45,0.2,0.75,0,14.7675
+Rao 2017 (logbook RHE scale),4.1,OCV,,,0.2,0,0.35,0.2,14.7675
+Rao 2017 (logbook RHE scale),7,-0.1 V,-0.1,0.138,0.4,0.15,0.7,0.35,14.7675
+Rao 2017 (logbook RHE scale),7,0 V,0,0.238,0.6,0.3,0.95,0.35,14.7675
+Rao 2017 (logbook RHE scale),7,0.15 V,0.15,0.388,0.8,0.45,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),7,0.35 V,0.35,0.588,0.9,0.6,1,0.35,14.7675
+Rao 2017 (logbook RHE scale),7,0.7 V,0.7,0.938,0.35,0.1,0.6,0,14.7675
+Rao 2017 (logbook RHE scale),7,OCV,,,0.55,0.2,0.85,0.2,14.7675
+bridging O fixed at 0,4.1,-0.1 V,-0.1,0.138,0.5,0.25,0.8,0,14.4736
+bridging O fixed at 0,4.1,-0.238 V,-0.238,0,0.6,0.3,0.85,0,14.4736
+bridging O fixed at 0,4.1,0 V,0,0.238,0.65,0.35,0.95,0,14.4736
+bridging O fixed at 0,4.1,0.15 V,0.15,0.388,0.55,0.3,0.85,0,14.4736
+bridging O fixed at 0,4.1,0.35 V,0.35,0.588,0.5,0.2,0.75,0,14.4736
+bridging O fixed at 0,4.1,0.7 V,0.7,0.938,0.45,0.2,0.7,0,14.4736
+bridging O fixed at 0,4.1,OCV,,,0,0,0.05,0,14.4736
+bridging O fixed at 0,7,-0.1 V,-0.1,0.138,0,0,0.25,0,14.4736
+bridging O fixed at 0,7,0 V,0,0.238,0.15,0,0.45,0,14.4736
+bridging O fixed at 0,7,0.15 V,0.15,0.388,0.3,0,0.65,0,14.4736
+bridging O fixed at 0,7,0.35 V,0.35,0.588,0.45,0.1,0.75,0,14.4736
+bridging O fixed at 0,7,0.7 V,0.7,0.938,0.35,0.1,0.6,0,14.4736
+bridging O fixed at 0,7,OCV,,,0.15,0,0.45,0,14.4736
+bridging O fitted (unconstrained),4.1,-0.1 V,-0.1,0.138,0.45,0.05,1,-0.0365972,14.4737
+bridging O fitted (unconstrained),4.1,-0.238 V,-0.238,0,0.1,0,0.95,-0.2,14.4737
+bridging O fitted (unconstrained),4.1,0 V,0,0.238,0.45,0.05,1,-0.076678,14.4737
+bridging O fitted (unconstrained),4.1,0.15 V,0.15,0.388,0.25,0,0.95,-0.144089,14.4737
+bridging O fitted (unconstrained),4.1,0.35 V,0.35,0.588,0.1,0,0.9,-0.172683,14.4737
+bridging O fitted (unconstrained),4.1,0.7 V,0.7,0.938,0.15,0,0.95,-0.127243,14.4737
+bridging O fitted (unconstrained),4.1,OCV,,,0,0,0.3,0.0494517,14.4737
+bridging O fitted (unconstrained),7,-0.1 V,-0.1,0.138,0,0,0.65,-0.0365972,14.4737
+bridging O fitted (unconstrained),7,0 V,0,0.238,0,0,0.75,-0.076678,14.4737
+bridging O fitted (unconstrained),7,0.15 V,0.15,0.388,0,0,0.75,-0.144089,14.4737
+bridging O fitted (unconstrained),7,0.35 V,0.35,0.588,0,0,0.95,-0.172683,14.4737
+bridging O fitted (unconstrained),7,0.7 V,0.7,0.938,0,0,0.9,-0.127243,14.4737
+bridging O fitted (unconstrained),7,OCV,,,0.3,0,0.7,0.0494517,14.4737

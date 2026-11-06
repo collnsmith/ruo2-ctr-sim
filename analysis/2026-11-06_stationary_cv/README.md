@@ -247,6 +247,57 @@ Results are chi2 per point, with the difference from the best fit scaled by its 
 - **Current, 3.3 and 7 nm:** a rising background (6-14 uA/V) with a gap of about 1-2 uA between the sweeps (half-gap 0.4-1.1 uA, i.e.
   80-230 uF at 5 mV/s), and 430-850 uC per anodic sweep in the clean scans. 7 nm 311, 314 and 344 carry large spikes.
 - **Current, 4.1 nm:** zero within noise in every file (half-gap at most 0.005 uA, 0.0 uC per cycle, no current at potential steps up to
-  0.94 V). Combined with a measured 500 Ohm contact and electrolyte over the film, the most likely cause is an open WE connection at
-  the beamline on day 4, or a blocked surface. A lab CV of the sample will decide.
+  0.94 V). Updated below (`ec_leak.py`): the WE lead was on the film, so an open lead is unlikely.
 - **Consequence:** the 4.1 nm X-ray data cannot be used as a film under potential. They can serve as a no-potential control.
+
+### Day 4 current, what the WE lead saw (`ec_leak.py`, `ec_leak.json`)
+
+The user's checks: a disconnected WE reads about 10 V at open circuit on this BioLogic; on day 4 the OCV sat at 0.371-0.40 V and jumped
+when the beam hit the film; the contact measures 500 Ohm. So the WE lead was on a wetted film. The recorded current then bounds the
+film's connection to the CE / RE:
+
+- **Current channel live:** random noise 0.1-0.25 uA per point (no exact zeros); the same current range code (14) as the other films,
+  which leave it only when larger currents flow; Ewe noise as on the other films.
+- **Resistive part:** the long holds at 0 and 0.7 V (508-524), which alternate with the OCV readings, draw -0.56 +- 0.38 and
+  -0.48 +- 0.28 nA. The difference is 0.1 +- 0.7 nA/V, so more than about 0.7 GOhm. The CVs give a sweep slope of
+  5.6 +- 1.3 nA/V; 3.3 and 7 nm give 6,000-14,000 nA/V.
+- **Capacitive part:** -0.05 +- 0.05 uF over six CVs; 3.3 and 7 nm give 85-230 uF.
+- **What fits all of it:**
+  - (a) The film's electrolyte was cut off from the CE / RE compartment (an air gap or bubble in the channel; more than about 1 GOhm).
+    The programme then drops across the break, not across the film: Ewe tracks, about nA flows, and the OCV can still be read through
+    the break by a 1e12 Ohm electrometer and still react to the beam. No potential at the film.
+  - (b) The film was tied to the instrument ground by a second path around the ammeter. Then the potential was applied, and at most
+    about 0.1 % of the current reached the ammeter.
+  - (a) needs one common cell failure and also explains the flat X-ray data; (b) needs a wiring accident and a film that does not
+    switch, unlike 3.3 and 7 nm. Neither is proven. Day-4 photos (clips, any metal touching the film or Ga-In, where the CE / RE sit,
+    trapped air) and a lab repeat of the day-4 filling are the tests.
+
+## 3.3 nm (0 -1 L) rod at 0.65 V, scans 153-221 (`rod153.py`, `rod153.json`, `fig_rod153.py`, `fig_rod153.png`)
+
+- **Data:** phi rocking scans (dscan phi -0.1 0.1 60) from L 0.35 to 3.75 in steps of 0.05 (69 scans, 153-221, as in the logbook).
+  ROI sums only: no SPEC file, so no monitor, filters or angles. The logbook says the cell window broke during the rod.
+- **Usable range:** the signal ROI (18 x 26 px) is fixed. Below L about 2.4 the spot leaves it during the scan (step-shaped profiles
+  whose floor equals the background), so those points scatter by a factor 3-10 and are not used. From 2.45 up the spot stays in the
+  ROI and the 0.2 deg scan is narrower than the rocking width, so each scan is used as a stationary point (mean over the images).
+  Scans 205-208 (Bragg region, 206 / 207 attenuated mid-scan) are left out.
+- **L offset:** the (0 -1 1) and (0 -1 3) Bragg peaks are crossed between nominal 1.00-1.05 and 3.00-3.05: the scans sit 0.02-0.05
+  below nominal. The day-2 CVs used the same alignment, so the rod and the CVs share the frame.
+- **Shape:** the 3.3 nm film puts a strong hump at L 3.15-3.25. CV 3.16 sits on its top, CV 3.25 on its steep falling edge (the
+  intensity drops about 8x from 3.20 to 3.30, d ln I / dL about -21).
+- **Fit** (film from the 4.1 nm fit, surface at the 7 nm 0.7 V state, free thickness, spread, eps_perp, roughness, L offset, a slope
+  for the missing corrections, scale solved): reduced chi2 about 60 with a 5 % floor. Two structures fit about equally (5.0 TL on
+  the bound with eps 0.52 %, or 12.7 TL with eps 1.76 % and dL -0.048). The rod does not pin the 3.3 nm structure.
+- **CV changes at 0.7 V, predicted from the CTR states (both rod fits, three dz_Obr assumptions) vs measured on 3.3 nm:**
+
+  | L | predicted | measured 3.3 nm | measured 7 nm |
+  |---|---|---|---|
+  | 2.75 | -3 to -9 % | -13 % | -27 % |
+  | 3.16 | +4 to +9 % | +11 % | +18 % |
+  | 3.25 | +6 to +8 % | -13 % | +6 % |
+
+  2.75 and 3.16 agree in sign. 3.25 does not, under any structure the rod allows or the 7 nm structure.
+- **A uniform potential-dependent film strain does not fix it:** it moves 3.16 and 3.25 together (best change +0.1 %, rms barely
+  improves).
+- **Status:** the 3.25 decrease on 3.3 nm is not explained by film thickness or strain in this model. It is the only remaining film
+  difference, but it is one scan (125) on the steepest part of the rod, where a shift of 0.007 in L gives -13 %. A proper rod
+  (images re-processed with an ROI that holds the moving spot, plus the SPEC file) is needed before it can carry a claim.

@@ -75,3 +75,25 @@ C' OH fit:
   So it cannot test the film/substrate split directly.
 - The flat Ti ROI with the large Ru change means the surface does not interfere with the part of the signal in the Ti ROI.
   The CTR fits assume one coherent film + substrate + surface amplitude. A model with an incoherent substrate fraction is the natural test.
+
+## Model-free check of the CTR series (`dratio.py`, `fringes.py`)
+
+Order of measurement: each film's CTR series came first, then its CVs. OCV is assumed to be the first CTR condition.
+
+Double ratio from the CTR files (no scale, no model): D = [I(3.16)/I(2.75)] at E, divided by the same at 0 V, local means ±0.03 L.
+
+| Film | OCV | -0.238 V | -0.1 V | 0.15 V | 0.35 V | 0.7 V | CV 0 -> 0.7 V |
+|---|---|---|---|---|---|---|---|
+| 4.1 nm | 1.01 ± 0.09 | 0.96 | 0.97 | 1.02 | 1.01 | 1.01 | 1.00 |
+| 7 nm | 1.12 ± 0.11 | | 0.95 | 1.22 | 1.24 | 1.21 | 1.73 |
+
+4.1 nm I(3.16)/I(2.84): 0.67 ± 0.06 at OCV, and 0.98 to 1.10 at every controlled potential.
+
+Fringe positions (`fringes.py`): no shift between OCV, 0 V and 0.7 V on any rod, and the even rods are the same at OCV.
+So the film itself did not change. The 4.1 nm OCV difference sits on the (0 -1) rod only (rms 11% in ln F, against 6% for 0.7 V),
+which makes it a surface change.
+
+Reading:
+- **4.1 nm:** the OCV surface differs from every controlled potential. From -0.238 to 0.7 V the rods are the same, and the later CVs are flat.
+- **7 nm:** OCV, -0.1 V and 0 V look alike. From 0.15 V up the rods differ (D about 1.2), in the same direction as the CV,
+  but the CV's change is about three times larger in ln.

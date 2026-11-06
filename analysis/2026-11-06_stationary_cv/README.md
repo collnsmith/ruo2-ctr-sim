@@ -221,3 +221,20 @@ so they are not used (slide outline, backup B7).
   returns to 0 V. It is hysteretic and is still left out of the fits. No other scan changed.
 - **`plot_data/`:** every plotted quantity as a CSV, sorted by folder (see `plot_data/README.md`). The rebuilt CV curves
   match `cv3.json` to the 6 printed digits.
+
+## Rao's full structure against the data (`rao_full_test.py`)
+
+The OH rods were fitted with each surface structure held fixed, refitting only every rod scale and, where stated, the water height.
+Results are chi2 per point, with the difference from the best fit scaled by its chi2 per point:
+
+| Structure | 4.1 nm | 7 nm |
+|---|---|---|
+| bridging O at 0 Å, OH fraction fitted | 16.1 | 9.7 |
+| Rao bridging O, OH fraction fitted | 16.5 (+11) | 9.9 (+6) |
+| Rao CUS species and bridging O, water height free | 17.1 (+25), water height drifts to 2.15 Å, an OH-like height | 10.9 (+38) |
+| the same, water height fixed at Rao's 2.68 Å | 23.1 (+167) | 12.6 (+93) |
+
+- Rao's full structure fits neither film. It fits 4.1 nm worse.
+- The data mildly prefer the bridging O at 0 Å over Rao's protonated height at low potential.
+- At 0.7 V (0.94 V RHE) both partial fits use 0 Å and give an OH fraction of 0.35-0.45, consistent with Rao's half water / half OH
+  at 1.0 V RHE. Integer rods cannot tell an ordered every-other-site arrangement from a random half coverage.

@@ -1,0 +1,221 @@
+{
+ "3.3 120": {
+  "film": "3.3",
+  "scan": "120",
+  "half_width_uA": 0.5647611612829111,
+  "C_uF": 112.95223225658222,
+  "anodic_charge_per_cycle_uC": 601.669258163482,
+  "net_charge_uC": 3406.4822229615293,
+  "noise_uA": 2.808609470445573,
+  "Ewe_minus_control_std_mV": 14.343568801879883
+ },
+ "3.3 125": {
+  "film": "3.3",
+  "scan": "125",
+  "half_width_uA": 0.6659260545370926,
+  "C_uF": 133.18521090741854,
+  "anodic_charge_per_cycle_uC": 579.8073484530643,
+  "net_charge_uC": 4064.020439843301,
+  "noise_uA": 2.7822145759005905,
+  "Ewe_minus_control_std_mV": 15.081725120544434
+ },
+ "3.3 147": {
+  "film": "3.3",
+  "scan": "147",
+  "half_width_uA": 1.128847179286454,
+  "C_uF": 225.7694358572908,
+  "anodic_charge_per_cycle_uC": 796.3852048254263,
+  "net_charge_uC": 4133.044975142186,
+  "noise_uA": 3.080179318027711,
+  "Ewe_minus_control_std_mV": 15.866629600524902
+ },
+ "3.3 222": {
+  "film": "3.3",
+  "scan": "222",
+  "half_width_uA": 0.9125009029520521,
+  "C_uF": 182.50018059041042,
+  "anodic_charge_per_cycle_uC": 851.1645923101388,
+  "net_charge_uC": 3039.5467379303773,
+  "noise_uA": 2.8747554701868228,
+  "Ewe_minus_control_std_mV": 6.558979511260986
+ },
+ "3.3 223": {
+  "film": "3.3",
+  "scan": "223",
+  "half_width_uA": 0.9977581548121169,
+  "C_uF": 199.5516309624234,
+  "anodic_charge_per_cycle_uC": 771.4270023056837,
+  "net_charge_uC": 5269.35707653964,
+  "noise_uA": 3.143230168630009,
+  "Ewe_minus_control_std_mV": 7.52432107925415
+ },
+ "3.3 126 c": {
+  "film": "3.3",
+  "scan": "126 c",
+  "half_width_uA": 0.8155287917188749,
+  "C_uF": 163.105758343775,
+  "anodic_charge_per_cycle_uC": 611.6201386544333,
+  "net_charge_uC": 3991.9564177192865,
+  "noise_uA": 2.6849793598350846,
+  "Ewe_minus_control_std_mV": 17.583860397338867
+ },
+ "3.3 135 c": {
+  "film": "3.3",
+  "scan": "135 c",
+  "half_width_uA": 1.4383911640857385,
+  "C_uF": 287.6782328171477,
+  "anodic_charge_per_cycle_uC": 898.1779424872639,
+  "net_charge_uC": 1558.066035930909,
+  "noise_uA": 3.317701776286057,
+  "Ewe_minus_control_std_mV": 17.823076248168945
+ },
+ "3.3 227 c": {
+  "film": "3.3",
+  "scan": "227 c",
+  "half_width_uA": 1.918004013410822,
+  "C_uF": 383.6008026821644,
+  "anodic_charge_per_cycle_uC": 2946.4127084158204,
+  "net_charge_uC": 16238.636034839441,
+  "noise_uA": 11.217067484330505,
+  "Ewe_minus_control_std_mV": 7.2635602951049805
+ },
+ "7 311": {
+  "film": "7",
+  "scan": "311",
+  "half_width_uA": -4.459286887832688,
+  "C_uF": -891.8573775665376,
+  "anodic_charge_per_cycle_uC": 2139.871104713299,
+  "net_charge_uC": 16826.63708835531,
+  "noise_uA": 24.338187791509288,
+  "Ewe_minus_control_std_mV": 9.815990447998047
+ },
+ "7 314": {
+  "film": "7",
+  "scan": "314",
+  "half_width_uA": 5.35213709029772,
+  "C_uF": 1070.4274180595442,
+  "anodic_charge_per_cycle_uC": 14543.041304060866,
+  "net_charge_uC": 85905.41113105492,
+  "noise_uA": 85.97922127095829,
+  "Ewe_minus_control_std_mV": 12.4741849899292
+ },
+ "7 316": {
+  "film": "7",
+  "scan": "316",
+  "half_width_uA": 0.4133594156459175,
+  "C_uF": 82.6718831291835,
+  "anodic_charge_per_cycle_uC": 3272.439366803638,
+  "net_charge_uC": 13113.365130406295,
+  "noise_uA": 14.347301886110486,
+  "Ewe_minus_control_std_mV": 8.46469497680664
+ },
+ "7 341": {
+  "film": "7",
+  "scan": "341",
+  "half_width_uA": 0.6424721292686781,
+  "C_uF": 128.49442585373563,
+  "anodic_charge_per_cycle_uC": 432.20370222372475,
+  "net_charge_uC": 871.2987092497405,
+  "noise_uA": 1.3364288134320421,
+  "Ewe_minus_control_std_mV": 10.003469467163086
+ },
+ "7 343": {
+  "film": "7",
+  "scan": "343",
+  "half_width_uA": 0.6911324018217773,
+  "C_uF": 138.22648036435544,
+  "anodic_charge_per_cycle_uC": 674.4672519708512,
+  "net_charge_uC": 2789.6491903895494,
+  "noise_uA": 7.928681939876629,
+  "Ewe_minus_control_std_mV": 9.510319709777832
+ },
+ "7 344": {
+  "film": "7",
+  "scan": "344",
+  "half_width_uA": -21.704085783081414,
+  "C_uF": -4340.817156616283,
+  "anodic_charge_per_cycle_uC": 5526.321764007316,
+  "net_charge_uC": 43777.58916591525,
+  "noise_uA": 50.37046636783398,
+  "Ewe_minus_control_std_mV": 10.858745574951172
+ },
+ "7 356 c": {
+  "film": "7",
+  "scan": "356 c",
+  "half_width_uA": 0.6382803358744207,
+  "C_uF": 127.65606717488413,
+  "anodic_charge_per_cycle_uC": 238.42863546133518,
+  "net_charge_uC": 761.6785721900435,
+  "noise_uA": 2.009658683559349,
+  "Ewe_minus_control_std_mV": 10.223969459533691
+ },
+ "4.1 496": {
+  "film": "4.1",
+  "scan": "496",
+  "half_width_uA": 0.004576995698402591,
+  "C_uF": 0.9153991396805182,
+  "anodic_charge_per_cycle_uC": 0.022362576183821866,
+  "net_charge_uC": -0.24464325998981135,
+  "noise_uA": 0.2414291346589225,
+  "Ewe_minus_control_std_mV": 11.092931747436523
+ },
+ "4.1 497": {
+  "film": "4.1",
+  "scan": "497",
+  "half_width_uA": -0.004433246988454236,
+  "C_uF": -0.8866493976908472,
+  "anodic_charge_per_cycle_uC": -0.14337423926744222,
+  "net_charge_uC": -0.26110233615370576,
+  "noise_uA": 0.19936194271368765,
+  "Ewe_minus_control_std_mV": 9.259110450744629
+ },
+ "4.1 498": {
+  "film": "4.1",
+  "scan": "498",
+  "half_width_uA": -0.004260538628390313,
+  "C_uF": -0.8521077256780626,
+  "anodic_charge_per_cycle_uC": -0.19499409570905363,
+  "net_charge_uC": -0.6535508786405952,
+  "noise_uA": 0.22039123901051988,
+  "Ewe_minus_control_std_mV": 9.930644989013672
+ },
+ "4.1 501": {
+  "film": "4.1",
+  "scan": "501",
+  "half_width_uA": 0.0012009342835111753,
+  "C_uF": 0.24018685670223505,
+  "anodic_charge_per_cycle_uC": -0.04041090119403787,
+  "net_charge_uC": 0.005072663932749022,
+  "noise_uA": 0.21821274600854756,
+  "Ewe_minus_control_std_mV": 9.789361000061035
+ },
+ "4.1 503": {
+  "film": "4.1",
+  "scan": "503",
+  "half_width_uA": 0.002728591224354244,
+  "C_uF": 0.5457182448708489,
+  "anodic_charge_per_cycle_uC": -0.21028198783989904,
+  "net_charge_uC": -0.36463058595003417,
+  "noise_uA": 0.17177845356233476,
+  "Ewe_minus_control_std_mV": 8.233073234558105
+ },
+ "4.1 519 c": {
+  "film": "4.1",
+  "scan": "519 c",
+  "half_width_uA": -0.00027700147997059894,
+  "C_uF": -0.05540029599411979,
+  "anodic_charge_per_cycle_uC": -0.1812156861561538,
+  "net_charge_uC": -0.4212790013777339,
+  "noise_uA": 0.22196393397251696,
+  "Ewe_minus_control_std_mV": 10.10207462310791
+ },
+ "steps 3.3": {
+  "n_steps": 14
+ },
+ "steps 7": {
+  "n_steps": 6
+ },
+ "steps 4.1": {
+  "n_steps": 5
+ }
+}

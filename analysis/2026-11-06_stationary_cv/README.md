@@ -238,3 +238,15 @@ Results are chi2 per point, with the difference from the best fit scaled by its 
 - The data mildly prefer the bridging O at 0 Å over Rao's protonated height at low potential.
 - At 0.7 V (0.94 V RHE) both partial fits use 0 Å and give an OH fraction of 0.35-0.45, consistent with Rao's half water / half OH
   at 1.0 V RHE. Integer rods cannot tell an ordered every-other-site arrangement from a random half coverage.
+
+## EC-Lab data (`data/echem/`, `make_ec_figures.py`, `ec_figures/`, `ec_summary.json`)
+
+- **File matching:** EC files are matched to the X-ray scans by name, with three inferences: 'scan119' is CV 120; on 7 nm,
+  'scan342' is CV 343 and 'scan247' is CV 344. The day-4 files are named '7nm' but hold the 4.1 nm session.
+- **The potential follows the programme on every film** (Ewe within about 10 mV of the setpoint).
+- **Current, 3.3 and 7 nm:** a rising background (6-14 uA/V) with a gap of about 1-2 uA between the sweeps (half-gap 0.4-1.1 uA, i.e.
+  80-230 uF at 5 mV/s), and 430-850 uC per anodic sweep in the clean scans. 7 nm 311, 314 and 344 carry large spikes.
+- **Current, 4.1 nm:** zero within noise in every file (half-gap at most 0.005 uA, 0.0 uC per cycle, no current at potential steps up to
+  0.94 V). Combined with a measured 500 Ohm contact and electrolyte over the film, the most likely cause is an open WE connection at
+  the beamline on day 4, or a blocked surface. A lab CV of the sample will decide.
+- **Consequence:** the 4.1 nm X-ray data cannot be used as a film under potential. They can serve as a no-potential control.

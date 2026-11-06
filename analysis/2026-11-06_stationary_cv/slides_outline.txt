@@ -161,24 +161,31 @@ SLIDE 10  Where the 7 nm surface changes
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 10b  Comparison with the work function of these films (Jeong et al., Nat. Commun. 17, 2516 (2026); arXiv 2507.07575)
+SLIDE 10b  Comparison with the work function (Jeong et al., Nat. Commun. 17, 2516 (2026); data: jeong_work_function.jpg)
 -------------------------------------------------------------------------------------------------------------
-- Their result: KPFM work function of RuO2/TiO2(110) vs thickness is NON-MONOTONIC, peaking at t_c of about 4 nm,
-  more than 1 eV (about 1.15 eV) above relaxed films.
-- Their structure at t_c: below it, strained and polar (SHG mm2, ptychography shows polar displacements at the interface);
-  above it, relaxing (RSM: onset between 4 and 6.5 nm) and nonpolar (4/mmm).
-- Ours: the one film that does not respond (4.1 nm) is the one at the work-function peak; 3.3 nm (below the peak)
-  and 7 nm (relaxed, low work function) respond.
-- Point: two independent probes, both non-monotonic in thickness, with the extreme at the same thickness.
-- [NEEDED] the actual work function at 3.3, 4.1 and 7 nm, ideally on these same samples. The link holds only if
-  3.3 nm is clearly below the 4.1 nm value. The thicknesses are about 0.8 nm apart, so the thickness calibration matters.
-- Caveats for the speaker:
-  - KPFM is measured in air or vacuum; in electrolyte the water layer and adsorbates screen part of the difference.
-  - The work function alone does not give the direction of the shift in OH binding. The simple argument
-    (higher work function, so OH binds more weakly and forms only at more positive potential) would hold the
-    4.1 nm surface in the WATER state across the window.
-  - Our CTR fits cannot detect a polar distortion through the whole film (4.1 nm: 0.00 +- 0.045 Å, polar_test.py),
-    so the structural link stays at the interface.
+- Their KPFM work function (read from the plot, eV):
+
+  | nm | 1.5 | 2.5 | 3.0 | 3.2 | 3.8 | 4.0 | 5.0 | 5.2 | 7.0 | 8.0 | 17 |
+  |---|---|---|---|---|---|---|---|---|---|---|---|
+  | WF | 4.25 | 4.38 | 4.35 | 4.73 | 5.40 | 4.86 | 4.78 | 4.84 | 4.44 | 4.66 | 5.05 |
+
+- Our films against the nearest points:
+
+  | Film | WF point | WF (eV) | CV oscillation | Half-change E (V Ag/AgCl) |
+  |---|---|---|---|---|
+  | 7 nm | 7.0 nm | 4.44 | 9-37% | 0.17-0.26 |
+  | 3.3 nm | 3.2 nm | 4.73 | 10-11% | 0.22-0.30 |
+  | 4.1 nm | 4.0 nm | 4.86 | 1-2% | none |
+
+- Observation (n = 3): the response gets smaller as the work function rises. The potential of the step does not move:
+  3.3 and 7 nm switch at the same E within about 0.05 V, despite 0.29 eV between them.
+- Hypothesis, not a result: whatever sets the work function controls HOW MUCH of the surface switches, not WHERE.
+- Say plainly:
+  - The work-function peak (5.40 eV) is a single sample at 3.8 nm; our 4.1 nm film is not on it.
+  - 3.3 and 4.1 nm differ by only 0.13 eV, within the scatter of the curve (neighbouring samples differ by up to 0.4 eV),
+    yet their responses differ about tenfold.
+  - KPFM is measured outside the electrolyte.
+- [NEEDED] whether these KPFM samples are the same pieces we measured, and the error or repeat spread of the KPFM values.
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -186,9 +193,8 @@ SLIDE 11  Interpretation (labelled as such)
 -------------------------------------------------------------------------------------------------------------
 - The 4.1 nm surface is held in one state across the window, the same state 7 nm reaches at high potential.
 - Candidate explanations, with what argues for and against each:
-  - **Strain or polarization at the work-function peak** (4.1 nm sits at t_c, the work-function maximum): strain alone
-    does not fit (3.3 nm is at least as strained and responds), but the work-function peak is non-monotonic, like
-    our data. This depends on the [NEEDED] work function values.
+  - **Strain or the work function:** strain alone does not fit (3.3 nm is at least as strained and responds). The work function
+    orders the three films the same way as their response (slide 10b), but 3.3 and 4.1 nm are within its scatter.
   - **Sample history** (the first polarization, beam dose, preparation): the 4.1 nm OCV rod differs from every
     controlled potential. Testable on a fresh spot or a fresh sample.
   - **A blocking adsorbate** (e.g. sulfate) on this film only: testable in HClO4.

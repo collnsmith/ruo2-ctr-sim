@@ -144,3 +144,15 @@ What does not hold, or is not shown yet:
 
   So there is no sign of a polar distortion through the whole film. A distortion of the reported size (about 0.085 Å)
   is at the 2-sigma limit for 4.1 nm, so it cannot be ruled out either.
+
+Work function values from the group's plot (`jeong_work_function.jpg`): the peak is a single point, 5.40 eV at 3.8 nm.
+The points nearest our films:
+
+| Film | WF point | WF (eV) | CV oscillation | Half-change E (V Ag/AgCl) |
+|---|---|---|---|---|
+| 3.3 nm | 3.2 nm | 4.73 | 10-11% | 0.22-0.30 |
+| 4.1 nm | 4.0 nm | 4.86 | 1-2% | none |
+| 7 nm | 7.0 nm | 4.44 | 9-37% | 0.17-0.26 |
+
+The response falls as the work function rises; the step potential does not shift. With n = 3, and 3.3 vs 4.1 nm only 0.13 eV apart
+(neighbouring KPFM samples differ by up to 0.4 eV), this is a hypothesis.

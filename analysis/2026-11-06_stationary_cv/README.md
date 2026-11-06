@@ -300,11 +300,14 @@ film's connection to the CE / RE:
     question is only where the current went.
   - **The measurement not yet made** is the one the bypass needs: each lead, the Au wire and the film's front edge to the
     instrument ground (black lead / chassis / mains earth) and to the diffractometer, with the cell mounted as on day 4.
+  - **A dummy cell** (a known resistor) on the day-4 channel and cable tests the second and third candidates. A WE-to-shield
+    fault or a misreading channel would show the same missing current.
   - **How complete the bypass was:** the recorded hold currents at 0 and 0.7 V differ by 0.1 +- 0.5 nA, against about 8 uA
     on 3.3 nm. So less than about 0.02 % of the current was recorded. With a 10-100 kOhm range resistor in the WE line,
     the bypass must be below about 2-20 Ohm: a near-direct metal connection from the WE side to the instrument ground.
-    Candidates: the black ground lead clipped to the WE side, the WE clip or Au wire touching grounded metal, or a cable fault
-    from the WE line to the shield.
+    Candidates: the WE clip, Au wire or film edge touching earthed metal (the instrument ground is mains earth in grounded
+    mode), or a fault in the WE lead or connector to its shield. The black ground lead was never connected (user), so it is
+    not the path. A third candidate is the channel misreading the current while it flows.
   - **Status:** the 4.1 nm null would then be a real film difference (no switch under potential), but it rests on a current
     nobody recorded. To defend it:
     - reproduce the day-4 signature with a jumper from the WE to ground (or find the short, or show a cable / channel fault

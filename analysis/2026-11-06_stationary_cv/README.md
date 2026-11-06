@@ -482,3 +482,63 @@ slides with its support (backup B8). Further changes:
   - 503: both sweeps are 0.5-0.9 % lower at 0.5-0.7 V.
 - **Consequence:** these scans give no evidence either way on whether the potential reached the 4.1 nm film. Any real
   response there is at most about 1 %.
+
+## Deep search for any 4.1 nm response to the EC control (`deep41.py`, `deep41b.py`, `deep41.json`, `deep41b.json`)
+
+**What was searched (all day-4 data)**
+- **CV scans** 496-503 and 519, every channel:
+  - ROI1-6, Ru + Ti, Ru / Ti;
+  - SPEC Eiger1-4, Eiger_Max, APD;
+  - beam channels Monitor, BPM3 (sum and position), IONCHAMBER2, as negative controls.
+- **Tests:** a step at 0.23 V, a straight line in E, a sweep-direction term, a shape-free test, and the jump at each EC
+  sequence start (rest potential 0.37-0.40 V to 0 V).
+- **CTR rods:** every potential pair, with a model template for a 7 nm-like switch.
+- **The EC record:** the charge at every potential step, and the CV current against fake potentials.
+
+**Calibration matters**
+- Gaussian errors pass the beam channels, which cannot follow the cell, at about 9x the nominal rate (p < 0.01).
+- With about 2 cycles per scan, beam glitches line up with the cycle, and every real CV starts with an anodic sweep
+  right after the hold.
+- Stage 2 therefore adds beam covariates and a null from 600 fake triangle potentials. Even then the beam channels pass
+  more often than nominal (11 of 90 at p < 0.01). So the X-ray channels are judged against them: 12 of 252 at p < 0.01,
+  a lower rate than the beam monitors.
+- The positive check holds: every responding 3.3 / 7 nm scan sits at the floor (p 0.002), except the noisiest (341, 343).
+
+**Findings, most significant first**
+1. **EC current in the six day-4 CVs:** a weak rise with potential within the sweeps, +0.8 to +3.8 nA from 0 to 0.7 V,
+   positive in all six.
+   - Fake-potential p per file: 0.002-0.78; Fisher combined about 0.003.
+   - No matching capacitive loop (-0.26 +- 0.25 nA, where a 0.05 % share of the film's current would give about +0.3).
+   - The long holds at 0 and 0.7 V do not differ (0.1 +- 0.7 nA/V).
+   - Not interpretable as film charging; possibly instrumental. The only item beyond the calibrated null, and weak.
+2. **501 (0 -1 3.25), Ru + Ti:** +2.7 % step (z 3.2 against fakes with beam covariates, q 0.10).
+   - The beam monitors reach |z| up to 4.3 in single scans.
+   - Binned by potential it is not a step.
+   - Within the null.
+3. **Background (Eiger2-4, the whole detector):** -0.21 +- 0.06 % at the EC start (z -3.4 over 6 scans). The same drop
+   appears on 3.3 nm (-0.44 +- 0.28 %) and 7 nm (-0.22 +- 0.21 %), which rested near 0 V with no potential step. A
+   start-of-scan effect, not the potential.
+4. **ROI6 (a 6 x 6 px box away from the reflection):** lower at high potential in 4 of 6 scans (combined z -2.6). The
+   beam monitor BPM3 gives z -3.2 over the same scans. Within the null.
+5. **497 (0 -1 2.75):** -2.3 to -2.9 % at the EC start in ROI1 / Ru + Ti.
+   - A switching film would rise there going from 0.38 V to 0 V.
+   - 496 at the same reflection shows +1.1 +- 1.6 %.
+   - Not a switch.
+6. **Sweep-direction terms (497, 498: anodic 0.4-1.3 % above cathodic in ROI1, ROI5, APD):** biased by the anodic-first
+   alignment, and equally present in the beam channels. Not counted.
+
+**Clear nulls**
+- **CV response at the OH-sensitive reflections:** at most 3 % / 12 % of 3.3 nm and 1 % / 8 % of 7 nm (L 2.75 / 3.16;
+  `sync_abs.py`).
+- **CTR (0 -1) rods, template amplitude** of a 7 nm-like switch, for every pair spanning the switch: between -0.02 and
+  +0.20 (errors 0.10-0.19). The same test on 7 nm gives 0.8-0.9. Pair rms 0.032-0.048, the repeatability level.
+- **EC charge at potential steps:** 0.003 +- 0.026 uF per volt over 9 day-4 steps, against 28.5 +- 0.6 uF on 7 nm.
+- **Background channels (ROI3, ROI4, Eiger2-4)** against the potential, with beam covariates: combined z about 0.
+- **(-1 0), (-2 0), (0 2) rods at OCV / 0 / 0.7 V:** differences at the repeat level (rms 0.015-0.031), but these rods
+  are nearly blind to the switch.
+
+**Bottom line**
+- No X-ray channel shows a response to the potential beyond what the beam monitors show by chance.
+- The only candidate is a nA-level current trend in the CVs, which does not behave like film charging.
+- The data neither show that the potential reached the film nor rule it out.
+- If it did, the film did not switch, to the bounds above.

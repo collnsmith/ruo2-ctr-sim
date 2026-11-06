@@ -15,6 +15,7 @@ its slide in `../slides_outline.txt`.
 | slide04_reflections.png | 4: why these reflections (model) |
 | slide05_raw_traces.png | 5: raw traces, 7 nm vs 4.1 nm at (0 +-1 3.16) |
 | slide06_cv_amplitudes.png | 6: CV amplitudes, no timing assumption |
+| slide06b_cv_response_synced.png | 6 (main): change from 0 to 0.7 V per scan at the potential EC-Lab applied (clock-synced); data in `plot_data/11_cv_synced/` |
 | slide07_cv_curves.png | 7: cycle-averaged CV curves |
 | slide08_ctr_rods.png | 8: CTR rods in measurement order |
 | slide09_oh_fraction.png | 9: OH fraction under Rao's and the 0 Å bridging O, and the film difference |
@@ -28,6 +29,3 @@ its slide in `../slides_outline.txt`.
 | slideB7_staircases.png | B7: potential staircases |
 
 Slides 1, 13 and 14 are text only.
-- `slide06b_cv_response_synced.png`: slide 6 (main). The change from 0 to 0.7 V per CV scan at the potential EC-Lab applied
-  (timing from the instrument clocks), with the 4.1 nm bound in the legend. Data: `plot_data/11_cv_synced/`. Made by
-  `make_slide_figures.py` (slide06b) after `sync_abs.py` and `make_plot_data_sync.py`.

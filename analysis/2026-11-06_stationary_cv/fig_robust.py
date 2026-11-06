@@ -27,15 +27,22 @@ for s, r in info.items():
     if s == "147":
         a.annotate("147: timing unclear,\nRu+Ti mostly Ti here", (x, y), (x + 0.25, y * 1.9), fontsize=7.5, color=MUTED,
                    arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.6))
-c = amp["356"]["sum"]["sine_pp"] * 100
-a.plot(len(Ls) + 0.1, c, "v", ms=8, color=MUTED, mec="white", mew=1.2, zorder=3, label="OH-blind controls: 7 nm (2 0 1.75); 3.3 nm (-2 0 1.75), (-2 0 1)")
 pn = json.load(open(os.path.join(here, "process_new.json")))
-a.plot([len(Ls) - 0.08, len(Ls) + 0.28], [100 * pn["126"]["sine_pp"], 100 * pn["127"]["sine_pp"]], "v", ms=8, color=MUTED, mec="white", mew=1.2, zorder=3)
+b3 = json.load(open(os.path.join(here, "process_batch3.json")))
+# controls: OH-blind reflections, as triangles in the film's colour
+a.plot([], [], "v", ms=8, color=MUTED, mec="white", label="triangles: OH-blind controls (+-2 0 L), (-1 0 2.32)")
+xc = len(Ls) + 0.1
+for f, x, v in (("7", xc + 0.18, amp["356"]["sum"]["sine_pp"]), ("4.1", xc, b3["519"]["sine_pp"]),
+                ("3.3", xc - 0.30, pn["126"]["sine_pp"]), ("3.3", xc - 0.20, pn["127"]["sine_pp"]), ("3.3", xc - 0.10, b3["227"]["sine_pp"])):
+    a.plot(x, 100 * v, "v", ms=8, color=COL[f], mec="white", mew=1.2, zorder=3)
+# repeats from the later batches
 a.plot(Ls.index(3.16) - 0.10, 100 * pn["223"]["sine_pp"], MK["3.3"], ms=8, color=COL["3.3"], mec="white", mew=1.2, zorder=3)
+for dx, s_ in ((0.10, "341"), (0.26, "343")):
+    a.plot(Ls.index(2.75) + dx, 100 * b3[s_]["sine_pp"], MK["7"], ms=8, color=COL["7"], mec="white", mew=1.2, zorder=3)
 
 a.set_yscale("log"); a.set_ylim(0.1, 80)
 a.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
-a.set_xticks(list(range(len(Ls))) + [len(Ls) + 0.1]); a.set_xticklabels([f"(0 ±1 {L:g})" for L in Ls] + ["(+-2 0 L)"], fontsize=8)
+a.set_xticks(list(range(len(Ls))) + [len(Ls) + 0.1]); a.set_xticklabels([f"(0 ±1 {L:g})" for L in Ls] + ["controls"], fontsize=8)
 a.set_ylabel("CV oscillation, Ru+Ti, peak-to-peak (%)")
 a.set_title("a  Stationary CVs: period and phase left free", loc="left", color=INK, fontsize=10)
 a.grid(axis="y", color=GRID, lw=0.6); a.set_axisbelow(True)

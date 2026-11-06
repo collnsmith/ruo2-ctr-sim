@@ -191,3 +191,15 @@ The order of measurement is now known, so the CTR comparisons are made in that o
 
 The staircases disagree with the CVs and with each other. They were recorded after the window broke, with a bubble approaching,
 so they are not used (slide outline, backup B7).
+
+## Third batch: 227, 341, 343, 519 (`process_batch3.py`, `look_batch3.png`)
+
+| Scan | Film and reflection | Result |
+|---|---|---|
+| 227 | 3.3 nm (-1 0 2.32) | 3.5% peak-to-peak, point noise 3.7%: no response (model at most 2%) |
+| 519 | 4.1 nm (-2 0 1.75) | 0.8%, point noise 1.1%: no response (images 20-242; the rest of the file repeats image indices) |
+| 341 | 7 nm (0 1 2.75) | Ru 42%, Ti 5%, sum 30% peak-to-peak; -27.6 +- 1.3% from 0 to 0.7 V |
+| 343 | 7 nm (0 1 2.75) | Ru 42%, Ti 2%, sum 26%; -21.1 +- 1.6% (period taken from 341; the signals collapse after image 143) |
+
+7 nm (0 1 2.75) in time order (311, 341, 343, 344): Ru spot 30, 42, 42, 42%. The sum depends on the ROI split (Ru/Ti 2.1, 2.1,
+1.6, 6.2), which explains 344's larger sum change. The response reproduces and does not grow with cycling after the first scan.

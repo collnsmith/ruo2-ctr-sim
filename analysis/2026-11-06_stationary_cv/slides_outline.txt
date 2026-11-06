@@ -123,19 +123,24 @@ SLIDE 6  KEY RESULT 1: the CV response at the potential EC-Lab applied
     marks fall 1-2 s from the EC-Lab start on every day, day 4 included.
   - Per scan, I/I0 = slow drift + A x (a step at 0.23 V), so A is the change from 0 to 0.7 V. Nothing is fitted to the
     timing.
-  - The error of A is its spread when the potential is shifted by a quarter to three quarters of a cycle.
+  - The error of A is the larger of a noise-surrogate error (the residual phase-randomised, same noise spectrum) and an
+    autocorrelation-robust (Newey-West) error.
 - Change from 0 to 0.7 V, weighted per reflection:
 
   | Reflection | 3.3 nm | 7 nm | 4.1 nm |
   |---|---|---|---|
-  | (0 ±1 2.75) | -9.7 ± 2.2% | -19.9 ± 2.9% | +0.3 ± 0.3% |
-  | (0 ±1 3.16) | +8.5 ± 1.3% | +14.9 ± 3.2% | -0.3 ± 0.6% |
-  | (0 ±1 3.25) | -8.5 ± 2.3% | +8.3 ± 2.0% | +2.6 ± 1.0% |
+  | (0 ±1 2.75) | -9.7 ± 1.3% | -20.3 ± 0.7% | +0.3 ± 0.3% |
+  | (0 ±1 3.16) | +9.3 ± 0.5% | +14.9 ± 0.9% | -0.3 ± 0.7% |
+  | (0 ±1 3.25) | -8.5 ± 0.8% | +8.3 ± 0.8% | +2.6 ± 1.0% |
 
-  4.1 nm (0 -1 2.84): -0.2 ± 0.4%. 4.1 nm control (-2 0 1.75): +0.04 ± 0.12%.
-- The 4.1 nm response is at most 4% and 11% of the 3.3 nm response, and 2% and 6% of the 7 nm response, at 2.75 and 3.16
+  4.1 nm (0 -1 2.84): -0.2 ± 0.3%. 4.1 nm control (-2 0 1.75): +0.04 ± 0.20%.
+- The 4.1 nm response is at most 3% and 12% of the 3.3 nm response, and 1% and 8% of the 7 nm response, at 2.75 and 3.16
   (2 sigma).
 - On the slide: "4.1 nm: potential control assumed; the current record was lost on day 4 (backup B8)".
+- Speaker note: by eye, 498 and 503 show about 1% of structure (498: the anodic sweep about 1% above the cathodic below
+  0.35 V; 503: both sweeps about 0.5-0.9% lower at 0.5-0.7 V). A shape-free test against noise surrogates finds no
+  potential-locked response in any 4.1 nm scan or ROI (498 p = 0.77, 503 p = 0.26, 519 p = 0.76; all six scans combined
+  p = 0.56-0.66 per ROI; weak41.py, fig_weak41.png). The same test picks up 222, 314 and 125.
 - Speaker note: 501 at 3.25 (+2.6%) is not a clean step. Binned by potential, its signal does not stay up above 0.4 V,
   unlike 316 and 125, so it is not counted as a response.
 - The same with period and phase left free (slide06_cv_amplitudes.png), peak-to-peak oscillation of Ru+Ti:
@@ -299,7 +304,7 @@ SLIDE 12  Putting it together
     (0.55-0.7 V, 100%), averaged per film. Like for like: L 2.75 and 3.16 only.
   - Half-way: 7 nm 0.21 V (scans 0.19-0.25), 3.3 nm 0.24 V (scans 0.22-0.26), i.e. about 0.45-0.48 V RHE. The same within the
     scan spread. With the clock-synced potential: 0.22 and 0.25 V.
-  - 4.1 nm at 100%: from the CTR comparison (slide 9). Its CVs change by at most 2% (2.75) and 6% (3.16) of the 7 nm change
+  - 4.1 nm at 100%: from the CTR comparison (slide 9). Its CVs change by at most 1% (2.75) and 8% (3.16) of the 7 nm change
     at the same reflections (clock-synced, 2 sigma).
   - Say plainly: 0% is the start of the window, not a measured 'all water' state. The 7 nm CTRs show the change has
     already begun slightly by 0 V.
@@ -340,7 +345,7 @@ SLIDE 13  Open questions and next steps
 SLIDE 14  Summary
 -------------------------------------------------------------------------------------------------------------
 - The 3.3 and 7 nm surfaces switch reversibly near 0.2-0.25 V vs Ag/AgCl. The 4.1 nm surface does not switch between
-  -0.24 and 0.7 V: at the potential applied, its response is at most 2-11% of theirs at the same reflections.
+  -0.24 and 0.7 V: at the potential applied, its response is at most 1-12% of theirs at the same reflections.
 - Assumption, stated: the 4.1 nm film was under potential control on day 4 (current record lost; slide 6, B8).
 - The CTRs agree three ways:
   - the rods themselves;

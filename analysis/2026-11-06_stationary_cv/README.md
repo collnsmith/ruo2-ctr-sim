@@ -413,23 +413,25 @@ film's connection to the CE / RE:
 - **Fit, no free timing:** each scan is fitted as I/I0 = quadratic drift + A g(E(t)), with g a step at 0.23 V (the 3.3 / 7 nm
   half-way potential).
   - A is the change from 0 to 0.7 V.
-  - Its error is the spread of A when E(t) is shifted by 70-210 s, which keeps the noise's own correlations.
+  - Its error is the larger of a noise-surrogate error (refits with the residual phase-randomised) and a Newey-West error.
+    The first version used E(t) shifted in time instead; with about 2 cycles per scan that gives too few independent
+    draws.
   - Moving the offset by +-10 s changes A by less than its error.
   - A linear-in-E shape gives the same signs and about 1.3x the size.
 - **Results (weighted per reflection; 7 nm 2.75 from 311, 341, 343, without 344 at 0.6 deg incidence):**
 
   | reflection | 3.3 nm | 7 nm | 4.1 nm | 4.1 / 3.3 | 4.1 / 7 |
   |---|---|---|---|---|---|
-  | (0 +-1 2.75) | -9.7 +- 2.2 % | -19.9 +- 2.9 % | +0.3 +- 0.3 % (496, 497) | -0.03 +- 0.03 | -0.015 +- 0.016 |
-  | (0 +-1 3.16) | +8.5 +- 1.3 % | +14.9 +- 3.2 % | -0.3 +- 0.6 % (498) | -0.03 +- 0.07 | -0.02 +- 0.04 |
-  | (0 +-1 3.25) | -8.5 +- 2.3 % | +8.3 +- 2.0 % | +2.6 +- 1.0 % (501) | | +0.32 +- 0.14 |
+  | (0 +-1 2.75) | -9.7 +- 1.3 % | -20.3 +- 0.7 % | +0.3 +- 0.3 % (496, 497) | -0.03 +- 0.03 | -0.013 +- 0.013 |
+  | (0 +-1 3.16) | +9.3 +- 0.5 % | +14.9 +- 0.9 % | -0.3 +- 0.7 % (498) | -0.03 +- 0.08 | -0.02 +- 0.05 |
+  | (0 +-1 3.25) | -8.5 +- 0.8 % | +8.3 +- 0.8 % | +2.6 +- 1.0 % (501) | | +0.32 +- 0.12 |
 
-  Also: 4.1 nm (0 -1 2.84) -0.2 +- 0.4 %, (-2 0 1.75) +0.04 +- 0.12 %; 3.3 nm (0 -1 1.25) -3.3 +- 0.5 %.
+  Also: 4.1 nm (0 -1 2.84) -0.2 +- 0.3 %, (-2 0 1.75) +0.04 +- 0.20 %; 3.3 nm (0 -1 1.25) -3.3 +- 0.6 %.
 - **Reading:**
-  - At 2.75 and 3.16 the 4.1 nm response is at most about 4 % and 11 % of the 3.3 nm response, and 2 % and 7 % of the
-    7 nm response (2 sigma).
-  - The 3.25 value (501, 2.8 sigma) is not a clean step: binned by potential, the low-potential bins sit lower on both
-    sweeps, but the signal does not stay up above 0.4 V, unlike the monotonic 316 and 125. Inconclusive.
+  - At 2.75 and 3.16 the 4.1 nm response is at most 3 % and 12 % of the 3.3 nm response, and 1 % and 8 % of the 7 nm
+    response (2 sigma).
+  - The 3.25 value (501) is not a clean step: binned by potential, the low-potential bins sit lower on both sweeps, but
+    the signal does not stay up above 0.4 V, unlike the monotonic 316 and 125. Inconclusive.
   - If the potential reached the film (see the day-4 section), 4.1 nm did not switch.
 - **Day-4 conditions that differ:**
   - Kapton window.
@@ -461,3 +463,22 @@ slides with its support (backup B8). Further changes:
 - the half-way potentials and the 4.1 nm bounds are updated;
 - new backups: B8 (day-4 current record), B9 (currents and the beam), B10 (3.3 nm rod);
 - the Q&A covers the assumption, the beam and the 3.25 sign.
+
+## Weak responses in the 4.1 nm scans? (`weak41.py`, `weak41.json`, `fig_weak41.png`)
+
+- **Question:** the user saw a very weak potential response by eye in 498, 503 and 519.
+- **Method:** every ROI (ROI1, ROI2, ROI5, ROI6, and the Ru + Ti sum) is normalised by the SPEC monitor, timed by the
+  clocks, and has a quadratic drift removed. Two shape-free tests (7 E bins with both sweeps pooled; 14 bins split by
+  sweep) and a linear amplitude are run against 2000 phase-randomised noise surrogates.
+- **Result:** no potential-locked response.
+  - 498: -0.3 +- 1.1 %, p = 0.77.
+  - 503: -0.75 +- 0.55 %, p = 0.26. ROI1, ROI2 and ROI5 each show -0.6 to -1.7 %, at 1.3-1.5 sigma, and these ROIs share
+    signal.
+  - 519: +0.25 +- 0.27 %, p = 0.76.
+  - All six 4.1 nm scans combined: p = 0.56-0.66 per ROI (ROI6, weak and noisy: 0.20).
+- **Check:** the same tests pick up 222 (p 0.0005), 314 (0.0005) and 125 (0.001-0.016).
+- **What the eye sees** is about 1 % of structure, at the level of the correlated noise:
+  - 498: the anodic sweep sits about 1 % above the cathodic below 0.35 V.
+  - 503: both sweeps are 0.5-0.9 % lower at 0.5-0.7 V.
+- **Consequence:** these scans give no evidence either way on whether the potential reached the 4.1 nm film. Any real
+  response there is at most about 1 %.

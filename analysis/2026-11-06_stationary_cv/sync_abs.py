@@ -10,9 +10,11 @@ sequence start. If d agrees across scans and days, it is applied to day 4.
 Step 2, the response with no free timing. With d fixed, each scan is fitted as
     I(t) / I0 = c0 + c1 t + c2 t^2 + A g(E(t))
 with g a fixed switch shape (0 at 0 V, 1 at 0.7 V), so A is the change from 0 to 0.7 V. Two shapes: linear in E, and a
-logistic step at 0.23 V (the 3.3 / 7 nm half-way potential, 10-90 % over about 0.25 V). The error of A is empirical:
-the spread of A when E(t) is shifted by a random 70-210 s (a quarter to three quarters of a cycle), which keeps the
-noise's own correlations. Writes sync_abs.json and fig_sync_abs.png."""
+logistic step at 0.23 V (the 3.3 / 7 nm half-way potential, 10-90 % over about 0.25 V). The error of A is the larger of
+(1) the spread of A refitted to the model plus phase-randomised copies of its residual (same noise spectrum) and
+(2) a Newey-West (autocorrelation-robust) error. (A first version shifted E(t) in time instead; with about 2 cycles per
+scan that gives too few independent draws and underestimated the 4.1 nm errors by up to 1.8x.)
+Writes sync_abs.json and fig_sync_abs.png."""
 import datetime as dt
 import glob, json, os, sys, warnings
 here = os.path.dirname(os.path.abspath(__file__))
@@ -86,6 +88,19 @@ def fit(t, y, g):
     c, *_ = np.linalg.lstsq(X, y, rcond=None)
     return c[3], y - X @ c
 
+def hac(t, u, g, lag=None):
+    """Newey-West standard error of the g coefficient (quadratic drift in the model), residual u."""
+    tt = (t - t.mean()) / max(np.ptp(t), 1)
+    X = np.c_[np.ones_like(tt), tt, tt ** 2, g]
+    n = len(u); lag = lag or max(5, int(n / 8))
+    S = (X * u[:, None]).T @ (X * u[:, None])
+    for l in range(1, lag + 1):
+        G = (X[l:] * u[l:, None]).T @ (X[:-l] * u[:-l, None])
+        S += (1 - l / (lag + 1)) * (G + G.T)
+    B = np.linalg.inv(X.T @ X)
+    return float(np.sqrt((B @ S @ B)[3, 3]))
+
+
 def series(n, d):
     """X-ray points (t in s from the EC start, relative intensity) and E at t - d, within the scan's EC record."""
     film, hkl, ru, ti, folder, pat, a, b = SCANS[n]
@@ -138,14 +153,18 @@ for n, (film, hkl, *_rest) in SCANS.items():
         continue
     res = {}
     for name in ("linear", "logistic"):
-        A, r = fit(t, y, shapes(E)[name])
-        null = []
-        for _ in range(300):
-            s = rng.uniform(70, 210) * rng.choice([-1, 1])
-            Es = np.interp(t - s, t, E, period=None)
-            Es = np.interp((t - s - t.min()) % np.ptp(t) + t.min(), t, E)   # cyclic shift inside the window
-            null.append(fit(t, y, shapes(Es)[name])[0])
-        res[name] = dict(A=float(A), err=float(np.std(null)))
+        g = shapes(E)[name]
+        A, u = fit(t, y, g)
+        yhat = y - u
+        F = np.fft.rfft(u)
+        boot = []
+        for _ in range(500):
+            ph = np.exp(1j * rng.uniform(0, 2 * np.pi, F.size)); ph[0] = 1
+            if u.size % 2 == 0:
+                ph[-1] = 1
+            boot.append(fit(t, yhat + np.fft.irfft(F * ph, n=u.size), g)[0])
+        e_s, e_h = float(np.std(boot)), hac(t, u, g)
+        res[name] = dict(A=float(A), err=max(e_s, e_h), err_surrogate=e_s, err_hac=e_h)
         # the offset uncertainty: refit at D +- sd
         for dd in (-D_RANGE, D_RANGE):
             t2, y2, E2, *_ = series(n, D + dd)
@@ -193,7 +212,7 @@ ax.set_title("Response to the applied potential, timing fixed by the EC-Lab and 
 ax.grid(axis="y", color=GRID, lw=0.5); ax.set_axisbelow(True)
 ax.legend(frameon=False, loc="upper left", bbox_to_anchor=(1.0, 1.0), title="film, one point per scan")
 fig.text(0.01, -0.02, "Each point: I/I0 = drift (quadratic) + A g(E), E the EC-Lab potential at the point's SPEC time (offset "
-         f"{D:+.0f} s), g a step at 0.23 V. Error bars: spread of A with E shifted by 70-210 s.", fontsize=8, color=MUTED)
+         f"{D:+.0f} s), g a step at 0.23 V. Error bars: the larger of a noise-surrogate and an autocorrelation-robust error.", fontsize=8, color=MUTED)
 fig.tight_layout(); fig.savefig(os.path.join(here, "fig_sync_abs.png"), dpi=150, bbox_inches="tight")
 print("start marks: EC start minus marked point time (s):", {k: round(v, 1) for k, v in out["start_marks"].items()})
 print("offset per responsive scan (s, corr):", {k: (v["d"], round(v["corr"], 2)) for k, v in out["offset"].items()})

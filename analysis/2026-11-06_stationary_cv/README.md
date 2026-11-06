@@ -294,8 +294,12 @@ film's connection to the CE / RE:
     With a continuous electrolyte from the film to the CE / RE, no break is left. Ewe tracking then means the film's potential
     followed the programme, so the film's double layer was charged and that charge went around the ammeter (or the channel
     or cable misread it).
-  - **The only way the potential could have missed the film** is an insulating layer on it (grease, residue). That fits the
-    stable, beam-responsive OCV poorly, and a few-hundred-ohm reading from WE to CE through the cell would rule it out.
+  - **The only way the potential could have missed the film** was an insulating layer on it (grease, residue). The user
+    measured every pair of the three electrodes through the cell (WE-CE, WE-RE, CE-RE) and each clip to its electrode's
+    wetted area, at a couple hundred ohms. That rules out a blocked film. So the potential was applied, and the open
+    question is only where the current went.
+  - **The measurement not yet made** is the one the bypass needs: each lead, the Au wire and the film's front edge to the
+    instrument ground (black lead / chassis / mains earth) and to the diffractometer, with the cell mounted as on day 4.
   - **How complete the bypass was:** the recorded hold currents at 0 and 0.7 V differ by 0.1 +- 0.5 nA, against about 8 uA
     on 3.3 nm. So less than about 0.02 % of the current was recorded. With a 10-100 kOhm range resistor in the WE line,
     the bypass must be below about 2-20 Ohm: a near-direct metal connection from the WE side to the instrument ground.

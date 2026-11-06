@@ -1,30 +1,45 @@
-SLIDE OUTLINE: potential response of the surface of RuO2(110) films on TiO2(110), 3.3 / 4.1 / 7 nm
+SLIDE OUTLINE: the potential response of the surface of RuO2(110) films on TiO2(110), 3.3 / 4.1 / 7 nm
 =========================================================================================================
-Main message: under the same protocol, at the same surface-sensitive reflections, the 3.3 and 7 nm films respond
-strongly and reversibly to potential, while the 4.1 nm film does not respond at all. The comparison uses relative
-intensities only. No absolute coverage is claimed.
+
+THE ARGUMENT, IN ONE SENTENCE
+At the same surface-sensitive reflections and under the same potential program, the 3.3 and 7 nm films switch reversibly
+between two surface states near 0.2-0.25 V vs Ag/AgCl, while the 4.1 nm film does not change at all from -0.24 to 0.7 V.
+The CTRs, fitted with Rao et al.'s bridging-O values and with an alternative, put the 4.1 nm surface in the state the
+7 nm surface reaches only at high potential.
+
+HOW THE EVIDENCE IS ORDERED (strongest first; each step stands without the ones after it)
+  1. CVs, no model: 4.1 nm flat, 3.3 and 7 nm switch (slides 5-7).
+  2. CTR rods, no model: 4.1 nm unchanged across potentials, 7 nm changes above 0.15 V (slide 8).
+  3. CTR fits, two bridging-O assumptions including Rao's: the films differ at <= 0 V and agree at >= 0.35 V (slide 9).
+  4. CTR -> CV: the surface states fitted to the CTRs, used with nothing adjusted, reproduce the 7 nm CVs up to 0.35 V and
+     are consistent with the flat 4.1 nm CVs. A fit of only an OH step to the CVs, with the CTR structure and Rao's
+     bridging O, gives the 7 nm onset and bounds the 4.1 nm change (slides 10-11).
+
+WHAT WE DO NOT CLAIM
+  - An absolute OH coverage (it depends on the bridging-O assumption).
+  - A thickness trend (one sample per thickness; 3.3 nm responds, 4.1 nm does not).
+  - A mechanism.
 
 Figures are in analysis/2026-11-06_stationary_cv/ unless another folder is named.
-[NEEDED] marks something that must be in hand before presenting.
-Potentials are vs Ag/AgCl. RHE = Ag/AgCl + 0.26 V in 0.1 M H2SO4.
+[NEEDED] marks something to get before presenting.
+Potentials are vs Ag/AgCl; RHE = Ag/AgCl + 0.26 V in 0.1 M H2SO4.
 
 
 -------------------------------------------------------------------------------------------------------------
 SLIDE 1  Title
 -------------------------------------------------------------------------------------------------------------
-- Proposed title: "A 4.1 nm RuO2(110) film whose surface does not respond to potential:
-  in situ surface X-ray diffraction of 3.3, 4.1 and 7 nm films"
+- Suggested title: "One film that does not switch: the potential response of RuO2(110) film surfaces from in situ surface X-ray diffraction"
 - Names, beamtime, date.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 2  Question
+SLIDE 2  Question and answer up front
 -------------------------------------------------------------------------------------------------------------
-- Does the surface of epitaxial RuO2(110) films respond to potential in the same way at different thicknesses?
-- Approach: watch surface-sensitive diffraction intensity while the potential changes, and compare the films
-  at the same reflections.
-- Why relative: absolute OH coverage from CTR fits depends on model assumptions (the bridging-O height).
-  A change, or no change, at a fixed reflection does not.
+- Question: does the surface of epitaxial RuO2(110) films respond to potential in the same way for different films?
+- Answer: no. Two films switch reversibly near 0.2-0.25 V vs Ag/AgCl; the 4.1 nm film does not switch anywhere from
+  -0.24 to 0.7 V.
+- Approach: relative intensity changes at fixed reflections, plus CTR fits checked against several assumptions. We do not
+  rely on absolute coverage.
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -35,31 +50,27 @@ SLIDE 3  Samples and measurements
   - 4.1 nm: fully strained (Jeong et al.).
   - 7 nm: partly relaxed.
 - Electrolyte 0.1 M H2SO4, Ag/AgCl reference.
-- CTRs at -0.238, -0.1, 0, 0.15, 0.35, 0.7 V and OCV (4.1 and 7 nm).
+- CTRs: (0 +-1) rods at -0.238 (4.1 nm only), -0.1, 0, 0.15, 0.35, 0.7 V and OCV; even rods at 0 and 0.7 V.
 - Stationary CVs at a fixed HKL:
-  - 30 s at 0.0 V, then cycles 0 to 0.7 V at 5 mV/s (280 s per cycle);
-  - 14 scans: 4 on 3.3 nm, 5 on 4.1 nm, 5 on 7 nm (one of them the control rod).
-- Potential table (small):
+  - 30 s at 0.0 V, then cycles 0 to 0.7 V at 5 mV/s;
+  - 14 scans: 4 on 3.3 nm, 5 on 4.1 nm, 5 on 7 nm (one of them the control rod (2 0 1.75)).
+- Order: per film, CTR rods and CVs interleaved (a CTR rod, a CV, the next rod, a CV).
+  [NEEDED] the scan timeline per film. The 4.1 nm CVs (scans 496-503) look like one block; check this.
+- Potential table:
 
   | Ag/AgCl | -0.238 | -0.1 | 0 | 0.15 | 0.35 | OCV 0.35-0.4 | 0.7 |
   |---|---|---|---|---|---|---|---|
   | RHE | 0.02 | 0.16 | 0.26 | 0.41 | 0.61 | 0.61-0.66 | 0.96 |
-
-- Order of measurement: per film, CTR rods and CVs interleaved (a CTR rod, a CV, the next rod, a CV).
-  [NEEDED] the exact timeline per film (scan numbers and times per potential). The 4.1 nm CVs (scans 496-503)
-  have consecutive scan numbers, so they look like one block; check this.
 
 
 -------------------------------------------------------------------------------------------------------------
 SLIDE 4  Why these reflections
 -------------------------------------------------------------------------------------------------------------
 - On the (0 +-1) rods (H + K odd) the metal contributions cancel, so the oxygen and adsorbate layers dominate:
-  these rods are the surface-sensitive ones.
-- Even rods and (2 0) are insensitive to the surface species: they serve as controls.
-- Fingerprint: a surface change moves L 2.75 and L 3.16 / 3.25 in OPPOSITE directions (down vs up).
-  A beam, absorption or normalization artefact would move every point the same way.
-- Figure: ../2026-11-05_oh_fits/fig2_oh_sensitivity_01.png (sensitivity along (0 1)), the CV points marked.
-- Speaker note: the model is used here only to choose the reflections and predict signs, not to fit.
+  these rods are the surface-sensitive ones. Even rods and (2 0) are insensitive to the surface species: controls.
+- Fingerprint of a surface change: L 2.75 and L 3.16 move in OPPOSITE directions. A beam, absorption or normalization
+  artefact moves every point the same way.
+- Figure: ../2026-11-05_oh_fits/fig2_oh_sensitivity_01.png (sensitivity along (0 1)), with the CV points marked.
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -68,170 +79,169 @@ SLIDE 5  Raw data: same reflection, two films
 - Figure: fig_raw.png (7 nm scan 314 vs 4.1 nm scan 498, both at (0 +-1 3.16)).
 - 7 nm: the intensity follows every cycle, +15 to +20%. 4.1 nm: flat within noise.
 - The grey Ti ROI is an internal reference: the detector peak splits slightly into a "Ru" and a "Ti" spot.
-  The response is in the Ru spot. The Ti spot stays nearly flat (in 314 it tracks by about 2%).
-- Speaker note: the slow +3% rise over 200 images in 498 is common to both ROIs, so it is beam or normalization
-  drift (these scans have no monitor). It is not locked to the potential.
+  The response is in the Ru spot; the Ti spot is nearly flat.
+- Speaker note: the slow +3% rise in 498 is common to both ROIs, so it is beam or normalization drift (no monitor),
+  not locked to the potential.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 6  All CV scans
--------------------------------------------------------------------------------------------------------------
-- Figure: fig_cv.png (cycle-averaged change vs E, anodic and cathodic, per scan; rows 4.1 / 3.3 / 7 nm).
-- 3.3 and 7 nm:
-  - decrease at L 2.75 and increase at L 3.16, which is the opposite-sign fingerprint;
-  - reversible (the sweeps overlap), with most of the change below 0.4 V Ag/AgCl.
-- 4.1 nm: flat at all four reflections (2.75 twice, 2.84, 3.16, 3.25).
-- Linear change from 0 to 0.7 V, Ru+Ti (%):
-
-  | Film | L 2.75 | L 2.84 | L 3.16 | L 3.25 |
-  |---|---|---|---|---|
-  | 4.1 nm | -0.1, +0.3 | -0.8 | -0.3 | +1.5 (noisy) |
-  | 3.3 nm | -13 | | +13 | -11 |
-  | 7 nm | -25, -38 | | +19 | +12 (noisy) |
-
-- Speaker notes:
-  - 3.3 nm at L 3.25 goes down while 7 nm goes up. Close to the TiO2 Bragg peak at L = 3, the sign depends
-    on the film's fringe phase, so it differs with thickness. No CTRs exist for 3.3 nm to check this.
-  - Scan 147 (3.3 nm, L 1.25) is shown but excluded: its oscillation does not line up with the logged start
-    of the potential program.
-  - Scan 222 is analysed only up to its Stop (point 250), before the switch to 25 mV/s.
-
-
--------------------------------------------------------------------------------------------------------------
-SLIDE 7  KEY RESULT: the response, with no timing or model assumption
+SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
 -------------------------------------------------------------------------------------------------------------
 - Figure: fig_robust.png, panel a.
-- Method: the best sine wave in each scan, with the period (60 to 130 images) and the phase left free, plus a drift term.
+- Method: the best sine wave in each scan, with period and phase free and a drift term.
 - Peak-to-peak oscillation of Ru+Ti:
   - 4.1 nm: 1.0 to 1.9% (5 scans, 4 reflections);
-  - 3.3 nm: 9.6 to 11.1% (3 scans);
-  - 7 nm: 9.1 to 36.7% (4 scans);
+  - 3.3 nm: 9.6 to 11.1%;
+  - 7 nm: 9.1 to 36.7%;
   - 7 nm (2 0 1.75) control: 0.2%.
-- The Ru spot alone gives 1.1 to 2.4% (4.1 nm) against 13 to 42% (3.3 and 7 nm).
-- Bottom line: 5 to 35 times smaller on 4.1 nm at the same reflections.
+- What it is not:
+  - Timing or analysis choice: period and phase are free; the 4.1 nm scans stay at or below 2.8% for any timing.
+  - Beam, absorption or electrolyte: these would move the Ti ROI and the control rod too, and the signal would not change
+    sign with L.
+  - Saturation or statistics: the low-count 4.1 nm scans (4-8k counts) are as flat as the high-count ones and at the same
+    level as responding 7 nm scans.
+  - Insensitive points: in the model, a 7 nm-sized change moves the 4.1 nm points by 14-25% for any thickness from 10 to 14.5 TL
+    and any bridging-O height. Without the model, 3.3 and 7 nm bracket 4.1 nm and respond at the same reflections.
+  - The potential was not applied: [NEEDED] EC-Lab current of scans 496-503 next to a 7 nm CV.
+    This is the most important missing control.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 8  What it is not (controls)
+SLIDE 7  The switch: reversible, at the same potential in both responding films
 -------------------------------------------------------------------------------------------------------------
-Each objection and its answer:
-
-- **Timing or analysis choice:** the amplitude is found with period and phase free; the flat scans stay
-  at or below 2.8% for any timing.
-- **Beam, absorption, electrolyte thickness, bubbles:** these would move the Ti ROI and the control rod too.
-  Both stay flat, and the response is locked to the potential cycle and has opposite signs at different L.
-- **Detector saturation or poor statistics:** the 4.1 nm CA levels run from 4k to 129k counts. The low-count
-  4.1 nm scans (496: 8k, 501: 4k) match the responding 7 nm scans (4k to 5k) and are just as flat.
-- **The 4.1 nm points happen to be insensitive:** in the model, a surface change of the size seen on 7 nm moves
-  these points by 14 to 25% for any 4.1 nm thickness from 10 to 14.5 TL and any bridging-O height. Without the model,
-  the 3.3 and 7 nm films bracket 4.1 nm in thickness and both respond at these reflections.
-- **The potential was not applied:** [NEEDED] the EC-Lab current for scans 496-503 next to a 7 nm CV.
-  This is the most important missing control. Put the current traces on this slide.
+- Figure: fig_cv.png (cycle-averaged change vs E, both sweeps, every scan).
+- 3.3 and 7 nm:
+  - the fingerprint (down at 2.75, up at 3.16);
+  - the anodic and cathodic sweeps overlap, so the switch is reversible with no hysteresis at 5 mV/s;
+  - half of the change is reached at 0.22-0.30 V (3.3 nm) and 0.17-0.26 V (7 nm) vs Ag/AgCl, the same within the binning,
+    about 0.5 V vs RHE.
+- 4.1 nm: flat at all four reflections.
+- Speaker notes:
+  - 3.3 nm at L 3.25 moves the other way from 7 nm. Close to the TiO2 Bragg peak at L = 3, the sign depends on the
+    film's fringe phase; there are no 3.3 nm CTRs to check this.
+  - Scan 147 is excluded: its oscillation does not line up with the logged start.
+  - Scan 222 is used only up to its Stop (point 250), before the switch to 25 mV/s.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 9  CTR series: consistent, secondary
+SLIDE 8  KEY RESULT 2: the CTR rods themselves (no model)
 -------------------------------------------------------------------------------------------------------------
 - Figure: fig_robust.png, panel b.
-- Method: each film's OH rod at each potential divided by the same film's 0 V rod, with one free scale and
-  the TiO2 Bragg peak left out. The measure is the rms of ln(ratio) over the whole rod.
+- Method: each film's OH rod at each potential divided by the same film's 0 V rod, with one free scale and the TiO2 Bragg
+  peak left out. The measure is the rms of ln(ratio) over the whole rod.
 - Results:
-  - repeatability (even rods, 7 nm OCV repeat): 0.016 to 0.031;
-  - 4.1 nm: 0.032 to 0.046 at every controlled potential, so no change from -0.238 to 0.7 V;
-  - 7 nm: 0.028 to 0.034 up to 0.15 V, then 0.056 at 0.35 V and 0.064 at 0.7 V, so it changes above 0.15 V.
-- Speaker notes:
-  - This is 2 to 3 times the repeatability: real but much weaker evidence than the CVs (slide 7).
-  - The 7 nm CTR change is about a third of the CV change at the same L. Possible reasons:
-    - the hold time at each potential for a CTR is long, while the CV sweeps;
-    - the response may grow with cycling (7 nm repeat at L 2.75: 21% in scan 311, 37% in the later scan 344).
-  - Differences between potentials in a CTR series could also be drift in time. Use the [NEEDED] timeline.
+  - repeatability (even rods, 7 nm OCV repeat): 0.016-0.031;
+  - 4.1 nm: 0.032-0.046 at every controlled potential from -0.238 to 0.7 V, so unchanged;
+  - 7 nm: 0.028-0.034 up to 0.15 V, then 0.056 (0.35 V) and 0.064 (0.7 V), so it changes above 0.15 V, as the CVs do.
+- Speaker note: 2-3 times the repeatability, so supporting rather than decisive on its own.
+  [NEEDED] the timeline, to exclude drift between the CTR rods.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 10  Where the 7 nm surface changes
+SLIDE 9  KEY RESULT 3: CTR fits with Rao's bridging-O values, and with an alternative
 -------------------------------------------------------------------------------------------------------------
-- Read from the curves (fig_cv.png): half of the change is reached at about 0.2-0.3 V Ag/AgCl (about 0.5 V RHE),
-  over about 0.1-0.15 V, with no hysteresis at 5 mV/s.
-- 4.1 nm: nothing from 0 to 0.7 V Ag/AgCl (0.26 to 0.96 V RHE), and nothing in its CTRs down to -0.238 V (0.02 V RHE).
-- CTR rods at 0.35 and 0.7 V: the 4.1 and 7 nm films give the same OH-rod fits (within errors), while at -0.1 and 0 V
-  they differ. So 4.1 nm sits at all potentials in the state 7 nm reaches only above its step.
-  This comes from the OH fits of the CTRs and is model-based; [CHECK] present it as supporting only.
-- Speaker note: as the 7 nm step's potential, quote the half-change point read from the curves rather than the
-  fit value (model fit E0 = 0.22-0.27 V Ag/AgCl).
+- Figure: fig_variants.png.
+- Method:
+  - Film structure: fitted on the well-behaved rods (0 +-1), (-1 0), (-2 0).
+  - OH fraction: fitted on the (0 +-1) rods per film and potential, each rod file with its own scale.
+  - The bridging-O height cannot be fitted together with the OH fraction (they trade off), so it is FIXED by assumption:
+    - (a) Rao et al. 2017 (single crystal, potentials converted from RHE to Ag/AgCl): 0.35 Å up to 0.15 V,
+      0.2 Å at 0.35 V and OCV, 0 Å at 0.7 V;
+    - (b) 0 Å at every potential.
+  - Both fit equally well (red. chi2 14.7 and 14.5).
+- Result, the same under both: 4.1 nm minus 7 nm OH fraction:
 
+  | Assumption | -0.1 V | 0 V | 0.15 V | 0.35 V | 0.7 V |
+  |---|---|---|---|---|---|
+  | (a) Rao | +0.50 | +0.40 | +0.15 | 0.00 | +0.10 |
+  | (b) 0 Å | +0.50 | +0.50 | +0.25 | +0.05 | +0.10 |
 
--------------------------------------------------------------------------------------------------------------
-SLIDE 10b  Comparison with the work function (Jeong et al., Nat. Commun. 17, 2516 (2026); data: jeong_work_function.jpg)
--------------------------------------------------------------------------------------------------------------
-- Their KPFM work function (read from the plot, eV):
-
-  | nm | 1.5 | 2.5 | 3.0 | 3.2 | 3.8 | 4.0 | 5.0 | 5.2 | 7.0 | 8.0 | 17 |
-  |---|---|---|---|---|---|---|---|---|---|---|---|
-  | WF | 4.25 | 4.38 | 4.35 | 4.73 | 5.40 | 4.86 | 4.78 | 4.84 | 4.44 | 4.66 | 5.05 |
-
-- Our films against the nearest points:
-
-  | Film | WF point | WF (eV) | CV oscillation | Half-change E (V Ag/AgCl) |
-  |---|---|---|---|---|
-  | 7 nm | 7.0 nm | 4.44 | 9-37% | 0.17-0.26 |
-  | 3.3 nm | 3.2 nm | 4.73 | 10-11% | 0.22-0.30 |
-  | 4.1 nm | 4.0 nm | 4.86 | 1-2% | none |
-
-- Observation (n = 3): the response gets smaller as the work function rises. The potential of the step does not move:
-  3.3 and 7 nm switch at the same E within about 0.05 V, despite 0.29 eV between them.
-- Hypothesis, not a result: whatever sets the work function controls HOW MUCH of the surface switches, not WHERE.
+  The films differ at or below 0 V and agree at 0.35 and 0.7 V. The absolute values move with the assumption; the
+  difference does not.
 - Say plainly:
-  - The work-function peak (5.40 eV) is a single sample at 3.8 nm; our 4.1 nm film is not on it.
-  - 3.3 and 4.1 nm differ by only 0.13 eV, within the scatter of the curve (neighbouring samples differ by up to 0.4 eV),
-    yet their responses differ about tenfold.
-  - KPFM is measured outside the electrolyte.
-- The KPFM films are DIFFERENT samples from ours (instrument error stated as negligible). So our films are placed on
-  the curve by thickness only:
-  - 3.3 nm: 4.73 eV (nearest point, 3.2 nm) or 4.84 eV (interpolated between 3.2 and 3.8 nm).
-  - 4.1 nm: 4.86 eV (nearest point, 4.0 nm) or 4.85 eV (interpolated).
-  - Between 3.0 and 4.0 nm the curve moves by up to 1 eV in 0.6 nm, so an offset of 0.3-0.5 nm between the two groups'
-    thickness scales moves either film anywhere from 4.4 to 5.4 eV.
-- Safe framing: both measurements show an abrupt change between about 3.2 and 4 nm. Their work function jumps by more than
-  1 eV, and our surface response goes from present (3.3 nm) to absent (4.1 nm). Whether it is the same change needs
-  the same samples, or one thickness scale for both.
-- Still usable: 3.3 and 7 nm switch at the same potential although their work functions differ by 0.3-0.4 eV.
-- [NEEDED] KPFM on the beamtime samples themselves (3.3, 4.1, 7 nm). This is the decisive and cheapest test.
-  Otherwise, at least the method used for thickness on each side (XRR, Laue fringes, growth rate).
+  - At each potential alone the difference is at about the 2-sigma level; it is the same sign at -0.1 and 0 V and under both
+    assumptions.
+  - A third fit with the bridging O left free (right panel of the figure) gives the same best-fit pattern but constrains
+    almost nothing (ranges 0 to 1). Show it as the reason the height has to be fixed, not as support.
+  - The fall at 0.7 V under Rao's values comes from the imposed bridging-O change (0.35 -> 0 Å). It is not a measured change.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 11  Interpretation (labelled as such)
+SLIDE 10  CTR -> CV: the CTR-fitted surface states, used unchanged, against the CVs
 -------------------------------------------------------------------------------------------------------------
-- The 4.1 nm surface is held in one state across the window, the same state 7 nm reaches at high potential.
-- Candidate explanations, with what argues for and against each:
-  - **Strain or the work function:** strain alone does not fit (3.3 nm is at least as strained and responds). The work function
-    orders the three films the same way as their response (slide 10b), but 3.3 and 4.1 nm are within its scatter.
-  - **Sample history** (the first polarization, beam dose, preparation): the 4.1 nm OCV rod differs from every
-    controlled potential. Testable on a fresh spot or a fresh sample.
-  - **A blocking adsorbate** (e.g. sulfate) on this film only: testable in HClO4.
-- Say plainly: one sample per thickness, and the thickness trend is not monotonic.
+- Figure: fig_ctr2cv.png.
+- Method: the surface state at each CTR potential (OH fraction from slide 9, bridging O as assumed, film structure from the
+  CTR fit) gives a predicted intensity at each CV reflection, relative to the 0 V state. Nothing is adjusted to the CVs.
+- 7 nm, predicted vs measured, up to 0.35 V:
+
+  | Reflection | 0.15 V predicted | 0.15 V measured | 0.35 V predicted | 0.35 V measured |
+  |---|---|---|---|---|
+  | (0 1 2.75) | -7 to -10% | -9% | -10 to -17% | -24% |
+  | (0 1 3.16) | +7 to +10% | +7% | +10 to +20% | +14% |
+
+  So the sign, the onset and roughly the size are predicted.
+- 4.1 nm: the CTR states predict changes within about +-10% of zero, with uncertainty bars that include zero. The CVs are
+  flat (within +-1.5%).
+- Say plainly:
+  - The CTR states carry +-15-25% uncertainty at a single reflection; the CVs are about ten times more precise. The CTRs
+    show consistency, and the CVs give the sharp result.
+  - At 0.7 V the CTR states predict a partial return for 7 nm (2.75: -5 to -10%) that the CVs do not show (-27%).
+  - (0 1 3.25) is overpredicted; that CV (316) is the noisiest scan and its timing was assumed.
+  - Rao's bridging-O change at 0.7 V predicts a +17% rise at (0 -1 2.75) on 4.1 nm (range +1 to +33%). The flat CV argues
+    that this change does not happen on the 4.1 nm film.
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 12  Next steps
+SLIDE 11  CTR structure + Rao's bridging O, fitted to the CVs
 -------------------------------------------------------------------------------------------------------------
-- EC current of every CV scan (charge in 0 to 0.7 V per film).
-- A second 4.1 nm sample, or a fresh spot on the same sample: CV first, before any CTR.
-- 4.1 nm CV over a wider window (below 0 V, above 0.7 V).
-- The same CVs in HClO4 (anion blocking).
-- CTRs on 3.3 nm.
-- A CV on an even rod of 4.1 nm (a second insensitive control).
+- Method: film structure and water height from the CTR fits, bridging O at Rao's low-potential value (0.35 Å).
+  Per film, only an OH step in E (start, end, centre E0, width) plus an offset per scan is fitted to all of that film's
+  CV curves at once (Ru+Ti, the CTR quantity).
+- 7 nm: E0 = 0.25 +- 0.02 V vs Ag/AgCl, width 0.15 +- 0.04 V. The size of the OH change is poorly determined
+  (start and end each +-0.5); the position is well determined.
+- 4.1 nm: the flat CVs allow an OH change of at most 0.03 anywhere in the window.
+- Both films are fitted with the same structure source and the same assumption, so the comparison is like for like.
+- Speaker note: letting the bridging O change too does not move E0 (0.22 +- 0.04 V).
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 13  Summary
+SLIDE 12  Putting it together
 -------------------------------------------------------------------------------------------------------------
-- At the same surface-sensitive reflections and with the same protocol:
-  - 3.3 and 7 nm: 9 to 37% reversible oscillation with potential, with the opposite-sign fingerprint of a surface change;
-  - 4.1 nm: under 2%, at 4 reflections in 5 scans;
-  - OH-insensitive control: 0.2%.
-- The CTR series agrees: 7 nm changes above 0.15 V Ag/AgCl, 4.1 nm does not change from -0.238 to 0.7 V.
-- The 4.1 nm surface does not respond to potential. Why is open: strain alone does not explain it.
+- 7 nm (and 3.3 nm): two surface states, switched reversibly at about 0.2-0.25 V vs Ag/AgCl (about 0.5 V RHE).
+- 4.1 nm:
+  - the CTR rods do not change from -0.238 to 0.7 V (slide 8), and the CVs do not change from 0 to 0.7 V (slide 6);
+  - at 0.35 and 0.7 V the CTR fits put it in the same surface state as 7 nm (slide 9).
+  - So: the 4.1 nm surface is in the 7 nm high-potential state at every potential measured, 0.02-0.96 V RHE.
+- In the CTR model that state is the one with the higher OH fraction, under both bridging-O assumptions. That is as far as the
+  data go. The amount of OH is not claimed.
+
+
+-------------------------------------------------------------------------------------------------------------
+SLIDE 13  Open questions and next steps
+-------------------------------------------------------------------------------------------------------------
+- Why the 4.1 nm film:
+  - Strain alone does not fit: 3.3 nm is at least as strained and switches.
+  - Sample history (first polarization, beam dose) or a blocking adsorbate (sulfate) remain open.
+  - The work function (Jeong et al. 2026, backup B5) is context, not an explanation yet.
+- Measurements:
+  - EC current of every CV (charge passed in 0-0.7 V per film);
+  - a second 4.1 nm sample, CV first;
+  - a wider window on 4.1 nm;
+  - HClO4 instead of H2SO4;
+  - CTRs on 3.3 nm;
+  - a CV on an even rod of 4.1 nm.
+
+
+-------------------------------------------------------------------------------------------------------------
+SLIDE 14  Summary
+-------------------------------------------------------------------------------------------------------------
+- The 3.3 and 7 nm surfaces switch reversibly near 0.2-0.25 V vs Ag/AgCl. The 4.1 nm surface does not switch between
+  -0.24 and 0.7 V: under 2% where the others change by 10-37%.
+- The CTRs agree three ways:
+  - the rods themselves;
+  - fits under Rao's and an alternative bridging-O assumption, giving the same film difference;
+  - the CTR-fitted states, used unchanged, reproducing the 7 nm CVs.
+- The 4.1 nm surface sits in the 7 nm high-potential state throughout.
 
 
 =============================================================================================================
@@ -239,61 +249,71 @@ BACKUP SLIDES
 =============================================================================================================
 
 B1  CV processing
-- ROI sums per image. No SPEC file, so there is no monitor or filter normalization and time comes from the image number.
-- The period in images is found from the data (dominant period) and snapped to whole or half cycles after the 30 s hold.
-  The timing shift (within 0.15 of a period) is the one that correlates best with E, which fixes the sign.
-- Each signal is relative to the 30 s hold at 0 V, averaged over the cycles in 14 E bins per sweep.
-- Scans 147 and 222: see slide 6 notes.
-- Files: extract.py, extract2.py, extract3.py, robust_cv.py.
+- ROI sums per image; no SPEC file, so no monitor or filter normalization, and time comes from the image number.
+- The period is found from the data and snapped to whole or half cycles after the 30 s hold. The timing shift (within 0.15
+  of a period) is the one that correlates best with E, which fixes the sign.
+- Curves are relative to the hold at 0 V, averaged over cycles in 14 E bins per sweep.
+- Files: extract*.py, robust_cv.py.
 
-B2  The Ru and Ti ROIs
-- The detector peak splits slightly; in the CTRs one ROI covered both. Ru+Ti is therefore the quantity comparable with the CTRs.
-- The response sits in the Ru spot. The Ti spot is flat except in 344 (noisy; Ru/Ti 6.2 vs 2.1 in 311 at the same
-  reflection, so the ROIs were drawn differently).
-- The Ru/Ti count ratio depends on where the ROIs were drawn, so it is not a measure of film vs substrate.
-- Open question: is part of the substrate signal incoherent with the film and surface? The flat Ti spot suggests it is.
-  This affects CTR modelling (absolute values) but not this relative comparison.
+B2  All CV curves with the Ru and Ti ROIs (fig_cv.png)
+- The response is in the Ru spot. The Ti spot is flat except in 344 (noisy; Ru/Ti count ratio 6.2 vs 2.1 in 311, so the
+  ROIs were drawn differently). The Ru/Ti ratio depends on where the ROIs were drawn and is not a film/substrate measure.
 
-B3  Model-based fits (only if asked)
-- Joint fit of each film's CVs with an OH fraction stepping with E. For 7 nm, red. chi2 4.7 (Ru+Ti, coherent model),
-  step at 0.22 V Ag/AgCl. The OH fraction and the bridging-O height are strongly correlated (errors +-0.5 to 0.9),
-  so the step cannot be assigned to water -> OH on Ru-CUS rather than bridging-O deprotonation.
-- For 4.1 nm, the OH fraction changes by at most 0.03 (coherent model) to 0.10 (film spot only) across the window.
-- CTR OH fits under three bridging-O assumptions: the absolute OH fraction depends on the assumption, but the film
-  difference at -0.1 and 0 V holds in all three (../2026-11-05_oh_fits/summary.pdf).
+B3  Why the bridging O is fixed, and the Rao conversion
+- With both free, the OH fraction and the bridging-O height trade off (fig_variants.png, right panel).
+- Rao et al. 2017 measured a RuO2(110) single crystal in 0.1 M HClO4 vs RHE: bridging O 0.35 Å below 0.6 V, 0.2 Å at
+  0.6-0.9 V, 0 Å above.
+- Converted with +0.26 V (Ag/AgCl to RHE in 0.1 M H2SO4).
 
 B4  Why no single-point ratio from the CTRs
-- I(3.16)/I(2.75) relative to 0 V depends on the chosen L window and a +-0.003 L alignment shift
-  (10-90% range 0.8 to 1.4 for both films). The whole-rod comparison (slide 9) is used instead.
+- I(3.16)/I(2.75) relative to 0 V depends on the chosen L window and a +-0.003 L alignment shift (10-90% range 0.8 to 1.4).
+  The whole-rod comparison (slide 8) is used instead.
 
-B5  Measurement notes
-- The 7 nm (2 0) and (0 2) CTRs at 0 and 0.7 V used a 0.6 degree incidence angle (others 0.5). This changes the footprint,
-  which each rod's own scale absorbs, plus under 1%. These rods are not used for the surface comparison.
-- 4.1 nm scans 496 and 497 (same reflection, back to back) differ 5x in counts (filter or count time). Relative changes are unaffected.
+B5  Work function context (Jeong et al., Nat. Commun. 17, 2516 (2026); jeong_work_function.jpg)
+- Different samples from ours, so our films are placed by thickness only:
+  - 3.3 nm: 4.73 (nearest point) or 4.84 eV (interpolated);
+  - 4.1 nm: 4.86 or 4.85 eV;
+  - 7 nm: 4.44 eV.
+- Between 3 and 4 nm the curve moves by up to 1 eV in 0.6 nm, so a thickness-scale offset dominates.
+- What can be said:
+  - Both measurements show something abrupt between about 3.2 and 4 nm.
+  - 3.3 and 7 nm switch at the same potential although their work functions differ by 0.3-0.4 eV.
+- [NEEDED] KPFM on the beamtime samples, to make this a sample-by-sample comparison.
+
+B6  Measurement notes
+- The 7 nm (2 0) and (0 2) CTRs at 0 and 0.7 V used a 0.6 degree incidence angle (others 0.5). Each rod's own scale absorbs
+  the footprint change, leaving under 1%; these rods are not used for the surface comparison.
+- 4.1 nm scans 496 and 497 (same reflection, back to back) differ 5x in counts (filter or count time). Relative changes are
+  unaffected.
+- A polar distortion through the whole film (Jeong et al.) is not seen in our CTR fits: 4.1 nm 0.00 +- 0.045 Å (polar_test.py).
 
 
 =============================================================================================================
 LIKELY QUESTIONS AND ANSWERS
 =============================================================================================================
 Q: Was the potential applied during the 4.1 nm CVs?
-A: [NEEDED] EC current for scans 496-503. Without it this is the weakest point of the talk.
+A: [NEEDED] EC current for scans 496-503. Without it, this is the weakest point.
+
+Q: How much OH is on the 4.1 nm surface?
+A: Not claimed. The absolute value depends on the bridging-O assumption; the film difference does not (slide 9).
+
+Q: Your CTR fit has red. chi2 about 15. Why trust it?
+A: The main result does not rest on the fit. The CVs and the rod-to-rod comparison are model-free (slides 6, 8). The fit is
+   used only for a comparison under the same model, and its states reproduce the 7 nm CVs (slide 10).
+
+Q: Rao's values are for a single crystal in HClO4 vs RHE. Why use them?
+A: As one of two assumptions, converted to Ag/AgCl. The relative result is the same with the bridging O at 0 Å. The flat
+   4.1 nm CVs also argue against Rao's bridging-O change on that film.
+
+Q: Could the 4.1 nm points be insensitive?
+A: No. Four different L values all stay flat, and the model gives 14-25% sensitivity at each for any plausible thickness.
 
 Q: Is it a thickness effect?
-A: Not shown. 3.3 nm responds, 4.1 nm does not, 7 nm responds, with one sample each. We claim that this 4.1 nm film
-   differs, not that there is a thickness trend.
-
-Q: Could the 4.1 nm points be at fringe positions where the surface contributes little?
-A: No. Four different L values all stay flat, and the model gives 14-25% sensitivity at each one for any plausible thickness.
+A: Not shown. One sample per thickness, and 3.3 nm switches. We claim that this film differs.
 
 Q: Beam damage or drift?
-A: The CV response is periodic and locked to the potential; drift cannot produce it, and the 4.1 nm drift (+3% over
-   200 images) is common to both ROIs. For the CTR series: [NEEDED] the timeline.
+A: The CV response is locked to the potential and changes sign with L; the 4.1 nm drift (+3% over 200 images) is common to
+   both ROIs. For the CTR rods: [NEEDED] the timeline.
 
-Q: Why is the 7 nm change smaller in the CTR series than in the CVs?
-A: Long holds vs sweeps, or a response that grows with cycling (311 -> 344). Open.
-
-Q: How much OH?
-A: Not claimed; it depends on the bridging-O assumption (backup B3). The conclusion rests on relative changes.
-
-Q: Is 0.1 M H2SO4 a problem (sulfate)?
-A: Possibly, for the 4.1 nm film. A test in HClO4 is on the next-steps slide.
+Q: Sulfate?
+A: Possible for the 4.1 nm film; HClO4 is on the next-steps slide.

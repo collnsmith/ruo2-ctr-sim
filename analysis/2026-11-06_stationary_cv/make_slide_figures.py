@@ -572,3 +572,75 @@ def slideB7():
 if __name__ == "__main__":
     for fn in (slide02, slide03, slide04, slide05, slide06, slide07, slide08, slide09, slide10, slide11, slide12, slideB2, slideB3, slideB5, slideB7):
         fn()
+
+
+# ===================================================================== slide 12b: percent of the transition completed, all three films
+def transition_data():
+    """Model-free: each responding scan's cycle-averaged change (both sweeps averaged), scaled between its own first point
+    (0-0.05 V) and its plateau (mean of the last three bins, 0.575-0.675 V), as a percent. A step is fitted per film. 4.1 nm: its change from 0 to 0.7 V as a fraction
+    of the 7 nm change at the same reflection (linear fits, cv_amplitudes.csv)."""
+    from scipy.optimize import curve_fit
+    sig = lambda z: 0.5 * (1 + np.tanh(z))
+    def norm_step(E, E0, w):
+        a, b = sig((0 - E0) / w), sig((0.7 - E0) / w)
+        return 100 * (sig((E - E0) / w) - a) / (b - a)
+    use = {"7": [(311, 2.75), (341, 2.75), (343, 2.75), (344, 2.75), (314, 3.16)],     # like for like: L 2.75 and 3.16 only
+           "3.3": [(120, 2.75), (222, 3.16), (223, 3.16)]}                              # (3.25: only the noisy 316 on 7 nm)
+    out = {}
+    for f, scans in use.items():
+        Es, ps, pts = [], [], []
+        for s, L in scans:
+            c = curve(f, s); g = c.groupby("E_V_AgAgCl").sum_change.mean()
+            low, plateau = g.iloc[0], g.iloc[-3:].mean()            # own ends: robust to a drifting baseline (223)
+            p = 100 * (g.values - low) / (plateau - low)
+            E_ = g.index.values; i = int(np.argmax(p >= 50))
+            h50 = float(E_[i - 1] + (50 - p[i - 1]) * (E_[i] - E_[i - 1]) / (p[i] - p[i - 1])) if i > 0 else float(E_[0])
+            pts.append((s, L, E_, p, h50)); Es += list(E_); ps += list(p)
+        # film curve: the mean over its scans in each E bin (all scans share the bins); half-way where it crosses 50%
+        E_ = pts[0][2]
+        P_ = np.array([q[3] for q in pts]); mean = P_.mean(axis=0); se = P_.std(axis=0, ddof=1) / np.sqrt(len(pts))
+        k = int(np.argmax(mean >= 50)); E_half = float(E_[k - 1] + (50 - mean[k - 1]) * (E_[k] - E_[k - 1]) / (mean[k] - mean[k - 1]))
+        h = np.array([q[4] for q in pts])
+        out[f] = dict(points=pts, E=E_, mean=mean, se=se, E_half=E_half, scan_half=(float(h.min()), float(h.max())),
+                      E_half_err=float(h.std(ddof=1) / np.sqrt(len(h))))
+    a = amp.set_index("scan")
+    ref = {2.75: a.loc[[311, 341, 343, 344], "sum_change_0_to_0.7V"].mean(), 3.16: a.loc[314, "sum_change_0_to_0.7V"],
+           3.25: a.loc[316, "sum_change_0_to_0.7V"]}
+    r, e = [], []
+    for s, L in ((496, 2.75), (497, 2.75), (498, 3.16), (501, 3.25)):
+        r.append(a.loc[s, "sum_change_0_to_0.7V"] / ref[L]); e.append(abs(a.loc[s, "sum_change_err"] / ref[L]))
+    r, e = np.array(r), np.array(e); wgt = 1 / e ** 2
+    m41 = float(np.sum(wgt * r) / np.sum(wgt)); s41 = float(1 / np.sqrt(np.sum(wgt)))
+    out["4.1"] = dict(ratio=m41, ratio_err=s41, per_scan=list(zip((496, 497, 498, 501), r, e)))
+    return out
+
+
+def slide12b():
+    d = transition_data()
+    fig, ax = plt.subplots(figsize=(W, 6.4))
+    MKL = {2.75: "o", 3.16: "s", 3.25: "^"}
+    for f in ("7", "3.3"):
+        for s, L, E, p, h50 in d[f]["points"]:
+            ax.plot(E, p, MKL[L], ms=5.5, color=COL[f], alpha=0.55, mec="none", zorder=2)
+            ax.plot(h50, 122 if f == "7" else 116, MKL[L], ms=9, color=COL[f], mec="white", mew=1, zorder=4, clip_on=False)
+        ax.fill_between(d[f]["E"], d[f]["mean"] - d[f]["se"], d[f]["mean"] + d[f]["se"], color=COL[f], alpha=0.15, lw=0, zorder=1)
+        ax.plot(d[f]["E"], d[f]["mean"], color=COL[f], lw=3, zorder=3)
+    q = d["4.1"]; band = 100 * (abs(q["ratio"]) + 2 * q["ratio_err"])
+    ax.fill_between([0, 0.7], 100 - band, 100 + band, color=COL["4.1"], alpha=0.18, lw=0, zorder=1)
+    ax.plot([0, 0.7], [100, 100], color=COL["4.1"], lw=3, zorder=3)
+    ax.plot([-0.238, 0], [100, 100], color=COL["4.1"], lw=3, ls=(0, (2, 2)), zorder=3)
+    ax.axhline(0, color=MUTED, lw=0.8); ax.axhline(50, color=GRID, lw=1.2, ls="--", zorder=0)
+    ax.set_xlim(-0.3, 0.75); ax.set_ylim(-25, 128)
+    ax.set_xlabel("E (V vs Ag/AgCl)"); ax.set_ylabel("OH transition completed (%)\n0 = first CV point (0-0.05 V), 100 = plateau")
+    ax.set_title("How far each surface has gone from its low-potential state to the high-potential state")
+    grid(ax); rhe_axis(ax)
+    h = [Line2D([], [], color=COL["7"], lw=3, label=f"7 nm (5 scans): half-way at {d['7']['E_half']:.2f} V; scans {d['7']['scan_half'][0]:.2f}-{d['7']['scan_half'][1]:.2f} V"),
+         Line2D([], [], color=COL["3.3"], lw=3, label=f"3.3 nm (3 scans): half-way at {d['3.3']['E_half']:.2f} V; scans {d['3.3']['scan_half'][0]:.2f}-{d['3.3']['scan_half'][1]:.2f} V"),
+         Line2D([], [], color=COL["4.1"], lw=3, label="4.1 nm: already there (CTR comparison); dashed: CTRs only, no CVs"),
+         Patch(color=COL["4.1"], alpha=0.25, label=f"4.1 nm: change its CVs allow, ±{band:.0f}% of the 7 nm change"),
+         Line2D([], [], marker="o", ls="none", color=MUTED, ms=7, label="CV points, L 2.75 (one colour per film)"),
+         Line2D([], [], marker="s", ls="none", color=MUTED, ms=7, label="CV points, L 3.16"),
+         Line2D([], [], marker="D", ls="none", color=MUTED, ms=0, label="markers above 110%: each scan's 50% point; bands: mean \u00b1 1 s.e.")]
+    ax.legend(handles=h, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2, frameon=False, fontsize=11.5)
+    save(fig, "slide12b_transition_completed.png")
+    return d

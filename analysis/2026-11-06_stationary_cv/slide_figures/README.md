@@ -21,6 +21,7 @@ its slide in `../slides_outline.txt`.
 | slide10_ctr_to_cv.png | 10: CTR-fitted states against the CVs |
 | slide11_cv_fit.png | 11: CTR structure + Rao bridging O fitted to the CVs |
 | slide12_summary_diagram.png | 12: summary diagram |
+| slide12b_transition_completed.png | 12 (alternative): percent of the transition completed, all three films |
 | slideB2_ru_ti_spots.png | B2: Ru and Ti spots |
 | slideB3_bridging_O_free.png | B3: bridging O fitted with OH (unconstrained) |
 | slideB5_work_function.png | B5: work function context |

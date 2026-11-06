@@ -399,3 +399,39 @@ film's connection to the CE / RE:
   - Ga3+ / In3+ go into the electrolyte, and the eutectic is slowly eaten.
   - This cannot explain day 4: zero current and an OCV of +0.37 V. It is one of the two candidates for the net anodic
     current on days 2 and 3, together with their low OCVs (about 0 V).
+
+## Absolute sync: the response at the potential EC-Lab applied (`sync_abs.py`, `sync_abs.json`, `fig_sync_abs.png`)
+
+- **Times:** each X-ray point is timed from the SPEC file (`#D` + the `Epoch` column). Each EC-Lab sequence is timed from
+  its file timestamp + `time/s`; the CA and CV files of a sequence share both. The SPEC file covers every day
+  (scans 1-544).
+- **The clocks agree:**
+  - The user's Start marks fall 1-2 s from the EC-Lab sequence start on every day, day 4 included (120: -7 s,
+    344: +5 s).
+  - The offset that best aligns the X-ray signal with the potential on the responding scans is -12 to +15 s (median
+    +4 s). That covers both the clock offset and any lag of the response.
+- **Fit, no free timing:** each scan is fitted as I/I0 = quadratic drift + A g(E(t)), with g a step at 0.23 V (the 3.3 / 7 nm
+  half-way potential).
+  - A is the change from 0 to 0.7 V.
+  - Its error is the spread of A when E(t) is shifted by 70-210 s, which keeps the noise's own correlations.
+  - Moving the offset by +-10 s changes A by less than its error.
+  - A linear-in-E shape gives the same signs and about 1.3x the size.
+- **Results (weighted per reflection; 7 nm 2.75 from 311, 341, 343, without 344 at 0.6 deg incidence):**
+
+  | reflection | 3.3 nm | 7 nm | 4.1 nm | 4.1 / 3.3 | 4.1 / 7 |
+  |---|---|---|---|---|---|
+  | (0 +-1 2.75) | -9.7 +- 2.2 % | -19.9 +- 2.9 % | +0.3 +- 0.3 % (496, 497) | -0.03 +- 0.03 | -0.015 +- 0.016 |
+  | (0 +-1 3.16) | +8.5 +- 1.3 % | +14.9 +- 3.2 % | -0.3 +- 0.6 % (498) | -0.03 +- 0.07 | -0.02 +- 0.04 |
+  | (0 +-1 3.25) | -8.5 +- 2.3 % | +8.3 +- 2.0 % | +2.6 +- 1.0 % (501) | | +0.32 +- 0.14 |
+
+  Also: 4.1 nm (0 -1 2.84) -0.2 +- 0.4 %, (-2 0 1.75) +0.04 +- 0.12 %; 3.3 nm (0 -1 1.25) -3.3 +- 0.5 %.
+- **Reading:**
+  - At 2.75 and 3.16 the 4.1 nm response is at most about 4 % and 11 % of the 3.3 nm response, and 2 % and 7 % of the
+    7 nm response (2 sigma).
+  - The 3.25 value (501, 2.8 sigma) is not a clean step: binned by potential, the low-potential bins sit lower on both
+    sweeps, but the signal does not stay up above 0.4 V, unlike the monotonic 316 and 125. Inconclusive.
+  - If the potential reached the film (see the day-4 section), 4.1 nm did not switch.
+- **Day-4 conditions that differ:**
+  - Kapton window.
+  - Rest potential 0.37-0.40 V (about 0 V on days 2-3).
+  - The logbook turns argon on for day 3 (Eoc 200 -> -20 mV) and says nothing about gas on day 4.

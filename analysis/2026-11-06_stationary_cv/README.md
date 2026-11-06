@@ -248,7 +248,9 @@ Results are chi2 per point, with the difference from the best fit scaled by its 
   80-230 uF at 5 mV/s), and 430-850 uC per anodic sweep in the clean scans. 7 nm 311, 314 and 344 carry large spikes.
 - **Current, 4.1 nm:** zero within noise in every file (half-gap at most 0.005 uA, 0.0 uC per cycle, no current at potential steps up to
   0.94 V). Updated below (`ec_leak.py`): the WE lead was on the film, so an open lead is unlikely.
-- **Consequence:** the 4.1 nm X-ray data cannot be used as a film under potential. They can serve as a no-potential control.
+- **Consequence (revised, see the day-4 section below):** with the CE / RE in the cell reservoir, no bubbles, and a good WE
+  circuit, the potential most likely did reach the 4.1 nm film and the current record is what failed. The 4.1 nm X-ray
+  data are then a film under potential, pending the tests listed there.
 
 ### Day 4 current, what the WE lead saw (`ec_leak.py`, `ec_leak.json`)
 
@@ -284,6 +286,26 @@ film's connection to the CE / RE:
     - A lab CV with a jumper from the Au wire to the potentiostat ground, to see whether the recorded current collapses while
       Ewe tracks.
     - The resistance from the Au wire / WE clip to the holder and goniometer with the day-4 mount.
+  - **Further facts (user):**
+    - EC-Lab was set to grounded, for a floating cell.
+    - The CE and RE sit in the cell reservoir, not behind tubing or a compartment.
+    - The resistance between the leads outside the cell read a couple hundred ohms, checked several times during the run.
+
+    With a continuous electrolyte from the film to the CE / RE, no break is left. Ewe tracking then means the film's potential
+    followed the programme, so the film's double layer was charged and that charge went around the ammeter (or the channel
+    or cable misread it).
+  - **The only way the potential could have missed the film** is an insulating layer on it (grease, residue). That fits the
+    stable, beam-responsive OCV poorly, and a few-hundred-ohm reading from WE to CE through the cell would rule it out.
+  - **How complete the bypass was:** the recorded hold currents at 0 and 0.7 V differ by 0.1 +- 0.5 nA, against about 8 uA
+    on 3.3 nm. So less than about 0.02 % of the current was recorded. With a 10-100 kOhm range resistor in the WE line,
+    the bypass must be below about 2-20 Ohm: a near-direct metal connection from the WE side to the instrument ground.
+    Candidates: the black ground lead clipped to the WE side, the WE clip or Au wire touching grounded metal, or a cable fault
+    from the WE line to the shield.
+  - **Status:** the 4.1 nm null would then be a real film difference (no switch under potential), but it rests on a current
+    nobody recorded. To defend it:
+    - reproduce the day-4 signature with a jumper from the WE to ground (or find the short, or show a cable / channel fault
+      with a dummy cell);
+    - show with a lab CV that the 4.1 nm film is electrochemically normal.
 
 ## 3.3 nm (0 -1 L) rod at 0.65 V, scans 153-221 (`rod153.py`, `rod153.json`, `fig_rod153.py`, `fig_rod153.png`)
 

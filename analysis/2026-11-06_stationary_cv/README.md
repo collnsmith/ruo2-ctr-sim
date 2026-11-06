@@ -156,3 +156,7 @@ The points nearest our films:
 
 The response falls as the work function rises; the step potential does not shift. With n = 3, and 3.3 vs 4.1 nm only 0.13 eV apart
 (neighbouring KPFM samples differ by up to 0.4 eV), this is a hypothesis.
+
+The KPFM films are different samples from ours (instrument error said to be negligible), so our films sit on the curve by
+thickness only. 3.3 nm is 4.73 eV (nearest) or 4.84 eV (interpolated); 4.1 nm is 4.86 or 4.85 eV. Between 3 and 4 nm the
+curve moves by up to 1 eV in 0.6 nm, so a thickness-scale offset of 0.3-0.5 nm dominates. KPFM on the same samples would settle it.

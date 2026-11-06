@@ -185,7 +185,18 @@ SLIDE 10b  Comparison with the work function (Jeong et al., Nat. Commun. 17, 251
   - 3.3 and 4.1 nm differ by only 0.13 eV, within the scatter of the curve (neighbouring samples differ by up to 0.4 eV),
     yet their responses differ about tenfold.
   - KPFM is measured outside the electrolyte.
-- [NEEDED] whether these KPFM samples are the same pieces we measured, and the error or repeat spread of the KPFM values.
+- The KPFM films are DIFFERENT samples from ours (instrument error stated as negligible). So our films are placed on
+  the curve by thickness only:
+  - 3.3 nm: 4.73 eV (nearest point, 3.2 nm) or 4.84 eV (interpolated between 3.2 and 3.8 nm).
+  - 4.1 nm: 4.86 eV (nearest point, 4.0 nm) or 4.85 eV (interpolated).
+  - Between 3.0 and 4.0 nm the curve moves by up to 1 eV in 0.6 nm, so an offset of 0.3-0.5 nm between the two groups'
+    thickness scales moves either film anywhere from 4.4 to 5.4 eV.
+- Safe framing: both measurements show an abrupt change between about 3.2 and 4 nm. Their work function jumps by more than
+  1 eV, and our surface response goes from present (3.3 nm) to absent (4.1 nm). Whether it is the same change needs
+  the same samples, or one thickness scale for both.
+- Still usable: 3.3 and 7 nm switch at the same potential although their work functions differ by 0.3-0.4 eV.
+- [NEEDED] KPFM on the beamtime samples themselves (3.3, 4.1, 7 nm). This is the decisive and cheapest test.
+  Otherwise, at least the method used for thickness on each side (XRR, Laue fringes, growth rate).
 
 
 -------------------------------------------------------------------------------------------------------------

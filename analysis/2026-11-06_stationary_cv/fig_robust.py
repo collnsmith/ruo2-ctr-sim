@@ -16,7 +16,7 @@ plt.rcParams.update({"font.size": 9, "axes.edgecolor": MUTED, "axes.labelcolor":
                      "ytick.color": MUTED, "axes.spines.top": False, "axes.spines.right": False})
 fig, (a, b) = plt.subplots(1, 2, figsize=(11, 4.2), gridspec_kw=dict(width_ratios=[1.15, 1]))
 Ls = [1.25, 2.75, 2.84, 3.16, 3.25]
-off = {"3.3": -0.18, "4.1": 0.0, "7": 0.18}
+off = {"3.3": -0.22, "4.1": 0.0, "7": 0.18}
 seen = set()
 for s, r in info.items():
     if r["H"] != 0: continue
@@ -28,15 +28,19 @@ for s, r in info.items():
         a.annotate("147: timing unclear,\nRu+Ti mostly Ti here", (x, y), (x + 0.25, y * 1.9), fontsize=7.5, color=MUTED,
                    arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.6))
 c = amp["356"]["sum"]["sine_pp"] * 100
-a.plot(len(Ls) + 0.1, c, "v", ms=8, color=MUTED, mec="white", mew=1.2, zorder=3, label="7 nm (2 0 1.75), OH-blind control")
+a.plot(len(Ls) + 0.1, c, "v", ms=8, color=MUTED, mec="white", mew=1.2, zorder=3, label="OH-blind controls: 7 nm (2 0 1.75); 3.3 nm (-2 0 1.75), (-2 0 1)")
+pn = json.load(open(os.path.join(here, "process_new.json")))
+a.plot([len(Ls) - 0.08, len(Ls) + 0.28], [100 * pn["126"]["sine_pp"], 100 * pn["127"]["sine_pp"]], "v", ms=8, color=MUTED, mec="white", mew=1.2, zorder=3)
+a.plot(Ls.index(3.16) - 0.10, 100 * pn["223"]["sine_pp"], MK["3.3"], ms=8, color=COL["3.3"], mec="white", mew=1.2, zorder=3)
+
 a.set_yscale("log"); a.set_ylim(0.1, 80)
 a.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: f"{v:g}"))
-a.set_xticks(list(range(len(Ls))) + [len(Ls) + 0.1]); a.set_xticklabels([f"(0 ±1 {L:g})" for L in Ls] + ["(2 0 1.75)"], fontsize=8)
+a.set_xticks(list(range(len(Ls))) + [len(Ls) + 0.1]); a.set_xticklabels([f"(0 ±1 {L:g})" for L in Ls] + ["(+-2 0 L)"], fontsize=8)
 a.set_ylabel("CV oscillation, Ru+Ti, peak-to-peak (%)")
 a.set_title("a  Stationary CVs: period and phase left free", loc="left", color=INK, fontsize=10)
 a.grid(axis="y", color=GRID, lw=0.6); a.set_axisbelow(True)
 h, l = a.get_legend_handles_labels(); o = [l.index(x) for x in ("3.3 nm", "4.1 nm", "7 nm")] + [3]
-a.legend([h[i] for i in o], [l[i] for i in o], frameon=False, fontsize=8, loc="upper left")
+a.legend([h[i] for i in o], [l[i] for i in o], frameon=False, fontsize=7.5, loc="lower left")
 tr = json.load(open(os.path.join(here, "timeline_rods.json")))
 groups = [("7 nm\nsame potential,\nhours apart", [tr["7 nm repeat 0.7 V"], tr["7 nm repeat -0.1 V"]], "7", True),
           ("7 nm\n0.7 V vs -0.1 V\n(both directions)", [tr["7 nm 0.7 Va vs -0.1 Va"], tr["7 nm -0.1 Vb -> 0.7 Vb"]], "7", False),

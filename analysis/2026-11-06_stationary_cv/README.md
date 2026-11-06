@@ -178,3 +178,16 @@ The order of measurement is now known, so the CTR comparisons are made in that o
 - `ohfit_c3.py` repeats the Rao fit with the logbook's RHE scale (+0.238 V; 0.35 V -> 0.35 Å). The result is the same:
   red chi2 14.77, film difference +0.50 / +0.40 / +0.15 / -0.05 / +0.10 at -0.1 / 0 / 0.15 / 0.35 / 0.7 V.
 - `fig_variants.py` and `ctr2cv.py` now use it.
+
+## Second batch: 126, 127, 223, 224, 225 (`process_new.py`, `look_new.png`)
+
+| Scan | Film and reflection | Result |
+|---|---|---|
+| 126 | 3.3 nm (-2 0 1.75), 5 mV/s | 2.3% peak-to-peak, point noise 2.4%: no response |
+| 127 | 3.3 nm (-2 0 1), 25 mV/s | 3.4%, point noise 4% (images 0-78; the rest of the file repeats image 79): no response |
+| 223 | 3.3 nm (0 -1 3.16), repeat of 222 | +15.4 +- 0.6% from 0 to 0.7 V over 4 cycles (222: +12.7%), 12.5% peak-to-peak |
+| 224 | 3.3 nm (0 -1 3.16), staircase 0-0.7 V | flat within +-2% |
+| 225 | 3.3 nm (0 -1 2.75), staircase 0-0.7 V | linear fall to -35% at 0.55 V, then flat |
+
+The staircases disagree with the CVs and with each other. They were recorded after the window broke, with a bubble approaching,
+so they are not used (slide outline, backup B7).

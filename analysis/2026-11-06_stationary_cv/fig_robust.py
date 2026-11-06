@@ -30,10 +30,10 @@ for s, r in info.items():
 pn = json.load(open(os.path.join(here, "process_new.json")))
 b3 = json.load(open(os.path.join(here, "process_batch3.json")))
 # controls: OH-blind reflections, as triangles in the film's colour
-a.plot([], [], "v", ms=8, color=MUTED, mec="white", label="triangles: OH-blind controls (+-2 0 L), (-1 0 2.32)")
+a.plot([], [], "v", ms=8, color=MUTED, mec="white", label="triangles: OH-blind controls (+-2 0 L), (-1 0 2.32), (1 0 1.75)")
 xc = len(Ls) + 0.1
 for f, x, v in (("7", xc + 0.18, amp["356"]["sum"]["sine_pp"]), ("4.1", xc, b3["519"]["sine_pp"]),
-                ("3.3", xc - 0.30, pn["126"]["sine_pp"]), ("3.3", xc - 0.20, pn["127"]["sine_pp"]), ("3.3", xc - 0.10, b3["227"]["sine_pp"])):
+                ("3.3", xc - 0.36, pn["126"]["sine_pp"]), ("3.3", xc - 0.27, pn["127"]["sine_pp"]), ("3.3", xc - 0.18, b3["227"]["sine_pp"]), ("3.3", xc - 0.09, b3["135"]["sine_pp"])):
     a.plot(x, 100 * v, "v", ms=8, color=COL[f], mec="white", mew=1.2, zorder=3)
 # repeats from the later batches
 a.plot(Ls.index(3.16) - 0.10, 100 * pn["223"]["sine_pp"], MK["3.3"], ms=8, color=COL["3.3"], mec="white", mew=1.2, zorder=3)

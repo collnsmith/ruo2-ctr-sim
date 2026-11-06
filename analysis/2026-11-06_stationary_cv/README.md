@@ -203,3 +203,12 @@ so they are not used (slide outline, backup B7).
 
 7 nm (0 1 2.75) in time order (311, 341, 343, 344): Ru spot 30, 42, 42, 42%. The sum depends on the ROI split (Ru/Ti 2.1, 2.1,
 1.6, 6.2), which explains 344's larger sum change. The response reproduces and does not grow with cycling after the first scan.
+
+## Scan 135: 3.3 nm (1 0 1.75) (`process_batch3.py`, `look_135.png`)
+
+- Full signal (ROI1): 1.1% peak-to-peak, point noise 2.7%. No response (model at most 3%). Images 50-158 were used; after them
+  the file repeats image index 159.
+- The lower and upper spots (ROI4, ROI5) each wander by 3-5% (near noise), roughly in opposite phase, and cancel in the full
+  signal.
+- (1 0 1.75) is an odd rod that the model calls OH-blind. Its flat response shows the selection follows the model's OH
+  sensitivity, not just odd vs even rods.

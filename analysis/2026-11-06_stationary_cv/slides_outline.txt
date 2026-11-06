@@ -22,9 +22,9 @@ WHAT WE DO NOT CLAIM
 
 Figures are in analysis/2026-11-06_stationary_cv/ unless another folder is named.
 [NEEDED] marks something to get before presenting.
-Scans still useful: 135 (3.3 nm (1 0 1.75) control).
 EC-Lab files: add when available (not blocking); they would also settle the staircases (backup B7).
-Received and used: 126, 127, 223, 224, 225 (process_new.py); 227, 341, 343, 519 (process_batch3.py).
+Received and used: 126, 127, 223, 224, 225 (process_new.py); 227, 341, 343, 519, 135 (process_batch3.py).
+All scans named in the logbook for the CV comparison are now in hand.
 Potentials are vs Ag/AgCl; RHE = Ag/AgCl + 0.238 V (logbook: -0.238 V Ag/AgCl = 0 V RHE).
 
 
@@ -109,7 +109,7 @@ SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
   - OH-blind controls (triangles), each at its own point-noise level:
     - 7 nm (2 0 1.75): 0.2%;
     - 4.1 nm (-2 0 1.75): 0.8% (noise 1.1%);
-    - 3.3 nm (-2 0 1.75), (-2 0 1), (-1 0 2.32): 2.3, 3.4, 3.5% (noise 2.4, 4.0, 3.7%).
+    - 3.3 nm (-2 0 1.75), (-2 0 1), (-1 0 2.32), (1 0 1.75): 2.3, 3.4, 3.5, 1.1% (noise 2.4, 4.0, 3.7, 2.7%).
 - What it is not:
   - Timing or analysis choice: period and phase are free; the 4.1 nm scans stay at or below 2.8% for any timing.
   - Beam, absorption or electrolyte: these would move the Ti ROI and the control rod too, and the signal would not change
@@ -123,9 +123,13 @@ SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
     - (-2 0 1.75) oscillates by 2.3% peak-to-peak (point noise 2.4%);
     - (-2 0 1) at 25 mV/s by 3.4% (point noise 4%);
     - (-1 0 2.32) by 3.5% (point noise 3.7%);
+    - (1 0 1.75) by 1.1% (point noise 2.7%), an odd rod the model says is OH-blind;
     - (0 -1) by 10-15%, at 2.75, 3.16 (twice) and 3.25.
-    The model predicts exactly this: at most 0.4% at (-2 0) and 2% at (-1 0 2.32), against 17-51% on (0 -1). The logbook
-    also records 'no change' at (1 0 1.75) (model: at most 3%; scan 135 not processed).
+    The model predicts exactly this: at most 0.4% at (-2 0), 2% at (-1 0 2.32) and 3% at (1 0 1.75), against 17-51% on
+    (0 -1). The (1 0 1.75) case matters most: it is also an odd rod, so the response is not just 'odd vs even'. It is the
+    reflections the model picks out as OH-sensitive.
+    Speaker note: in 135 the two sub-spots of the split peak each wander by 3-5% (near noise), roughly in opposite phase,
+    and cancel in the full signal. At most a small shift between the spots; no change in total intensity.
   - The potential was not applied:
     - EC-Lab ran every 4.1 nm CV without errors (operator).
     - The cell read a stable rest potential on this film (0.378 V), so the electrode contact worked.

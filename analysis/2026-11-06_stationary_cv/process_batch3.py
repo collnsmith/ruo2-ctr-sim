@@ -79,3 +79,16 @@ cov = np.linalg.inv(A.T @ A) * np.var(rel[k] - A @ c)
 out[343].update(P=float(P), shift=float(d), change=float(0.7 * c[1]), change_err=float(0.7 * np.sqrt(cov[1, 1])), period_from=341)
 print(f"343 with 341's period ({P:.0f}): change 0->0.7 V {100*0.7*c[1]:+.1f} +- {100*0.7*np.sqrt(cov[1,1]):.1f} %")
 json.dump(out, open(os.path.join(here, "process_batch3.json"), "w"), indent=1)
+
+# 135: 3.3 nm (1 0 1.75), CV start 50, end 158 (after image 158 the file repeats image index 159). ROI1 is the full signal,
+# ROI4 the lower spot, ROI5 the upper spot.
+t = load(135); a, b = 50, 159
+r = dict(label="3.3 nm (1 0 1.75)")
+for c in ("ROI1", "ROI4", "ROI5"):
+    v = np.asarray(t[c], float)[a:b]; v = v / v[:6].mean()
+    pp, P = best_sine(v, np.arange(60, 131.0)); noise = np.std(np.diff(v)) / np.sqrt(2)
+    r[c] = dict(sine_pp=float(pp), period=float(P), noise=float(noise))
+    print(f"135 {c} ({'full' if c == 'ROI1' else 'lower spot' if c == 'ROI4' else 'upper spot'}): sine p-p {100*pp:.1f} %, noise/pt {100*noise:.1f} %")
+r["sine_pp"] = r["ROI1"]["sine_pp"]; r["noise"] = r["ROI1"]["noise"]
+out[135] = r
+json.dump(out, open(os.path.join(here, "process_batch3.json"), "w"), indent=1)

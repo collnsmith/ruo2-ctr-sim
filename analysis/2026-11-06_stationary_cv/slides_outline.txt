@@ -20,7 +20,8 @@ WHAT WE DO NOT CLAIM
   - A thickness trend (one sample per thickness; 3.3 nm responds, 4.1 nm does not).
   - A mechanism.
 
-Figures are in analysis/2026-11-06_stationary_cv/ unless another folder is named.
+Slide figures: analysis/2026-11-06_stationary_cv/slide_figures/, named by slide (slideNN_*.png; backups slideB*_*.png),
+made by make_slide_figures.py from plot_data/.
 Data for re-plotting any slide: analysis/2026-11-06_stationary_cv/plot_data/ (one CSV per curve; see its README).
 [NEEDED] marks something to get before presenting.
 EC-Lab files: add when available (not blocking); they would also settle the staircases (backup B7).
@@ -44,11 +45,13 @@ SLIDE 2  Question and answer up front
   -0.24 to 0.7 V.
 - Approach: relative intensity changes at fixed reflections, plus CTR fits checked against several assumptions. We do not
   rely on absolute coverage.
+- Figure: slide02_headline.png (one point per scan, by film; controls as triangles).
 
 
 -------------------------------------------------------------------------------------------------------------
 SLIDE 3  Samples and measurements
 -------------------------------------------------------------------------------------------------------------
+- Figure: slide03_measurements.png (every measurement in order, by film; CTR potentials connected).
 - Films:
   - 3.3 nm: CVs only.
   - 4.1 nm: fully strained (Jeong et al.).
@@ -81,13 +84,13 @@ SLIDE 4  Why these reflections
   these rods are the surface-sensitive ones. Even rods and (2 0) are insensitive to the surface species: controls.
 - Fingerprint of a surface change: L 2.75 and L 3.16 move in OPPOSITE directions. A beam, absorption or normalization
   artefact moves every point the same way.
-- Figure: ../2026-11-05_oh_fits/fig2_oh_sensitivity_01.png (sensitivity along (0 1)), with the CV points marked.
+- Figure: slide04_reflections.png (a: model change along (0 1) with the CV reflections; b: sensitive vs control reflections).
 
 
 -------------------------------------------------------------------------------------------------------------
 SLIDE 5  Raw data: same reflection, two films
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_raw.png (7 nm scan 314 vs 4.1 nm scan 498, both at (0 +-1 3.16)).
+- Figure: slide05_raw_traces.png (7 nm scan 314 vs 4.1 nm scan 498, both at (0 +-1 3.16)).
 - 7 nm: the intensity follows every cycle, +15 to +20%. 4.1 nm: flat within noise.
 - The grey Ti ROI is an internal reference: the detector peak splits slightly into a "Ru" and a "Ti" spot.
   The response is in the Ru spot; the Ti spot is nearly flat.
@@ -98,7 +101,7 @@ SLIDE 5  Raw data: same reflection, two films
 -------------------------------------------------------------------------------------------------------------
 SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_robust.png, panel a.
+- Figure: slide06_cv_amplitudes.png.
 - Method: the best sine wave in each scan, with period and phase free and a drift term.
 - Peak-to-peak oscillation of Ru+Ti:
   - 4.1 nm: 1.0 to 1.9% (5 scans, 4 reflections);
@@ -141,7 +144,7 @@ SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
 -------------------------------------------------------------------------------------------------------------
 SLIDE 7  The switch: reversible, at the same potential in both responding films
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_cv.png (cycle-averaged change vs E, both sweeps, every scan).
+- Figure: slide07_cv_curves.png (cycle-averaged change vs E, both sweeps, every OH-sensitive scan; 147 as its Ru spot).
 - 3.3 and 7 nm:
   - the fingerprint (down at 2.75, up at 3.16);
   - the anodic and cathodic sweeps overlap, so the switch is reversible with no hysteresis at 5 mV/s;
@@ -162,7 +165,7 @@ SLIDE 7  The switch: reversible, at the same potential in both responding films
 -------------------------------------------------------------------------------------------------------------
 SLIDE 8  KEY RESULT 2: the CTR rods themselves, in measurement order (no model)
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_robust.png, panel b (data: timeline_rods.json).
+- Figure: slide08_ctr_rods.png (a, b: ratios of two rods along L; c: the rms summary).
 - Method: one OH rod divided by another, with one free scale and the TiO2 Bragg peak left out. The measure is the
   rms of ln(ratio) over the rod.
 - 7 nm (0 1):
@@ -186,7 +189,7 @@ SLIDE 8  KEY RESULT 2: the CTR rods themselves, in measurement order (no model)
 -------------------------------------------------------------------------------------------------------------
 SLIDE 9  KEY RESULT 3: CTR fits with Rao's bridging-O values, and with an alternative
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_variants.png.
+- Figure: slide09_oh_fraction.png (a: Rao; b: 0 Å; c: the film difference under both).
 - Method:
   - Film structure: fitted on the well-behaved rods (0 +-1), (-1 0), (-2 0).
   - OH fraction: fitted on the (0 +-1) rods per film and potential, each rod file with its own scale.
@@ -207,7 +210,7 @@ SLIDE 9  KEY RESULT 3: CTR fits with Rao's bridging-O values, and with an altern
 - Say plainly:
   - At each potential alone the difference is at about the 2-sigma level; it is the same sign at -0.1 and 0 V and under both
     assumptions.
-  - A third fit with the bridging O left free (right panel of the figure) gives the same best-fit pattern but constrains
+  - A third fit with the bridging O left free (backup B3, slideB3_bridging_O_free.png) gives the same best-fit pattern but constrains
     almost nothing (ranges 0 to 1). Show it as the reason the height has to be fixed, not as support.
   - The fall at 0.7 V under Rao's values comes from the imposed bridging-O change (0.35 -> 0 Å). It is not a measured change.
 
@@ -215,7 +218,7 @@ SLIDE 9  KEY RESULT 3: CTR fits with Rao's bridging-O values, and with an altern
 -------------------------------------------------------------------------------------------------------------
 SLIDE 10  CTR -> CV: the CTR-fitted surface states, used unchanged, against the CVs
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_ctr2cv.png.
+- Figure: slide10_ctr_to_cv.png (Rao and 0 Å states).
 - Method: the surface state at each CTR potential (OH fraction from slide 9, bridging O as assumed, film structure from the
   CTR fit) gives a predicted intensity at each CV reflection, relative to the 0 V state. Nothing is adjusted to the CVs.
 - 7 nm, predicted vs measured, up to 0.35 V:
@@ -240,6 +243,7 @@ SLIDE 10  CTR -> CV: the CTR-fitted surface states, used unchanged, against the 
 -------------------------------------------------------------------------------------------------------------
 SLIDE 11  CTR structure + Rao's bridging O, fitted to the CVs
 -------------------------------------------------------------------------------------------------------------
+- Figure: slide11_cv_fit.png (a: where 7 nm switches; b: 7 nm CVs with the fitted step; c: 4.1 nm CVs against the same step).
 - Method: film structure and water height from the CTR fits, bridging O at Rao's low-potential value (0.35 Å).
   Per film, only an OH step in E (start, end, centre E0, width) plus an offset per scan is fitted to all of that film's
   CV curves at once (Ru+Ti, the CTR quantity).
@@ -253,6 +257,7 @@ SLIDE 11  CTR structure + Rao's bridging O, fitted to the CVs
 -------------------------------------------------------------------------------------------------------------
 SLIDE 12  Putting it together
 -------------------------------------------------------------------------------------------------------------
+- Figure: slide12_summary_diagram.png (measured range of each film, coloured by surface state; rest potentials).
 - 7 nm (and 3.3 nm): two surface states, switched reversibly at about 0.2-0.25 V vs Ag/AgCl (about 0.5 V RHE).
 - 4.1 nm:
   - the CTR rods do not change from -0.238 to 0.7 V (slide 8), and the CVs do not change from 0 to 0.7 V (slide 6);
@@ -308,11 +313,11 @@ B1  CV processing
 - Curves are relative to the hold at 0 V, averaged over cycles in 14 E bins per sweep.
 - Files: extract*.py, robust_cv.py.
 
-B2  All CV curves with the Ru and Ti ROIs (fig_cv.png)
+B2  The Ru and Ti spots (slideB2_ru_ti_spots.png)
 - The response is in the Ru spot. The Ti spot is flat except in 344 (noisy; Ru/Ti count ratio 6.2 vs 2.1 in 311, so the
   ROIs were drawn differently). The Ru/Ti ratio depends on where the ROIs were drawn and is not a film/substrate measure.
 
-B3  How Rao et al. 2017 is used
+B3  How Rao et al. 2017 is used (figure: slideB3_bridging_O_free.png)
 - What it is: in situ CTR of a RuO2(110) single crystal in 0.1 M HClO4 at 0.5, 1.0, 1.3, 1.5 V vs RHE. Water on the CUS
   sites at 0.5 V, half water / half OH at 1.0 V, OH at 1.3 V; the bridging O protonated (higher) at low potential.
 - Why we need it: on our rods the OH fraction and the bridging-O height trade off, so one must be fixed (fig_variants.png,
@@ -333,6 +338,7 @@ B4  Why no single-point ratio from the CTRs
   The whole-rod comparison (slide 8) is used instead.
 
 B5  Work function context (Jeong et al., Nat. Commun. 17, 2516 (2026); jeong_work_function.jpg)
+- Figure: slideB5_work_function.png.
 - Different samples from ours, so our films are placed by thickness only:
   - 3.3 nm: 4.73 (nearest point) or 4.84 eV (interpolated);
   - 4.1 nm: 4.86 or 4.85 eV;
@@ -344,6 +350,7 @@ B5  Work function context (Jeong et al., Nat. Commun. 17, 2516 (2026); jeong_wor
 - [NEEDED] KPFM on the beamtime samples, to make this a sample-by-sample comparison.
 
 B7  The potential staircases on 3.3 nm (224, 225): inconclusive, not used
+- Figure: slideB7_staircases.png.
 - Program: 0 to 0.7 V in 0.05 V steps, 90 s each, one way, after CV 223. Recorded after the window film broke
   (during 153-221), with a bubble approaching ("Stopping day 2 here").
 - 225 (0 -1 2.75): falls almost linearly by about 3.5% per step to -35% at 0.55 V, then flat. The CVs instead show a step

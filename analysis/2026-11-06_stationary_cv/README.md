@@ -47,7 +47,7 @@ No SPEC file: no monitor or filter normalisation, and the time comes from the po
 Changes are linear 0 -> 0.7 V, in %.
 
 The response is reversible, the anodic and cathodic sweeps nearly overlap, and most of it happens between 0 and 0.4 V.
-The Ti ROI is flat in every scan.
+The Ti ROI is flat in every scan except 344 (noisy, 21% free-sine amplitude, Ru/Ti 6.2: a different ROI layout).
 
 Joint fits (7 nm, x_OH + dz_Obr):
 
@@ -97,3 +97,33 @@ Reading:
 - **4.1 nm:** the OCV surface differs from every controlled potential. From -0.238 to 0.7 V the rods are the same, and the later CVs are flat.
 - **7 nm:** OCV, -0.1 V and 0 V look alike. From 0.15 V up the rods differ (D about 1.2), in the same direction as the CV,
   but the CV's change is about three times larger in ln.
+
+## Robustness (`robust_cv.py`, `robust_ctr.py`, `rodchi.py`, `fig_robust.py`)
+
+What holds:
+- **CV amplitude without timing assumptions.** Best sinusoid over periods 60 to 130 points, phase free, with a linear drift term:
+  - 4.1 nm: 1.0 to 1.9% peak-to-peak (Ru+Ti) at four HKLs, including a repeat at 2.75.
+  - 3.3 nm and 7 nm: 9 to 37% at the same HKLs.
+  - 7 nm (2 0 1.75) control: 0.2%.
+- **Not insensitive points.** In the model, x_OH 0.3 -> 0.7 changes the 4.1 nm CV points by 14 to 25% for any thickness from 10 to 14.5 TL
+  and any dz_Obr from 0 to 0.35 Å.
+- **Not saturation or counting statistics.** The 4.1 nm CA counts run from 4.3k to 129k; the low-count 4.1 nm scans (496, 501)
+  are at the same level as the responding 7 nm scans (3.7k to 5.4k) and are just as flat.
+- **Not beam or cell artefacts.** A potential-locked change in beam, absorption or electrolyte thickness would also show in the Ti ROI
+  and in the control rod; both stay flat. The one exception is 344's Ti.
+- **No duplicated files** among the CTR conditions.
+- **Whole-rod CTR comparison** (one free scale, ±0.08 around the TiO2 Bragg peak left out), as rms of ln(rod / 0 V rod):
+  - repeatability, from the even rods and the 7 nm OCV repeat: 0.016 to 0.031
+  - 4.1 nm (0 -1): 0.032 to 0.046 at every controlled potential, 0.119 at OCV
+  - 7 nm (0 1): 0.028 to 0.034 up to 0.15 V, then 0.056 at 0.35 V and 0.064 at 0.7 V
+
+What does not hold, or is not shown yet:
+- **The single double ratio I(3.16)/I(2.75) is fragile.** Over L pairs, windows of 0.02 to 0.05 and a ±0.003 L shift,
+  its 10 to 90% range is 0.8 to 1.4 for both films. Use the whole-rod comparison instead.
+- **CTR-series differences could be drift in time.** The order of the potentials is not in these files. The CVs are periodic and locked
+  to the potential, so they are immune to drift.
+- **The potential on the 4.1 nm CVs is not shown here.** The EC current of scans 496 to 503 is needed to show the program ran.
+- **One sample per thickness, and the trend is not monotonic** (3.3 and 7 nm respond, 4.1 nm does not). This argues against a simple
+  thickness or strain explanation and leaves sample history or preparation open.
+- **The 7 nm amplitude varies between repeats:** 311 and 344 at the same HKL give 21% and 37% peak-to-peak.
+- **The 7 nm CTR change between 0 and 0.7 V is about a third (in ln) of the CV change at the same L.**

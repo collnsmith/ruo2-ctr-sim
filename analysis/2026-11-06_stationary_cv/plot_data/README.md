@@ -22,6 +22,8 @@ Conventions:
 | `08_ctr_to_cv/` | Change predicted from the CTR-fitted states at each CTR potential, and measured vs predicted at 0.15, 0.35, 0.7 V | `fig_ctr2cv` |
 | `09_model_sensitivity/` | Model change at each CV reflection for an OH change (0.3 to 0.7) and a film-spacing change (+0.1%) | sensitivity / control arguments |
 | `10_work_function/` | KPFM work function vs thickness (Jeong et al. 2026, different samples), read from their plot | backup B5 |
+| `11_cv_synced/` | Clock-synced CV results: change from 0 to 0.7 V per scan (`response.csv`), per reflection with the 4.1 nm ratios (`summary.csv`), half-way potentials (`halfway.csv`); made by `../make_plot_data_sync.py` | slide 6b, slides 7 and 12b numbers |
+| `12_ec/` | EC checks: day-4 holds and the current fits of every CV (`day4_holds.csv`, `cv_current_fits.csv`); the current during SPEC scans and gaps of three long holds, with each scan's transmission (`beam_*`) | backups B8, B9 |
 
 Timing of the stationary scans:
 - **Period from the data:** scans with a clear response.

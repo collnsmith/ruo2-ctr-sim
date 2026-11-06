@@ -28,3 +28,6 @@ its slide in `../slides_outline.txt`.
 | slideB7_staircases.png | B7: potential staircases |
 
 Slides 1, 13 and 14 are text only.
+- `slide06b_cv_response_synced.png`: slide 6 (main). The change from 0 to 0.7 V per CV scan at the potential EC-Lab applied
+  (timing from the instrument clocks), with the 4.1 nm bound in the legend. Data: `plot_data/11_cv_synced/`. Made by
+  `make_slide_figures.py` (slide06b) after `sync_abs.py` and `make_plot_data_sync.py`.

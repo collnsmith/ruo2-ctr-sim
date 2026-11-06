@@ -7,8 +7,21 @@ between two surface states near 0.2-0.25 V vs Ag/AgCl, while the 4.1 nm film doe
 The CTRs, fitted with Rao et al.'s bridging-O values and with an alternative, put the 4.1 nm surface in the state the
 7 nm surface reaches only at high potential.
 
+ASSUMPTION, STATED ON THE SLIDES (slides 2, 6 and 14; backup B8)
+The 4.1 nm film is taken to have been under potential control on day 4. The potentiostat recorded zero current in every
+day-4 file (no charge per cycle, no charging at potential steps), so the current record cannot confirm it. What supports it:
+  - Ewe followed the program in every file, with the same noise as on the other days.
+  - The rest potential was real: stable at 0.37-0.40 V, and it jumped when the beam hit the film. A disconnected working
+    electrode on this BioLogic reads about 10 V.
+  - The CE and RE sat in the same reservoir as the film, and the cell had no bubbles (inspected after the run).
+  - Resistances between every pair of electrodes through the cell, and from each clip to its electrode, read a few hundred
+    ohms, checked several times during the run. A blocked film would read open.
+With an unbroken electrolyte and a wetted, conducting film, Ewe can only follow the program if the film's potential does.
+So the charge flowed and was not recorded. The cause is not identified; most likely the current returned around the ammeter.
+
 HOW THE EVIDENCE IS ORDERED (strongest first; each step stands without the ones after it)
-  1. CVs, no model: 4.1 nm flat, 3.3 and 7 nm switch (slides 5-7).
+  1. CVs, no model, at the potential EC-Lab applied (timing from the instrument clocks): 4.1 nm flat, 3.3 and 7 nm switch
+     (slides 5-7).
   2. CTR rods, no model: 4.1 nm unchanged across potentials, 7 nm changes above 0.15 V (slide 8).
   3. CTR fits, two bridging-O assumptions including Rao's: the films differ at <= 0 V and agree at >= 0.35 V (slide 9).
   4. CTR -> CV: the surface states fitted to the CTRs, used with nothing adjusted, reproduce the 7 nm CVs up to 0.35 V and
@@ -24,9 +37,9 @@ Slide figures: analysis/2026-11-06_stationary_cv/slide_figures/, named by slide 
 made by make_slide_figures.py from plot_data/.
 Data for re-plotting any slide: analysis/2026-11-06_stationary_cv/plot_data/ (one CSV per curve; see its README).
 [NEEDED] marks something to get before presenting.
-EC-Lab files: add when available (not blocking); they would also settle the staircases (backup B7).
-Received and used: 126, 127, 223, 224, 225 (process_new.py); 227, 341, 343, 519, 135 (process_batch3.py).
-All scans named in the logbook for the CV comparison are now in hand.
+EC-Lab files (all days) and the SPEC file (scans 1-544) are in hand: data/echem/, data/08_9_3.3nm.spec.
+Received and used: 126, 127, 223, 224, 225 (process_new.py); 227, 341, 343, 519, 135 (process_batch3.py); 153-221 (rod153.py).
+No further measurements are possible: no beamtime follows and the equipment is not accessible.
 Potentials are vs Ag/AgCl; RHE = Ag/AgCl + 0.238 V (logbook: -0.238 V Ag/AgCl = 0 V RHE).
 
 
@@ -43,6 +56,7 @@ SLIDE 2  Question and answer up front
 - Question: does the surface of epitaxial RuO2(110) films respond to potential in the same way for different films?
 - Answer: no. Two films switch reversibly near 0.2-0.25 V vs Ag/AgCl; the 4.1 nm film does not switch anywhere from
   -0.24 to 0.7 V.
+- On the slide: "4.1 nm: potential control assumed (current record lost on day 4; see slide 6)".
 - Approach: relative intensity changes at fixed reflections, plus CTR fits checked against several assumptions. We do not
   rely on absolute coverage.
 - Figure: slide02_headline.png (one point per scan, by film; controls as triangles).
@@ -53,7 +67,7 @@ SLIDE 3  Samples and measurements
 -------------------------------------------------------------------------------------------------------------
 - Figure: slide03_measurements.png (every measurement in order, by film; CTR potentials connected).
 - Films:
-  - 3.3 nm: CVs only.
+  - 3.3 nm: CVs, and one (0 -1) CTR at 0.65 V (153-221) that does not pin its structure (backup B10).
   - 4.1 nm: fully strained (Jeong et al.).
   - 7 nm: partly relaxed.
 - Electrolyte 0.1 M H2SO4, Ag/AgCl reference.
@@ -69,7 +83,8 @@ SLIDE 3  Samples and measurements
   - 4.1 nm (day 4): (0 -1) CTR at 0, -0.1, 0.15, 0.7, -0.238, 0.35 V -> FRESH SPOT -> CVs 496-503 -> OCV rod
     -> (-1 0), (-2 0), (0 2) rods at OCV, 0, 0.7 V, with CV 519 on (-2 0 1.75).
 - Rest potentials (logbook): 3.3 nm about -15 mV; 7 nm 200 mV drifting to about -20 mV (argon purge started);
-  4.1 nm 0.378 V ("stable before exposure; exposure increases OCV").
+  4.1 nm 0.378 V ("stable before exposure; exposure increases OCV"). The logbook turns the argon purge on for day 3 and
+  says nothing about gas on day 4.
 - Potential table (logbook: -0.238 V Ag/AgCl = 0 V RHE):
 
   | Ag/AgCl | -0.238 | -0.1 | 0 | 0.15 | 0.35 | 0.7 |
@@ -99,11 +114,31 @@ SLIDE 5  Raw data: same reflection, two films
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
+SLIDE 6  KEY RESULT 1: the CV response at the potential EC-Lab applied
 -------------------------------------------------------------------------------------------------------------
-- Figure: slide06_cv_amplitudes.png.
-- Method: the best sine wave in each scan, with period and phase free and a drift term.
-- Peak-to-peak oscillation of Ru+Ti:
+- Figure: slide06b_cv_response_synced.png (main). slide06_cv_amplitudes.png gives the same picture with period and phase
+  left free (no timing input at all).
+- Method:
+  - Every X-ray point gets the potential EC-Lab applied at its SPEC time. The instrument clocks agree: the logged Start
+    marks fall 1-2 s from the EC-Lab start on every day, day 4 included.
+  - Per scan, I/I0 = slow drift + A x (a step at 0.23 V), so A is the change from 0 to 0.7 V. Nothing is fitted to the
+    timing.
+  - The error of A is its spread when the potential is shifted by a quarter to three quarters of a cycle.
+- Change from 0 to 0.7 V, weighted per reflection:
+
+  | Reflection | 3.3 nm | 7 nm | 4.1 nm |
+  |---|---|---|---|
+  | (0 ±1 2.75) | -9.7 ± 2.2% | -19.9 ± 2.9% | +0.3 ± 0.3% |
+  | (0 ±1 3.16) | +8.5 ± 1.3% | +14.9 ± 3.2% | -0.3 ± 0.6% |
+  | (0 ±1 3.25) | -8.5 ± 2.3% | +8.3 ± 2.0% | +2.6 ± 1.0% |
+
+  4.1 nm (0 -1 2.84): -0.2 ± 0.4%. 4.1 nm control (-2 0 1.75): +0.04 ± 0.12%.
+- The 4.1 nm response is at most 4% and 11% of the 3.3 nm response, and 2% and 6% of the 7 nm response, at 2.75 and 3.16
+  (2 sigma).
+- On the slide: "4.1 nm: potential control assumed; the current record was lost on day 4 (backup B8)".
+- Speaker note: 501 at 3.25 (+2.6%) is not a clean step. Binned by potential, its signal does not stay up above 0.4 V,
+  unlike 316 and 125, so it is not counted as a response.
+- The same with period and phase left free (slide06_cv_amplitudes.png), peak-to-peak oscillation of Ru+Ti:
   - 4.1 nm: 1.0 to 1.9% (5 scans, 4 reflections);
   - 3.3 nm: 9.6 to 12.5% (223, a repeat of 222 at 3.16, gives 12.5%: +15.4 +- 0.6% from 0 to 0.7 V, against +12.7%);
   - 7 nm: 9.1 to 36.7%;
@@ -134,11 +169,7 @@ SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
     reflections the model picks out as OH-sensitive.
     Speaker note: in 135 the two sub-spots of the split peak each wander by 3-5% (near noise), roughly in opposite phase,
     and cancel in the full signal. At most a small shift between the spots; no change in total intensity.
-  - The potential was not applied:
-    - EC-Lab ran every 4.1 nm CV without errors (operator).
-    - The cell read a stable rest potential on this film (0.378 V), so the electrode contact worked.
-    - The same cell and program drove the 4.1 nm CTR series at six potentials.
-    - Current traces will be added when the EC-Lab files are available.
+  - The potential not applied: for 4.1 nm this is the stated assumption (top of this outline; backup B8).
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -148,12 +179,16 @@ SLIDE 7  The switch: reversible, at the same potential in both responding films
 - 3.3 and 7 nm:
   - the fingerprint (down at 2.75, up at 3.16);
   - the anodic and cathodic sweeps overlap, so the switch is reversible with no hysteresis at 5 mV/s;
-  - half of the change is reached at 0.22-0.30 V (3.3 nm) and 0.17-0.26 V (7 nm) vs Ag/AgCl, the same within the binning,
-    about 0.5 V vs RHE.
+  - half of the change is reached at 0.20-0.31 V (3.3 nm; averaged curve 0.25 V) and 0.17-0.24 V (7 nm; averaged curve
+    0.22 V) vs Ag/AgCl with the clock-synced potential, the same within the scan spread, about 0.45-0.5 V vs RHE.
+    The earlier timing gave 0.24 and 0.21 V.
 - 4.1 nm: flat at all four reflections.
 - Speaker notes:
-  - 3.3 nm at L 3.25 moves the other way from 7 nm. Close to the TiO2 Bragg peak at L = 3, the sign depends on the
-    film's fringe phase; there are no 3.3 nm CTRs to check this.
+  - 3.3 nm at L 3.25 moves the other way from 7 nm. It is not interpreted:
+    - CV 125 was measured with an older orientation matrix, at about half the rod's intensity at that L, so probably
+      off the rod maximum;
+    - 3.25 sits on the steep edge of the 3.3 nm rod (backup B10);
+    - the CTR model gives that sign only for a few sharp-fringe film structures.
   - Scan 147 (0 -1 1.25) is left out of the fits because it is hysteretic. With the hold at the logged Start (image 50) and
     the period from its Ru peaks (72 images), the Ru spot drops on the first anodic sweep with no lag, then stays 20-34% low.
     It recovers only partly (to -12%) at 0.3-0.4 V on later anodic sweeps, about 80 s after the potential returns to 0 V.
@@ -235,7 +270,7 @@ SLIDE 10  CTR -> CV: the CTR-fitted surface states, used unchanged, against the 
   - The CTR states carry +-15-25% uncertainty at a single reflection; the CVs are about ten times more precise. The CTRs
     show consistency, and the CVs give the sharp result.
   - At 0.7 V the CTR states predict a partial return for 7 nm (2.75: -5 to -10%) that the CVs do not show (-27%).
-  - (0 1 3.25) is overpredicted; that CV (316) is the noisiest scan and its timing was assumed.
+  - (0 1 3.25) is overpredicted; with the clock-synced timing 316 gives +8 ± 2% from 0 to 0.7 V.
   - Rao's bridging-O change at 0.7 V predicts a +17% rise at (0 -1 2.75) on 4.1 nm (range +1 to +33%). The flat CV argues
     that this change does not happen on the 4.1 nm film.
 
@@ -262,9 +297,10 @@ SLIDE 12  Putting it together
   the diagram:
   - 3.3 and 7 nm: each scan's CV curve (sweeps averaged) scaled from its own first point (0-0.05 V, 0%) to its plateau
     (0.55-0.7 V, 100%), averaged per film. Like for like: L 2.75 and 3.16 only.
-  - Half-way: 7 nm 0.21 V (scans 0.19-0.25), 3.3 nm 0.24 V (scans 0.22-0.26), i.e. about 0.45-0.48 V RHE. The same within the scan spread.
-  - 4.1 nm at 100%: from the CTR comparison (slide 9). Its CVs change by at most 3% of the 7 nm change at the same reflections
-    (-0.7 +- 1.1%).
+  - Half-way: 7 nm 0.21 V (scans 0.19-0.25), 3.3 nm 0.24 V (scans 0.22-0.26), i.e. about 0.45-0.48 V RHE. The same within the
+    scan spread. With the clock-synced potential: 0.22 and 0.25 V.
+  - 4.1 nm at 100%: from the CTR comparison (slide 9). Its CVs change by at most 2% (2.75) and 6% (3.16) of the 7 nm change
+    at the same reflections (clock-synced, 2 sigma).
   - Say plainly: 0% is the start of the window, not a measured 'all water' state. The 7 nm CTRs show the change has
     already begun slightly by 0 V.
 - 7 nm (and 3.3 nm): two surface states, switched reversibly at about 0.2-0.25 V vs Ag/AgCl (about 0.5 V RHE).
@@ -274,7 +310,8 @@ SLIDE 12  Putting it together
   - So: the 4.1 nm surface is in the 7 nm high-potential state at every potential measured, 0.00-0.94 V RHE.
 - Supporting, from the logbook: the 4.1 nm film rests at 0.378 V, about 0.4 V more positive than 3.3 and 7 nm
   (about -15 and -20 mV). A surface held in the high-potential state would rest at a more positive potential.
-  Confounded: the rest potential rises with beam exposure (logbook), and the argon purge and history differ by day.
+  Confounded: the rest potential rises with beam exposure (logbook), and the argon purge (logged for day 3 only) and
+  history differ by day.
 - In the CTR model that state is the one with the higher OH fraction, under both bridging-O assumptions. That is as far as the
   data go. The amount of OH is not claimed.
 
@@ -286,8 +323,8 @@ SLIDE 13  Open questions and next steps
   - Strain alone does not fit: 3.3 nm is at least as strained and switches.
   - Beam dose before the CVs is ruled out (fresh spot). A blocking adsorbate (sulfate) or preparation remain open.
   - The work function (Jeong et al. 2026, backup B5) is context, not an explanation yet.
-- Measurements:
-  - EC current of every CV (charge passed in 0-0.7 V per film): does the 4.1 nm film pass the same charge without changing?
+- What would test it (no beamtime follows; listed for collaborators and future work):
+  - the current of the 4.1 nm film under the same program (lost on day 4);
   - a second 4.1 nm sample, CV first;
   - a potential staircase UP AND DOWN on a fresh spot with an intact window: the steady-state onset, separated from drift
     (the day-2 staircases are inconclusive, backup B7);
@@ -303,7 +340,8 @@ SLIDE 13  Open questions and next steps
 SLIDE 14  Summary
 -------------------------------------------------------------------------------------------------------------
 - The 3.3 and 7 nm surfaces switch reversibly near 0.2-0.25 V vs Ag/AgCl. The 4.1 nm surface does not switch between
-  -0.24 and 0.7 V: under 2% where the others change by 10-37%.
+  -0.24 and 0.7 V: at the potential applied, its response is at most 2-11% of theirs at the same reflections.
+- Assumption, stated: the 4.1 nm film was under potential control on day 4 (current record lost; slide 6, B8).
 - The CTRs agree three ways:
   - the rods themselves;
   - fits under Rao's and an alternative bridging-O assumption, giving the same film difference;
@@ -316,9 +354,13 @@ BACKUP SLIDES
 =============================================================================================================
 
 B1  CV processing
-- ROI sums per image; no SPEC file, so no monitor or filter normalization, and time comes from the image number.
-- The period is found from the data and snapped to whole or half cycles after the 30 s hold. The timing shift (within 0.15
-  of a period) is the one that correlates best with E, which fixes the sign.
+- ROI sums per image.
+- Fixed-timing results (slide 6b, sync_abs.py): every point's time from the SPEC file, the potential from the EC-Lab files
+  at that time. The clock offset that best aligns the responding scans is -12 to +15 s (median +4 s); the logged Start
+  marks agree within 1-2 s.
+- Curves and free-timing amplitudes (slides 6, 7): the period is found from the data and snapped to whole or half cycles
+  after the 30 s hold. The timing shift (within 0.15 of a period) is the one that correlates best with E, which fixes the
+  sign. Half-way potentials with the clock-synced potential: curves_sync.py.
 - Curves are relative to the hold at 0 V, averaged over cycles in 14 E bins per sweep.
 - Files: extract*.py, robust_cv.py.
 
@@ -368,15 +410,45 @@ B7  The potential staircases on 3.3 nm (224, 225): inconclusive, not used
 - A one-way staircase cannot separate potential from drift, and the two disagree with each other and with the CVs.
   Possible causes:
   - a bubble or lost electrolyte over the illuminated spot (no local potential control while EC-Lab runs normally);
-  - the program not applied as logged (the EC-Lab file of 224 would show its current steps);
+  - the program not applied: ruled out, the EC-Lab files of 224 and 225 show a charging spike at every step;
   - a response at 3.16 that needs cycling.
 - Why it does not touch the main result:
   - The CVs lock onto the potential cycle.
   - The 3.3 nm CVs before the staircases (222, 223) respond.
   - The 4.1 nm flat result rests on two spots (the CTR spot and the fresh CV spot), with no window or bubble problem logged
     on day 4.
-- But it shows that EC-Lab can run without errors while the illuminated spot does not follow. So "the potential ran" is
-  best backed by the current traces when they arrive.
+- It shows that the X-ray signal at the illuminated spot can disagree with the logged program even when the program ran.
+
+B8  Day 4 (4.1 nm): the current record, and why potential control is assumed
+- Figures: ec_figures/ec01_voltammograms.png, ec04_potential_steps.png. Data: plot_data/12_ec/.
+- Every day-4 file shows zero current within noise:
+  - capacitance from the CVs -0.05 ± 0.05 uF, against 85-230 uF on 3.3 and 7 nm;
+  - holds at 0 and 0.7 V differ by 0.1 ± 0.5 nA (3.3 nm: about 8 uA);
+  - no charging at potential steps.
+- The current channel was live (random noise 0.1-0.25 uA, the same current range as the other days).
+- The facts behind the assumption are listed at the top. Under them, the charge must have flowed and was not recorded.
+  Under 0.02% of the expected current reached the record, which needs a near-direct path around the ammeter. It was not
+  found, and the equipment cannot be checked now.
+
+B9  The currents of 3.3 and 7 nm, and the beam
+- A steady anodic current flows on days 2 and 3:
+  - 3.3 nm: about 1 mC per CV cycle, +3.7 uA at a 0.65 V hold;
+  - 7 nm: up to tens of uA at 0.35-0.7 V, spiky in 311, 314 and 344.
+  RuO2 alone should be close to reversible in this window.
+- Not produced by the beam at the moment: during the 3.3 nm hold at 0.65 V, cutting the beam to 3.6% (scans 207, 208)
+  left the current at 2.8-3.0 uA, against 3.7 ± 1.6 uA at full beam; the gaps between scans give the same (beam_current.py).
+- Not excluded: radiolysis products built up over hours (H2O2), or an exposed contact.
+- Effect on the results: the potential was applied on those days (charging at every step). iR at the switch potential,
+  where the current is a few uA, is under 1 mV.
+
+B10  The 3.3 nm (0 -1) rod at 0.65 V (153-221; fig_rod153.png)
+- Phi rocking scans, L 0.30-3.70 (SPEC). The signal stays in the ROI on almost all frames; it is weak at low L.
+- The rod scans match CV 222 at the same L and orientation matrix. CVs 120 and 125 (older matrix) are 2-3x weaker than
+  the rod: probably measured off the rod maximum.
+- Film-model fits stay poor (reduced chi2 48-80, minima from 4 to 29 TL), so the rod does not pin the 3.3 nm structure.
+  The CTR states predict the 3.3 nm CV signs at 2.75 and 3.16 for every structure tried; the 3.25 sign only for a few
+  sharp-fringe structures.
+- The logbook says the cell window broke during this rod.
 
 B6  Measurement notes
 - The 7 nm (2 0) and (0 2) CTRs at 0 and 0.7 V used a 0.6 degree incidence angle (others 0.5). Each rod's own scale absorbs
@@ -390,9 +462,23 @@ B6  Measurement notes
 LIKELY QUESTIONS AND ANSWERS
 =============================================================================================================
 Q: Was the potential applied during the 4.1 nm CVs?
-A: Yes. EC-Lab ran every CV without errors, the cell read a stable rest potential on this film (0.378 V),
-   and the same setup ran its CTR series. The current traces will be shown when the files are available. If someone
-   presses, offer the charge comparison as follow-up: same charge with no structural change would itself be a result.
+A: We assume so, and say so. The current record of that day shows no current at all, so it cannot confirm control.
+   What supports control: Ewe followed the program; the rest potential was real and responded to the beam (an open lead
+   reads about 10 V); CE and RE were in the same bubble-free reservoir; every electrode pair read a few hundred ohms through
+   the cell. Under these, the film's potential had to follow, and the current must have gone unrecorded. The cause was not
+   found, and the setup cannot be checked now (B8).
+
+Q: If the potential was not applied, what is left?
+A: The 3.3 and 7 nm results are unaffected: same switch potential, reversible, surface-specific. The 4.1 nm data become
+   a no-potential control.
+
+Q: Is the switch driven by the beam?
+A: No sign of it. The response is locked to the potential, reverses with it, and changes sign with L. The anodic current
+   on 3.3 nm did not drop when the beam was cut to 3.6% (B9).
+
+Q: Why do 3.3 and 7 nm move in opposite directions at L 3.25?
+A: Not interpreted. The 3.3 nm CV there (125) was measured off the rod maximum with an older orientation matrix, and 3.25
+   sits on the steepest part of the 3.3 nm rod (B10).
 
 Q: How much OH is on the 4.1 nm surface?
 A: Not claimed. The absolute value depends on the bridging-O assumption; the film difference does not (slide 9).

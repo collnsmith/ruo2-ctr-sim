@@ -644,3 +644,44 @@ def slide12b():
     ax.legend(handles=h, loc="upper center", bbox_to_anchor=(0.5, -0.13), ncol=2, frameon=False, fontsize=11.5)
     save(fig, "slide12b_transition_completed.png")
     return d
+
+
+# ===================================================================== slide 6b: the response at the applied potential (clock-synced)
+def slide06b():
+    r = rd("11_cv_synced/response.csv")
+    fig, ax = plt.subplots(figsize=(W, 6.6))
+    cols = [("0 ±1 2.75", 2.75), ("0 ±1 2.84", 2.84), ("0 ±1 3.16", 3.16), ("0 ±1 3.25", 3.25)]
+    off = {"3.3": -0.24, "4.1": 0.0, "7": 0.24}
+    for i, (lab, L) in enumerate(cols):
+        for f in ("3.3", "4.1", "7"):
+            q = r[(r.film_nm.astype(str).str.rstrip("0").str.rstrip(".") == f) & (r.L.round(2) == L) & (r.K != 0) & (r.scan != 344)]
+            for j, (_, x) in enumerate(q.iterrows()):
+                xi = i + off[f] + (j - (len(q) - 1) / 2) * 0.07
+                ax.errorbar(xi, 100 * x.A_step, yerr=100 * x.err_step, fmt=MK[f], ms=10, color=COL[f], mec="white", mew=1.0,
+                            elinewidth=1.6, capsize=0, zorder=3)
+    c = r[r.scan == 519].iloc[0]
+    xc = len(cols) + 0.1
+    ax.errorbar(xc, 100 * c.A_step, yerr=100 * c.err_step, fmt="v", ms=11, color=COL["4.1"], mec="white", elinewidth=1.6, zorder=3)
+    ax.axhline(0, color=MUTED, lw=0.9, zorder=1)
+    ax.axvline(len(cols) - 0.45, color=GRID, lw=1.2)
+    ax.set_xticks(list(range(len(cols))) + [xc]); ax.set_xticklabels([f"({c[0]})" for c in cols] + ["4.1 nm control\n(-2 0 1.75)"])
+    ax.set_xlim(-0.6, xc + 0.6)
+    ax.set_ylabel("X-ray change from 0 to 0.7 V (%)")
+    ax.set_title("At the potential EC-Lab applied (timing from the instrument clocks, nothing fitted to the timing)")
+    grid(ax)
+    s = rd("11_cv_synced/summary.csv")
+    def ratio(L, ref):
+        q = s[(s.L.astype(str) == L) & (s.film_nm.astype(str).str.startswith("4.1"))].iloc[0]
+        return q[f"ratio_to_{ref}"], q[f"ratio_err_{ref}"]
+    b = {L: (100 * (ratio(L, "3p3")[0] + 2 * ratio(L, "3p3")[1]), 100 * (ratio(L, "7")[0] + 2 * ratio(L, "7")[1])) for L in ("2.75", "3.16")}
+    h = [Line2D([], [], marker=MK[f], ls="none", color=COL[f], ms=10, label=f"{f} nm, one point per scan") for f in ("3.3", "4.1", "7")]
+    h += [Line2D([], [], marker="v", ls="none", color=COL["4.1"], ms=10, label="OH-blind control, 4.1 nm (519)"),
+          Line2D([], [], ls="none", label=f"4.1 nm response at most {b['2.75'][0]:.0f}% / {b['3.16'][0]:.0f}% of 3.3 nm and "
+                 f"{b['2.75'][1]:.0f}% / {b['3.16'][1]:.0f}% of 7 nm at 2.75 / 3.16 (2 sigma)")]
+    ax.legend(handles=h, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2, frameon=False, fontsize=11.5)
+    save(fig, "slide06b_cv_response_synced.png")
+
+
+if __name__ == "__main__":
+    slide12b()
+    slide06b()

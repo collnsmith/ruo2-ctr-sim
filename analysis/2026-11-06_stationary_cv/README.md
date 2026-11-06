@@ -435,3 +435,29 @@ film's connection to the CE / RE:
   - Kapton window.
   - Rest potential 0.37-0.40 V (about 0 V on days 2-3).
   - The logbook turns argon on for day 3 (Eoc 200 -> -20 mV) and says nothing about gas on day 4.
+
+## Clock-synced half-way potentials (`curves_sync.py`, `curves_sync.json`)
+
+- Same normalisation as slide 12b: the first bin is 0 %, the mean of the last three bins is 100 %, sweeps averaged. The
+  potential comes from the EC-Lab clock.
+- **3.3 nm:** averaged curve 0.25 V; scans 120 0.205, 222 0.204, 223 0.31.
+- **7 nm:** averaged curve 0.22 V; scans 311 0.165, 314 0.238, 341 0.206, 344 0.196. 343 is too noisy to place (A -20 +- 14 %).
+- The earlier timing gave 0.24 and 0.21 V. The two films still switch at the same potential within the scan spread.
+
+## Is the anodic current driven by the beam? (`beam_current.py`, `beam_current.json`)
+
+- **3.3 nm hold at 0.65 V during the rod 153-221:** +3.7 uA mean at full beam (scan-to-scan sd 1.6); +3.7 uA in the gaps
+  between scans. With the beam cut to 3.6 % (scans 207, 208) it is 2.8-3.0 uA, and 3.65 uA at 19 % (170).
+- So the current is not produced by the beam at the moment. Radiolysis products built up over hours, or an exposed
+  contact, are not excluded.
+- **7 nm CTR series:** -2.9 uA at -0.1 V, +0.6 at 0 V, +1.3 at 0.15 V, then 40-85 uA (spiky) at 0.35 and 0.7 V. The gaps
+  give the same.
+
+## Slide outline under the stated assumption
+
+`slides_outline.txt` now treats the 4.1 nm film as under potential control on day 4. That is an assumption, stated on the
+slides with its support (backup B8). Further changes:
+- slide 6 leads with the clock-synced result (`slide06b_cv_response_synced.png`);
+- the half-way potentials and the 4.1 nm bounds are updated;
+- new backups: B8 (day-4 current record), B9 (currents and the beam), B10 (3.3 nm rod);
+- the Q&A covers the assumption, the beam and the 3.25 sign.

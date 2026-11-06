@@ -1,0 +1,20 @@
+# 4.1 nm (day 4): mean current of each potential hold (first 10 s left out), block standard error. Made by ec_leak.py.
+file,E_V,n,I_nA,sem_nA
+CA_7nm_scan483and484_C01.mpr,-0.23999999463558197,2890,-2.56,0.694
+CA_7nm_scan483and484_C01.mpr,-0.10000000149011612,2746,-0.944,0.459
+CA_7nm_scan483and484_C01.mpr,-0.0,2774,-0.107,0.532
+CA_7nm_scan483and484_C01.mpr,0.15000000596046448,2613,-0.361,0.619
+CA_7nm_scan483and484_C01.mpr,0.3499999940395355,3491,-0.806,0.638
+CA_7nm_scan483and484_C01.mpr,0.699999988079071,2921,-0.014,0.377
+CA_7nm_scan496_01_CA_C01.mpr,-0.0,40,2.205,13.069
+CA_7nm_scan497_lower_01_CA_C01.mpr,-0.0,40,1.014,5.341
+CA_7nm_scan498_lower_01_CA_C01.mpr,-0.0,40,1.418,4.944
+CA_7nm_scan501_01_CA_C01.mpr,-0.0,40,-0.972,11.066
+CA_7nm_scan503_01_CA_C01.mpr,-0.0,40,-10.522,11.794
+CA_7nm_scan508and509_C01.mpr,-0.0,2350,-0.852,0.544
+CA_7nm_scan508and509_C01.mpr,0.699999988079071,2442,0.203,0.643
+CA_7nm_scan515and516_C01.mpr,-0.0,2247,-0.553,0.932
+CA_7nm_scan517and518_C01.mpr,0.699999988079071,2623,-1.332,0.868
+CA_7nm_scan519_01_CA_C01.mpr,-0.0,40,-3.943,14.159
+CA_7nm_scan523and 524_C01.mpr,-0.0,2398,-0.143,0.661
+CA_7nm_scan523and 524_C01.mpr,0.699999988079071,7130,-0.529,0.329

@@ -1,0 +1,18 @@
+[     0 s] dz_Obr C': {'-0.1 V': 0.35, '-0.238 V': 0.35, '0 V': 0.35, '0.7 V': 0.0, '0.15 V': 0.35, '0.35 V': 0.35, 'OCV': 0.2}
+[     6 s] start 0.1: red chi2 14.77
+[    10 s] start 0.5: red chi2 14.77
+[    13 s] start 0.9: red chi2 14.77
+[    14 s]    4.1 nm -0.1 V   x_OH best 0.90, allowed 0.60-1.00
+[    16 s]    4.1 nm -0.238 V x_OH best 0.90, allowed 0.65-1.00
+[    17 s]    4.1 nm 0 V      x_OH best 1.00, allowed 0.70-1.00
+[    18 s]    4.1 nm 0.15 V   x_OH best 0.95, allowed 0.70-1.00
+[    19 s]    4.1 nm 0.35 V   x_OH best 0.85, allowed 0.60-1.00
+[    20 s]    4.1 nm 0.7 V    x_OH best 0.45, allowed 0.20-0.75
+[    21 s]    4.1 nm OCV      x_OH best 0.20, allowed 0.00-0.35
+[    22 s]    7 nm -0.1 V   x_OH best 0.40, allowed 0.15-0.70
+[    24 s]    7 nm 0 V      x_OH best 0.60, allowed 0.30-0.95
+[    25 s]    7 nm 0.15 V   x_OH best 0.80, allowed 0.45-1.00
+[    26 s]    7 nm 0.35 V   x_OH best 0.90, allowed 0.60-1.00
+[    27 s]    7 nm 0.7 V    x_OH best 0.35, allowed 0.10-0.60
+[    28 s]    7 nm OCV      x_OH best 0.55, allowed 0.20-0.85
+[    28 s] done: red chi2 14.77, z_H2O 2.62

@@ -37,22 +37,19 @@ a.set_title("a  Stationary CVs: period and phase left free", loc="left", color=I
 a.grid(axis="y", color=GRID, lw=0.6); a.set_axisbelow(True)
 h, l = a.get_legend_handles_labels(); o = [l.index(x) for x in ("3.3 nm", "4.1 nm", "7 nm")] + [3]
 a.legend([h[i] for i in o], [l[i] for i in o], frameon=False, fontsize=8, loc="upper left")
-pots = ["-0.238 V", "-0.1 V", "0.15 V", "0.35 V", "0.7 V", "OCV"]
-lo, hi = rodrms["baseline"]
-b.axhspan(lo, hi, color="#e6e5e0", zorder=0)
-b.text(-0.2, (lo + hi) / 2, "repeatability: even rods, 7 nm OCV", fontsize=7.5, color=MUTED, va="center", ha="left")
-for f, key in (("4.1", "4.1 nm"), ("7", "7 nm")):
-    xs, ys = [], []
-    for i, k in enumerate(pots):
-        v = rodrms["oh"][key].get(k)
-        if v is not None:
-            xs.append(i); ys.append(v)
-    b.plot(xs, ys, MK[f], ms=8, color=COL[f], mec="white", mew=1.2, zorder=3, ls="none")
-    b.plot([x for x in xs if pots[x] != "OCV"], [y for x, y in zip(xs, ys) if pots[x] != "OCV"], color=COL[f], lw=2, zorder=2)
-    b.annotate(f"{f} nm", (xs[-2], ys[-2]), (8, 0), textcoords="offset points", color=INK, fontsize=8.5, va="center")
-b.set_xticks(range(len(pots))); b.set_xticklabels([p.replace(" V", "") for p in pots])
-b.set_xlabel("potential (V vs Ag/AgCl), each against the same film's 0 V rod")
-b.set_ylabel("rms of ln(I / I$_{0\\,V}$) over the OH rod")
-b.set_title("b  CTR series: whole OH rod, one free scale", loc="left", color=INK, fontsize=10)
-b.grid(axis="y", color=GRID, lw=0.6); b.set_axisbelow(True); b.set_ylim(0, 0.14)
+tr = json.load(open(os.path.join(here, "timeline_rods.json")))
+groups = [("7 nm\nsame potential,\nhours apart", [tr["7 nm repeat 0.7 V"], tr["7 nm repeat -0.1 V"]], "7", True),
+          ("7 nm\n0.7 V vs -0.1 V\n(both directions)", [tr["7 nm 0.7 Va vs -0.1 Va"], tr["7 nm -0.1 Vb -> 0.7 Vb"]], "7", False),
+          ("4.1 nm\nback to back,\nany two potentials", [tr[k] for k in tr if k.startswith("4.1 nm") and "->" in k and "OCV" not in k], "4.1", False)]
+for i_, (lab, vals, f, hollow) in enumerate(groups):
+    x = i_ + np.linspace(-0.12, 0.12, len(vals)) if len(vals) > 1 else [i_]
+    b.plot(x, vals, MK[f], ms=9, color=COL[f], mfc="white" if hollow else COL[f], mec=COL[f] if hollow else "white", mew=1.6, ls="none")
+k = "4.1 nm 0.7 V -> -0.238 V"
+b.annotate("0.7 V -> -0.238 V", (2 + np.linspace(-0.12, 0.12, len(groups[2][1]))[[kk for kk in tr if kk.startswith("4.1 nm") and "->" in kk and "OCV" not in kk].index(k)], tr[k]),
+           (12, 14), textcoords="offset points", fontsize=7.5, color=MUTED, arrowprops=dict(arrowstyle="-", color=MUTED, lw=0.6))
+b.set_xticks(range(3)); b.set_xticklabels([g_[0] for g_ in groups], fontsize=8)
+b.set_xlim(-0.5, 2.5)
+b.set_ylabel("rms of ln(I_a / I_b) over the OH rod")
+b.set_title("b  CTR OH rods in measurement order (logbook)", loc="left", color=INK, fontsize=10)
+b.grid(axis="y", color=GRID, lw=0.6); b.set_axisbelow(True); b.set_ylim(0, 0.1)
 fig.tight_layout(); fig.savefig(os.path.join(here, "fig_robust.png"), dpi=150)

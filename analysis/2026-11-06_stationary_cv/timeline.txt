@@ -1,0 +1,62 @@
+TIMELINE FROM THE LOGBOOK (NSLS-II, Oct 2026; "Copy of NSLS 2 - Oct 2026.pdf"). Scan numbers are SPEC scans of 08_9_3.3nm.
+Potentials vs Ag/AgCl; the logbook gives -0.238 V Ag/AgCl = 0 V RHE.
+
+DAY 1, 3.3 nm (RE Ag/AgCl, CE Au wire; HER onset about -0.236 V)
+  83, 84    k scans at (0 2 0.35): TiO2 peak at K 1.989, RuO2 at 1.986 (the Ru / Ti split on the detector)
+  91        CV at (0 1 2.715), 0 to 0.7 V, 5 mV/s
+  94        CV on the RuO2 part of the reflection: clear oscillation
+            Cell removed: film broke; beam damage noted in a few small spots; "timescan with no attenuation may not be a good idea"
+
+DAY 2, 3.3 nm (cell rebuilt, electrolyte changed, Eoc about -15 mV; manual goniometer realigned)
+  120       CV (0 -1 2.75), start 73, end 433
+  122       CV (0 -1 2.75) at 25 mV/s
+  125       CV (0 -1 3.25)
+  126       CV (-2 0 1.75): "not change with the potential"
+  127       CV (-2 0 1) at 25 mV/s: "not change with the potential"
+  135       CV (1 0 1.75): "not change with the potential"
+  145, 147  CV (0 -1 1.25)
+  153-221   (0 -1) CTR at 0.65 V; the film broke during it
+  222       CV (0 -1 3.16): hold 0 V, CV 5 mV/s, hold 0 V, CV 25 mV/s; "increases with potential (~17%)"
+  223       CV (0 -1 3.16) repeat at 5 mV/s, start 51, end 410; "~15%"
+  224       potential steps (0 -1 3.16): 0 to 0.7 V in 0.05 V steps, 90 s each
+  225       potential steps (0 -1 2.75): same; intensity falls steadily (about 90k -> 68k)
+  227       CV (-1 0 2.32)
+            Stopped: film broken, a bubble close to the surface
+
+DAY 3, 7 nm (new film over the cell; Eoc about 200 mV -> about -20 mV; argon to the cell, helium to the flight tube)
+  311, 314, 316  CVs (0 1 2.75 / 3.16 / 3.25)
+  317-320   (0 1) CTR at OCV
+  323-324   0 V: "BAD DATA, H POSITION WRONG"
+  325-326   0.7 V          327-328  0.35 V          329-330  0.15 V
+  331-332   0 V            333-334  -0.1 V
+  337-338   -0.1 V (L 2-4)         339-340  0.7 V (L 2-4): "not massive changes between the two"
+  341, 343  CVs (0 1 2.75)
+  344       CV (0 1 2.75), incidence changed to 0.6 deg (and for the rods after it)
+  351-354   (2 0) CTR at 0 and 0.7 V: "CTR did not stay in ROI"
+  356       CV (2 0 1.75), no change intended
+  359-362   (0 2) CTR at 0 and 0.7 V: "CTR did not stay in ROI, but stayed stationary on the detector"
+  374-376   specular (overnight)
+
+DAY 4, 4.1 nm (Kapton film)
+  483-494   (0 -1) CTR at 0, -0.1, 0.15, 0.7, -0.238 ("0 V vs RHE"; "PME for this film is about 0 vs Ag/AgCl"), 0.35 V
+            Moved samx and samy by -0.1 for a FRESH SPOT
+  496, 497, 498, 501, 503  CVs (0 -1 2.75 / 2.75 / 3.16 / 3.25 / 2.84)
+  504-505   (0 -1) CTR at OCV 0.37-0.4 V ("stable at 0.378 before; exposure increases OCV")
+  506-512   (-1 0) CTR at OCV, 0, 0.7 V, OCV check
+  513-518   (-2 0) CTR at OCV 0.371, 0, 0.7 V
+  519       CV (-2 0 1.75): flat
+  521-527   (0 2) CTR at OCV, 0, 0.7 V
+  533       H scan (0 2 0.35) at 0.7 V
+  542       specular (overnight)
+
+WHAT THE ORDER CHANGES
+  - 4.1 nm: the OCV rod came last and on a different spot. The "first polarization" idea is dropped, and the OCV rod
+    is not used for comparisons.
+  - 4.1 nm: the controlled potentials jump up and down in time (0, -0.1, 0.15, 0.7, -0.238, 0.35 V). The flat result is
+    not hidden by drift.
+  - 4.1 nm: the CVs were on a fresh spot, so dose from the CTR series is not the cause.
+  - 7 nm: the 0.7 and -0.1 V rods were measured twice. They agree with themselves (rms 0.039-0.040) and differ from each
+    other (0.077-0.078) in both directions, so the change follows the potential.
+  - 7 nm: the OCV rod (first, after the CVs) matches 0 V (0.020); its rest potential was near 0 V (about -20 mV).
+  - The 7 nm (2 0) and (0 2) rods left the ROI. This explains their poor fits.
+  - RHE scale: +0.238 V (logbook), not +0.26 V. 0.35 V is 0.59 V RHE, just below Rao's 0.6 V boundary.

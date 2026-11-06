@@ -22,7 +22,9 @@ WHAT WE DO NOT CLAIM
 
 Figures are in analysis/2026-11-06_stationary_cv/ unless another folder is named.
 [NEEDED] marks something to get before presenting.
-Potentials are vs Ag/AgCl; RHE = Ag/AgCl + 0.26 V in 0.1 M H2SO4.
+Scans still to send: 223 (3.3 nm repeat at 3.16), 224 and 225 (3.3 nm potential steps), 126, 127, 135, 227 (3.3 nm
+controls), 519 (4.1 nm control), 341 and 343 (7 nm repeats at 2.75), and the EC-Lab files of every CV.
+Potentials are vs Ag/AgCl; RHE = Ag/AgCl + 0.238 V (logbook: -0.238 V Ag/AgCl = 0 V RHE).
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -54,13 +56,20 @@ SLIDE 3  Samples and measurements
 - Stationary CVs at a fixed HKL:
   - 30 s at 0.0 V, then cycles 0 to 0.7 V at 5 mV/s;
   - 14 scans: 4 on 3.3 nm, 5 on 4.1 nm, 5 on 7 nm (one of them the control rod (2 0 1.75)).
-- Order: per film, CTR rods and CVs interleaved (a CTR rod, a CV, the next rod, a CV).
-  [NEEDED] the scan timeline per film. The 4.1 nm CVs (scans 496-503) look like one block; check this.
-- Potential table:
+- Measurement order (logbook, NSLS-II Oct 2026; full list in timeline.txt):
+  - 3.3 nm (days 1-2): CVs 120, 125, 147, 222 on (0 -1); controls (-2 0 1.75), (-2 0 1), (1 0 1.75), (-1 0 2.32);
+    potential steps 224, 225; one (0 -1) CTR at 0.65 V.
+  - 7 nm (day 3): CVs 311, 314, 316 -> (0 1) CTR at OCV, 0.7, 0.35, 0.15, 0, -0.1 V -> repeats at -0.1 then 0.7 V
+    -> CVs 341, 343, 344 -> even rods -> CV 356.
+  - 4.1 nm (day 4): (0 -1) CTR at 0, -0.1, 0.15, 0.7, -0.238, 0.35 V -> FRESH SPOT -> CVs 496-503 -> OCV rod
+    -> (-1 0), (-2 0), (0 2) rods at OCV, 0, 0.7 V, with CV 519 on (-2 0 1.75).
+- Rest potentials (logbook): 3.3 nm about -15 mV; 7 nm 200 mV drifting to about -20 mV (argon purge started);
+  4.1 nm 0.378 V ("stable before exposure; exposure increases OCV").
+- Potential table (logbook: -0.238 V Ag/AgCl = 0 V RHE):
 
-  | Ag/AgCl | -0.238 | -0.1 | 0 | 0.15 | 0.35 | OCV 0.35-0.4 | 0.7 |
-  |---|---|---|---|---|---|---|---|
-  | RHE | 0.02 | 0.16 | 0.26 | 0.41 | 0.61 | 0.61-0.66 | 0.96 |
+  | Ag/AgCl | -0.238 | -0.1 | 0 | 0.15 | 0.35 | 0.7 |
+  |---|---|---|---|---|---|---|
+  | RHE | 0.00 | 0.14 | 0.24 | 0.39 | 0.59 | 0.94 |
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -102,6 +111,10 @@ SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
     level as responding 7 nm scans.
   - Insensitive points: in the model, a 7 nm-sized change moves the 4.1 nm points by 14-25% for any thickness from 10 to 14.5 TL
     and any bridging-O height. Without the model, 3.3 and 7 nm bracket 4.1 nm and respond at the same reflections.
+  - Beam dose before the CVs: the 4.1 nm CVs were run on a FRESH SPOT after its CTR series (logbook).
+  - Surface specificity on a responding film: on 3.3 nm the logbook records 'no change with the potential' at
+    (-2 0 1.75), (-2 0 1) and (1 0 1.75), while (0 -1) changed by 10-30%. The model predicts exactly this:
+    at most 3% at those reflections against 17-51% on (0 -1). [NEEDED] scans 126, 127, 135 to put numbers on it.
   - The potential was not applied: [NEEDED] EC-Lab current of scans 496-503 next to a 7 nm CV.
     This is the most important missing control.
 
@@ -124,17 +137,27 @@ SLIDE 7  The switch: reversible, at the same potential in both responding films
 
 
 -------------------------------------------------------------------------------------------------------------
-SLIDE 8  KEY RESULT 2: the CTR rods themselves (no model)
+SLIDE 8  KEY RESULT 2: the CTR rods themselves, in measurement order (no model)
 -------------------------------------------------------------------------------------------------------------
-- Figure: fig_robust.png, panel b.
-- Method: each film's OH rod at each potential divided by the same film's 0 V rod, with one free scale and the TiO2 Bragg
-  peak left out. The measure is the rms of ln(ratio) over the whole rod.
-- Results:
-  - repeatability (even rods, 7 nm OCV repeat): 0.016-0.031;
-  - 4.1 nm: 0.032-0.046 at every controlled potential from -0.238 to 0.7 V, so unchanged;
-  - 7 nm: 0.028-0.034 up to 0.15 V, then 0.056 (0.35 V) and 0.064 (0.7 V), so it changes above 0.15 V, as the CVs do.
-- Speaker note: 2-3 times the repeatability, so supporting rather than decisive on its own.
-  [NEEDED] the timeline, to exclude drift between the CTR rods.
+- Figure: fig_robust.png, panel b (data: timeline_rods.json).
+- Method: one OH rod divided by another, with one free scale and the TiO2 Bragg peak left out. The measure is the
+  rms of ln(ratio) over the rod.
+- 7 nm (0 1):
+  - Repeat measurements at the same potential, hours apart (0.7 V: 325/326 vs 339/340; -0.1 V: 333/334 vs 337/338):
+    0.039 and 0.040. This is the repeatability.
+  - 0.7 V vs -0.1 V: 0.077 on the way down (325/326 -> 333/334) and 0.078 on the way back up (337/338 -> 339/340,
+    measured back to back).
+  - So the change is twice the repeatability, appears in both directions, and returns: it follows the potential, not
+    time.
+- 4.1 nm (0 -1), measured 0 -> -0.1 -> 0.15 -> 0.7 -> -0.238 -> 0.35 V:
+  - every back-to-back pair is 0.031-0.043, at the repeatability level;
+  - this includes 0.7 V -> -0.238 V, the largest step (0.039);
+  - the order jumps up and down in potential, so a slow drift cannot hide a change.
+- Speaker notes:
+  - The single steps in the 7 nm descending series (0.7 -> 0.35 -> 0.15 -> 0 -> -0.1 V) are each 0.019-0.033;
+    the change builds up across the series.
+  - The 4.1 nm OCV rod was measured LAST, on the fresh CV spot, so its difference from the others (0.11) mixes
+    spot and condition. It is not used.
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -145,15 +168,15 @@ SLIDE 9  KEY RESULT 3: CTR fits with Rao's bridging-O values, and with an altern
   - Film structure: fitted on the well-behaved rods (0 +-1), (-1 0), (-2 0).
   - OH fraction: fitted on the (0 +-1) rods per film and potential, each rod file with its own scale.
   - The bridging-O height cannot be fitted together with the OH fraction (they trade off), so it is FIXED by assumption:
-    - (a) Rao et al. 2017 (single crystal, potentials converted from RHE to Ag/AgCl): 0.35 Å up to 0.15 V,
-      0.2 Å at 0.35 V and OCV, 0 Å at 0.7 V;
+    - (a) Rao et al. 2017 (single crystal, potentials converted with the logbook's -0.238 V = 0 V RHE): 0.35 Å up to
+      0.35 V (0.59 V RHE, just below Rao's 0.6 V boundary), 0 Å at 0.7 V (0.94 V RHE);
     - (b) 0 Å at every potential.
-  - Both fit equally well (red. chi2 14.7 and 14.5).
+  - Both fit equally well (red. chi2 14.8 and 14.5).
 - Result, the same under both: 4.1 nm minus 7 nm OH fraction:
 
   | Assumption | -0.1 V | 0 V | 0.15 V | 0.35 V | 0.7 V |
   |---|---|---|---|---|---|
-  | (a) Rao | +0.50 | +0.40 | +0.15 | 0.00 | +0.10 |
+  | (a) Rao | +0.50 | +0.40 | +0.15 | -0.05 | +0.10 |
   | (b) 0 Å | +0.50 | +0.50 | +0.25 | +0.05 | +0.10 |
 
   The films differ at or below 0 V and agree at 0.35 and 0.7 V. The absolute values move with the assumption; the
@@ -176,8 +199,8 @@ SLIDE 10  CTR -> CV: the CTR-fitted surface states, used unchanged, against the 
 
   | Reflection | 0.15 V predicted | 0.15 V measured | 0.35 V predicted | 0.35 V measured |
   |---|---|---|---|---|
-  | (0 1 2.75) | -7 to -10% | -9% | -10 to -17% | -24% |
-  | (0 1 3.16) | +7 to +10% | +7% | +10 to +20% | +14% |
+  | (0 1 2.75) | -7 to -10% | -9% | -10 to -15% | -24% |
+  | (0 1 3.16) | +7 to +10% | +7% | +10 to +15% | +14% |
 
   So the sign, the onset and roughly the size are predicted.
 - 4.1 nm: the CTR states predict changes within about +-10% of zero, with uncertainty bars that include zero. The CVs are
@@ -211,7 +234,10 @@ SLIDE 12  Putting it together
 - 4.1 nm:
   - the CTR rods do not change from -0.238 to 0.7 V (slide 8), and the CVs do not change from 0 to 0.7 V (slide 6);
   - at 0.35 and 0.7 V the CTR fits put it in the same surface state as 7 nm (slide 9).
-  - So: the 4.1 nm surface is in the 7 nm high-potential state at every potential measured, 0.02-0.96 V RHE.
+  - So: the 4.1 nm surface is in the 7 nm high-potential state at every potential measured, 0.00-0.94 V RHE.
+- Supporting, from the logbook: the 4.1 nm film rests at 0.378 V, about 0.4 V more positive than 3.3 and 7 nm
+  (about -15 and -20 mV). A surface held in the high-potential state would rest at a more positive potential.
+  Confounded: the rest potential rises with beam exposure (logbook), and the argon purge and history differ by day.
 - In the CTR model that state is the one with the higher OH fraction, under both bridging-O assumptions. That is as far as the
   data go. The amount of OH is not claimed.
 
@@ -221,11 +247,12 @@ SLIDE 13  Open questions and next steps
 -------------------------------------------------------------------------------------------------------------
 - Why the 4.1 nm film:
   - Strain alone does not fit: 3.3 nm is at least as strained and switches.
-  - Sample history (first polarization, beam dose) or a blocking adsorbate (sulfate) remain open.
+  - Beam dose before the CVs is ruled out (fresh spot). A blocking adsorbate (sulfate) or preparation remain open.
   - The work function (Jeong et al. 2026, backup B5) is context, not an explanation yet.
 - Measurements:
   - EC current of every CV (charge passed in 0-0.7 V per film);
   - a second 4.1 nm sample, CV first;
+  - the 3.3 nm potential steps (224, 225: 0 to 0.7 V in 0.05 V steps, 90 s each) give the onset at steady state;
   - a wider window on 4.1 nm;
   - HClO4 instead of H2SO4;
   - CTRs on 3.3 nm;
@@ -263,7 +290,7 @@ B3  Why the bridging O is fixed, and the Rao conversion
 - With both free, the OH fraction and the bridging-O height trade off (fig_variants.png, right panel).
 - Rao et al. 2017 measured a RuO2(110) single crystal in 0.1 M HClO4 vs RHE: bridging O 0.35 Å below 0.6 V, 0.2 Å at
   0.6-0.9 V, 0 Å above.
-- Converted with +0.26 V (Ag/AgCl to RHE in 0.1 M H2SO4).
+- Converted with +0.238 V (logbook: -0.238 V Ag/AgCl = 0 V RHE).
 
 B4  Why no single-point ratio from the CTRs
 - I(3.16)/I(2.75) relative to 0 V depends on the chosen L window and a +-0.003 L alignment shift (10-90% range 0.8 to 1.4).
@@ -298,6 +325,7 @@ Q: How much OH is on the 4.1 nm surface?
 A: Not claimed. The absolute value depends on the bridging-O assumption; the film difference does not (slide 9).
 
 Q: Your CTR fit has red. chi2 about 15. Why trust it?
+   (Also: the worst-fitting rods, 7 nm (2 0) and (0 2), are the ones the logbook flags: "CTR did not stay in ROI".)
 A: The main result does not rest on the fit. The CVs and the rod-to-rod comparison are model-free (slides 6, 8). The fit is
    used only for a comparison under the same model, and its states reproduce the 7 nm CVs (slide 10).
 
@@ -313,7 +341,9 @@ A: Not shown. One sample per thickness, and 3.3 nm switches. We claim that this 
 
 Q: Beam damage or drift?
 A: The CV response is locked to the potential and changes sign with L; the 4.1 nm drift (+3% over 200 images) is common to
-   both ROIs. For the CTR rods: [NEEDED] the timeline.
+   both ROIs. The 4.1 nm CVs were on a fresh spot. For the CTR rods, the 7 nm change returns when the potential returns,
+   and the 4.1 nm series jumps up and down in potential with no change (slide 8). Beam damage was noted on 3.3 nm on day 1;
+   that sample's CVs were on day 2 after the cell was rebuilt.
 
 Q: Sulfate?
 A: Possible for the 4.1 nm film; HClO4 is on the next-steps slide.

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 here = os.path.dirname(os.path.abspath(__file__))
 OH = os.path.join(here, "..", "2026-11-05_oh_fits")
 summ = json.load(open(os.path.join(OH, "oh_rods_fit_summary.json")))["results"]
-VAR = [("Rao et al. 2017 values\n(RHE-corrected: 0.35 / 0.2 / 0 Å)", json.load(open(os.path.join(here, "ohfit_c2_summary.json")))),
+VAR = [("Rao et al. 2017 values\n(logbook RHE scale: 0.35 Å to 0.35 V, 0 Å at 0.7 V)", json.load(open(os.path.join(here, "ohfit_c3_summary.json")))),
        ("bridging O fixed at 0 Å", summ["B fixed 0"]), ("bridging O fitted\n(shared by the films per potential)", summ["A shared per potential"])]
 COL = {"4.1 nm": "#eb6834", "7 nm": "#1baf7a"}; MK = {"4.1 nm": "o", "7 nm": "D"}
 INK, MUTED, GRID = "#1f1f1e", "#6b6a63", "#e6e5e0"

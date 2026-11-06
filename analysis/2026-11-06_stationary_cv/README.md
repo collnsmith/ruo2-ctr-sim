@@ -160,3 +160,20 @@ The response falls as the work function rises; the step potential does not shift
 The KPFM films are different samples from ours (instrument error said to be negligible), so our films sit on the curve by
 thickness only. 3.3 nm is 4.73 eV (nearest) or 4.84 eV (interpolated); 4.1 nm is 4.86 or 4.85 eV. Between 3 and 4 nm the
 curve moves by up to 1 eV in 0.6 nm, so a thickness-scale offset of 0.3-0.5 nm dominates. KPFM on the same samples would settle it.
+
+## Logbook timeline (`timeline.txt`, `timeline_rods.py`, `ohfit_c3.py`)
+
+The order of measurement is now known, so the CTR comparisons are made in that order (rms of ln ratio):
+
+| Comparison | rms |
+|---|---|
+| 7 nm, repeats at the same potential (0.7 V; -0.1 V) | 0.039, 0.040 |
+| 7 nm, 0.7 vs -0.1 V, down / back up | 0.077 / 0.078 |
+| 4.1 nm, every back-to-back pair | 0.031-0.043 |
+| 4.1 nm, 0.7 -> -0.238 V | 0.039 |
+| 4.1 nm OCV rod (last, fresh spot) vs 0.35 V | 0.110, not used |
+
+- The 4.1 nm CVs were on a fresh spot.
+- `ohfit_c3.py` repeats the Rao fit with the logbook's RHE scale (+0.238 V; 0.35 V -> 0.35 Å). The result is the same:
+  red chi2 14.77, film difference +0.50 / +0.40 / +0.15 / -0.05 / +0.10 at -0.1 / 0 / 0.15 / 0.35 / 0.7 V.
+- `fig_variants.py` and `ctr2cv.py` now use it.

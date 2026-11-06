@@ -19,9 +19,9 @@ lead = {}
 for ds in p.datasets:
     lead.setdefault(film_of(ds).split("|")[0], ds.scope)
 summ = json.load(open(os.path.join(OH, "oh_rods_fit_summary.json")))["results"]
-c2 = json.load(open(os.path.join(here, "ohfit_c2_summary.json")))
-VAR = {"C' Rao (RHE-corrected)": c2, "B dz_Obr = 0": summ["B fixed 0"], "A dz_Obr fitted": summ["A shared per potential"]}
-MK = {"C' Rao (RHE-corrected)": "D", "B dz_Obr = 0": "o", "A dz_Obr fitted": "s"}
+c2 = json.load(open(os.path.join(here, "ohfit_c3_summary.json")))
+VAR = {"C' Rao (logbook RHE scale)": c2, "B dz_Obr = 0": summ["B fixed 0"], "A dz_Obr fitted": summ["A shared per potential"]}
+MK = {"C' Rao (logbook RHE scale)": "D", "B dz_Obr = 0": "o", "A dz_Obr fitted": "s"}
 cv = json.load(open(os.path.join(here, "cv3.json")))
 POTS = {"4.1 nm": [-0.238, -0.1, 0.0, 0.15, 0.35, 0.7], "7 nm": [-0.1, 0.0, 0.15, 0.35, 0.7]}
 key = lambda f, e: f"{f} {e:g} V"

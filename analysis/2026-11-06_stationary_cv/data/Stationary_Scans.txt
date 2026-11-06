@@ -1,0 +1,18 @@
+# Start marks the data point number the EC control began. Each started with a 30s CA at 0.0 V. Ag/AgCl reference
+# Ru signal was separated in some scans, Ti signal is usually flat or tracks Ru to a lesser degree
+
+#Scan H K L mV/s Start Stop E1 E2 Thickness
+120 0 -1 2.75 5 73 433 0.0 0.7 3.3  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+125 0 -1 3.25 5 50 432 0.0 0.7 3.3  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+147 0 -1 1.25 5 50 312 0.0 0.7 3.3  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+222 0 -1 3.16 5 50 250 0.0 0.7 3.3  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+311 0 1 2.75 5 50 287 0.0 0.7 7     # ROI2 Ru, ROI1 Ti, sum for integrated signal
+314 0 1 3.16 5 50 308 0.0 0.7 7     # ROI2 Ru, ROI1 Ti, sum for integrated signal
+316 0 1 3.25 5 50 211 0.0 0.7 7     # ROI2 Ru, ROI1 Ti, sum for integrated signal
+344 0 1 2.75 5 20 350 0.0 0.7 7     # ROI2 Ru, ROI1 Ti, sum for integrated signal
+356 2 0 1.75 5 20 217 0.0 0.7 7     # ROI2 Ru, ROI1 Ti, sum for integrated signal, no change intentionally
+496 0 -1 2.75 5 20 209 0.0 0.7 4.1  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+497 0 -1 2.75 5 20 182 0.0 0.7 4.1  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+498 0 -1 3.16 5 20 216 0.0 0.7 4.1  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+501 0 -1 3.25 5 20 210 0.0 0.7 4.1  # ROI1 Ru, ROI2 Ti, sum for integrated signal
+503 0 -1 2.84 5 20 182 0.0 0.7 4.1  # ROI1 Ru, ROI2 Ti, sum for integrated signal

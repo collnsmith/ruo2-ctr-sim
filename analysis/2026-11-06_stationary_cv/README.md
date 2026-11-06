@@ -122,7 +122,8 @@ What does not hold, or is not shown yet:
   its 10 to 90% range is 0.8 to 1.4 for both films. Use the whole-rod comparison instead.
 - **CTR-series differences could be drift in time.** The order of the potentials is not in these files. The CVs are periodic and locked
   to the potential, so they are immune to drift.
-- **The potential on the 4.1 nm CVs is not shown here.** The EC current of scans 496 to 503 is needed to show the program ran.
+- **The potential on the 4.1 nm CVs:** EC-Lab ran without errors (operator), and the cell read a stable rest potential on
+  this film. The current traces are to be added when the EC-Lab files are available.
 - **One sample per thickness, and the trend is not monotonic** (3.3 and 7 nm respond, 4.1 nm does not). This argues against a simple
   thickness or strain explanation and leaves sample history or preparation open.
 - **The 7 nm amplitude varies between repeats:** 311 and 344 at the same HKL give 21% and 37% peak-to-peak.

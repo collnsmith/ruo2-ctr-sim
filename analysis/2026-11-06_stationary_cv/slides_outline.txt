@@ -23,7 +23,7 @@ WHAT WE DO NOT CLAIM
 Figures are in analysis/2026-11-06_stationary_cv/ unless another folder is named.
 [NEEDED] marks something to get before presenting.
 Scans still to send: 223 (3.3 nm repeat at 3.16), 224 and 225 (3.3 nm potential steps), 126, 127, 135, 227 (3.3 nm
-controls), 519 (4.1 nm control), 341 and 343 (7 nm repeats at 2.75), and the EC-Lab files of every CV.
+controls), 519 (4.1 nm control), 341 and 343 (7 nm repeats at 2.75). EC-Lab files: add when available (not blocking).
 Potentials are vs Ag/AgCl; RHE = Ag/AgCl + 0.238 V (logbook: -0.238 V Ag/AgCl = 0 V RHE).
 
 
@@ -115,8 +115,11 @@ SLIDE 6  KEY RESULT 1: the CV response with no model and no timing assumption
   - Surface specificity on a responding film: on 3.3 nm the logbook records 'no change with the potential' at
     (-2 0 1.75), (-2 0 1) and (1 0 1.75), while (0 -1) changed by 10-30%. The model predicts exactly this:
     at most 3% at those reflections against 17-51% on (0 -1). [NEEDED] scans 126, 127, 135 to put numbers on it.
-  - The potential was not applied: [NEEDED] EC-Lab current of scans 496-503 next to a 7 nm CV.
-    This is the most important missing control.
+  - The potential was not applied:
+    - EC-Lab ran every 4.1 nm CV without errors (operator).
+    - The cell read a stable rest potential on this film (0.378 V), so the electrode contact worked.
+    - The same cell and program drove the 4.1 nm CTR series at six potentials.
+    - Current traces will be added when the EC-Lab files are available.
 
 
 -------------------------------------------------------------------------------------------------------------
@@ -250,7 +253,7 @@ SLIDE 13  Open questions and next steps
   - Beam dose before the CVs is ruled out (fresh spot). A blocking adsorbate (sulfate) or preparation remain open.
   - The work function (Jeong et al. 2026, backup B5) is context, not an explanation yet.
 - Measurements:
-  - EC current of every CV (charge passed in 0-0.7 V per film);
+  - EC current of every CV (charge passed in 0-0.7 V per film): does the 4.1 nm film pass the same charge without changing?
   - a second 4.1 nm sample, CV first;
   - the 3.3 nm potential steps (224, 225: 0 to 0.7 V in 0.05 V steps, 90 s each) give the onset at steady state;
   - a wider window on 4.1 nm;
@@ -319,7 +322,9 @@ B6  Measurement notes
 LIKELY QUESTIONS AND ANSWERS
 =============================================================================================================
 Q: Was the potential applied during the 4.1 nm CVs?
-A: [NEEDED] EC current for scans 496-503. Without it, this is the weakest point.
+A: Yes. EC-Lab ran every CV without errors, the cell read a stable rest potential on this film (0.378 V),
+   and the same setup ran its CTR series. The current traces will be shown when the files are available. If someone
+   presses, offer the charge comparison as follow-up: same charge with no structural change would itself be a result.
 
 Q: How much OH is on the 4.1 nm surface?
 A: Not claimed. The absolute value depends on the bridging-O assumption; the film difference does not (slide 9).

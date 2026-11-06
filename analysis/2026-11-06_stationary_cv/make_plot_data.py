@@ -25,7 +25,7 @@ def write(rel, header, rows, note=None):
         if note:
             for line in note.strip().splitlines():
                 f.write(f"# {line}\n")
-        w = csv.writer(f)
+        w = csv.writer(f, lineterminator="\n")
         w.writerow(header)
         for r in rows:
             w.writerow(["" if (isinstance(v, float) and not np.isfinite(v)) else (f"{v:.6g}" if isinstance(v, float) else v) for v in r])

@@ -269,8 +269,21 @@ film's connection to the CE / RE:
   - (b) The film was tied to the instrument ground by a second path around the ammeter. Then the potential was applied, and at most
     about 0.1 % of the current reached the ammeter.
   - (a) needs one common cell failure and also explains the flat X-ray data; (b) needs a wiring accident and a film that does not
-    switch, unlike 3.3 and 7 nm. Neither is proven. Day-4 photos (clips, any metal touching the film or Ga-In, where the CE / RE sit,
-    trapped air) and a lab repeat of the day-4 filling are the tests.
+    switch, unlike 3.3 and 7 nm. Neither is proven.
+  - **Update:** the user inspected the cell after removal and found no bubbles. It was set up the night before and used all day.
+    That rules out (a) as a bubble; (a) is left only if the CE / RE sat behind another kind of break (a closed valve, a pinched
+    tube, a separate compartment). (b) becomes the leading explanation.
+  - **Why (b) is plausible:** in grounded mode, if the current is read across a range resistor in the WE line (about 10-100
+    kOhm on a uA range), a WE-side short to earth of even a few hundred ohms takes more than 99.9 % of the current. The film
+    is then held at the potential through the sense lead and the short, and the ammeter sees about zero. Whether this BioLogic
+    reads current that way is not known here.
+  - **Only an electronic WE-side short does this.** A leak of electrolyte onto a grounded part does not: the film's own current
+    still passes through the WE lead.
+  - **Tests:**
+    - The EC-Lab channel setting on day 4: grounded or floating. Floating rules out (b).
+    - A lab CV with a jumper from the Au wire to the potentiostat ground, to see whether the recorded current collapses while
+      Ewe tracks.
+    - The resistance from the Au wire / WE clip to the holder and goniometer with the day-4 mount.
 
 ## 3.3 nm (0 -1 L) rod at 0.65 V, scans 153-221 (`rod153.py`, `rod153.json`, `fig_rod153.py`, `fig_rod153.png`)
 

@@ -1,0 +1,8 @@
+[    0 s] 4.1 nm: 16 rod files, 1354 points, 7 surface groups, polar_A at ds1
+[   12 s]    no polar shift    : chi2   53531.5, red  40.58, polar_A +0.000 ± nan Å, thickness 11.0 TL, eps_perp 1.52
+[   78 s]    interface, 1.5 TL : chi2   52051.2, red  39.49, polar_A -0.180 ± 0.047 Å, thickness 11.1 TL, eps_perp 1.29
+[  117 s]    film-wide, 100 TL : chi2   53531.3, red  40.62, polar_A +0.002 ± 0.045 Å, thickness 11.0 TL, eps_perp 1.52
+[  117 s] 7 nm: 10 rod files, 835 points, 6 surface groups, polar_A at ds17
+[  124 s]    no polar shift    : chi2   39500.4, red  48.89, polar_A +0.000 ± nan Å, thickness 22.0 TL, eps_perp 0.65
+[  147 s]    interface, 1.5 TL : chi2   39322.8, red  48.73, polar_A -0.026 ± 0.015 Å, thickness 22.0 TL, eps_perp 0.64
+[  169 s]    film-wide, 100 TL : chi2   39430.9, red  48.86, polar_A +0.020 ± 0.032 Å, thickness 22.0 TL, eps_perp 0.64

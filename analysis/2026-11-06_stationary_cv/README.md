@@ -127,3 +127,20 @@ What does not hold, or is not shown yet:
   thickness or strain explanation and leaves sample history or preparation open.
 - **The 7 nm amplitude varies between repeats:** 311 and 344 at the same HKL give 21% and 37% peak-to-peak.
 - **The 7 nm CTR change between 0 and 0.7 V is about a third (in ln) of the CV change at the same L.**
+
+## Work function comparison (Jeong et al., Nat. Commun. 17, 2516 (2026); arXiv 2507.07575)
+
+- Their KPFM work function is non-monotonic in thickness and peaks at about 4 nm, more than 1 eV above relaxed films.
+  At that thickness the films change from strained and polar (mm2) to relaxing and nonpolar (4/mmm).
+- Our only non-responding film (4.1 nm) is at that peak; 3.3 and 7 nm respond.
+- The per-thickness values are not used here: the full text could not be fetched from this session.
+- `polar_test.py`: per film, all rods, polar_A free with the shift at the interface (polar_tl 1.5) or through the
+  whole film (100 TL), film, surface and scales refit each time:
+
+  | Film | none (red chi2) | interface | film-wide |
+  |---|---|---|---|
+  | 4.1 nm | 40.58 | 39.49, polar_A -0.18 ± 0.05 Å (eps_perp 1.52 -> 1.29) | 0.00 ± 0.045 Å, no gain |
+  | 7 nm | 48.89 | 48.73, -0.026 ± 0.015 Å | +0.02 ± 0.03 Å |
+
+  So there is no sign of a polar distortion through the whole film. A distortion of the reported size (about 0.085 Å)
+  is at the 2-sigma limit for 4.1 nm, so it cannot be ruled out either.

@@ -590,9 +590,11 @@ then a CV from 0 to 0.7 V at 50 mV/s. Files: `data/lab_wiring_tests_20261109/`.
   noise floor explains the day-4 current noise (about 0.1-0.25 uA, zero mean). Days 2-3 quiet holds show similar noise
   (0.2-0.7 uA). Under a bypass, that unit would record exactly this. The noise mismatch with the bench SP-300 (nA ranges)
   is resolved.
-- **100 Ohm to ground on the bench:** the recorded current changes from -1.5 nA to 12 nA (user). Against the normal
-  dummy-cell current (up to 138 uA), about 0.01 % leaks through the ammeter. This assumes the 12 nA is at the CV peak;
-  to be confirmed. The leaked fraction scales roughly with the ground-path resistance, on that instrument and range.
+- **100 Ohm to ground on the bench:** the recorded current changes from -1.5 nA (direct ground) to 12 nA, against
+  0.13 mA without the ground lead, at the same point (user). So about 0.01 % leaks through the ammeter. That puts the
+  ammeter path at about 1 MOhm on that range. The leaked fraction scales roughly with the ground-path resistance:
+  about 0.1 % at 1 kOhm and 1 % at 10 kOhm on that instrument and range. The beamline unit's ~1 uA lowest range
+  probably has a lower measuring resistance, so it would need a better contact for the same fraction.
 - **Consistency with the deep search:** the one surviving EC signal (a current rising by +0.8 to +3.8 nA from 0 to
   0.7 V in all six day-4 CVs) fits a leaked fraction. RuO2 films draw about 4-10 uA over the same sweep (3.3 / 7 nm),
   so 1-4 nA is about 0.02-0.05 % of it. The capacitive part expected at that fraction (0.15-0.4 nA) is within the error

@@ -303,8 +303,10 @@ film's connection to the CE / RE:
   - **A dummy cell** (a known resistor) on the day-4 channel and cable tests the second and third candidates. A WE-to-shield
     fault or a misreading channel would show the same missing current.
   - **How complete the bypass was:** the recorded hold currents at 0 and 0.7 V differ by 0.1 +- 0.5 nA, against about 8 uA
-    on 3.3 nm. So less than about 0.02 % of the current was recorded. With a 10-100 kOhm range resistor in the WE line,
-    the bypass must be below about 2-20 Ohm: a near-direct metal connection from the WE side to the instrument ground.
+    on 3.3 nm. So less than about 0.02 % of the current was recorded.
+  - **How good the short must be:** an earlier estimate here was below about 2-20 Ohm, a near-direct metal connection.
+    That is superseded by the bench test (lab wiring tests section): a ground path of 100 Ohm still diverts the current
+    completely. The ammeter path is far more resistive than that on the low ranges it autoranges into.
     Candidates: the WE clip, Au wire or film edge touching earthed metal (the instrument ground is mains earth in grounded
     mode), or a fault in the WE lead or connector to its shield. The black ground lead was never connected (user), so it is
     not the path. A third candidate is the channel misreading the current while it flows.
@@ -570,3 +572,17 @@ then a CV from 0 to 0.7 V at 50 mV/s. Files: `data/lab_wiring_tests_20261109/`.
   beamline noise depends on where it enters (cable and ground loop, or cell), which these tests cannot tell.
 - **Instrument:** the beamline files use current-range codes 12-14, the lab SP-300 40-45, so the beamline unit may be a
   different model.
+
+**Follow-up (user, 2026-11-10)**
+- **Polarization confirmed:** with the ground lead also on the WE, an independent check shows the WE polarized exactly as
+  programmed, with no drift.
+- **A 100 Ohm resistor in the ground path changes nothing.** The bypass does not need a near-direct metal contact: an
+  ordinary contact of 100 Ohm or more from the WE side to ground hides the current.
+- **What the bench now shows:**
+  - the day-4 signature (normal potential record, completed runs, zero current) with the cell polarized is reproduced
+    by one demonstrated mechanism;
+  - with a stable OCV, it is the only wiring that matches.
+- **Still open:**
+  - the beamline contact itself (with a grounded channel, any WE-side contact with earthed metal would do);
+  - the beamline current noise (about 220 nA), which the quiet bench does not show;
+  - the beamline instrument model.

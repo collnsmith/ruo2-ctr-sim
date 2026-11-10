@@ -586,3 +586,16 @@ then a CV from 0 to 0.7 V at 50 mV/s. Files: `data/lab_wiring_tests_20261109/`.
   - the beamline contact itself (with a grounded channel, any WE-side contact with earthed metal would do);
   - the beamline current noise (about 220 nA), which the quiet bench does not show;
   - the beamline instrument model.
+- **Beamline instrument (user):** a cheaper model with no filtering and no EIS, lowest current range about 1 uA. Its
+  noise floor explains the day-4 current noise (about 0.1-0.25 uA, zero mean). Days 2-3 quiet holds show similar noise
+  (0.2-0.7 uA). Under a bypass, that unit would record exactly this. The noise mismatch with the bench SP-300 (nA ranges)
+  is resolved.
+- **100 Ohm to ground on the bench:** the recorded current changes from -1.5 nA to 12 nA (user). Against the normal
+  dummy-cell current (up to 138 uA), about 0.01 % leaks through the ammeter. This assumes the 12 nA is at the CV peak;
+  to be confirmed. The leaked fraction scales roughly with the ground-path resistance, on that instrument and range.
+- **Consistency with the deep search:** the one surviving EC signal (a current rising by +0.8 to +3.8 nA from 0 to
+  0.7 V in all six day-4 CVs) fits a leaked fraction. RuO2 films draw about 4-10 uA over the same sweep (3.3 / 7 nm),
+  so 1-4 nA is about 0.02-0.05 % of it. The capacitive part expected at that fraction (0.15-0.4 nA) is within the error
+  of the measured one (-0.3 +- 0.3 nA). The long holds show no leak (0.1 +- 0.5 nA between 0 and 0.7 V). A 3.3 nm-like
+  steady anodic current (about 8 uA) would leak 2-4 nA, so either the 4.1 nm film drew far less steady current, or the
+  leak is smaller in holds. Unresolved, but not a contradiction: the source of the days 2-3 anodic current is unknown.

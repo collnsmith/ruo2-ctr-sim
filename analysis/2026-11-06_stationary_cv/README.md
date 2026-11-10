@@ -542,3 +542,31 @@ slides with its support (backup B8). Further changes:
 - The only candidate is a nA-level current trend in the CVs, which does not behave like film charging.
 - The data neither show that the potential reached the film nor rule it out.
 - If it did, the film did not switch, to the bounds above.
+
+## Lab wiring tests (user, 2026-11-09; `lab_wiring_tests.py`, `lab_wiring_tests.json`, `ec_figures/ec06_lab_wiring_tests.png`)
+
+**Setup:** an SP-300 with a grounded channel and a dummy cell (DC3 Randles circuit). Each test is a CA at 0 V for 30 s,
+then a CV from 0 to 0.7 V at 50 mV/s. Files: `data/lab_wiring_tests_20261109/`.
+
+| Wiring | Run | Ewe vs programme | Recorded current |
+|---|---|---|---|
+| normal | completes | within 0.5 mV | up to 138 uA (the dummy cell) |
+| ground lead also on the WE | completes | within 0.5 mV | constant -1.5 nA, no noise, lowest range |
+| WE power and sense disconnected | completes if started while the OCV is in range; the OCV drifts (user) | within 1 mV | 0 +- 0.5 nA |
+| WE power off, sense on | stops after 4 s | 5.6 mV off | 0 |
+| CE power off | stops after 4 s | fails | 0 |
+| CE sense off | completes | normal | normal |
+| ground lead on the CE | stops after 4 s | fails | 0.1 uA |
+
+**What the tests show**
+- Two wirings reproduce the day-4 run record (potential tracking, no current):
+  - **Ground on the WE:** the cell stays polarized, because its WE node is held at ground through the ground lead, and
+    the current goes around the ammeter.
+  - **WE disconnected:** nothing is polarized; the potential tracks through the instrument's own reference.
+- So a completed run with a normal potential trace does not by itself show that the WE was connected. The day-4 stable,
+  beam-responsive OCV is what separates the two: a disconnected WE drifts.
+- **Difference from day 4:** the bypassed lab current is flat (no noise). Day 4 shows about 220 nA of noise, with level
+  changes during the scan. The lab noise floor is about 1 nA. Whether a bypass at the beamline would still carry the
+  beamline noise depends on where it enters (cable and ground loop, or cell), which these tests cannot tell.
+- **Instrument:** the beamline files use current-range codes 12-14, the lab SP-300 40-45, so the beamline unit may be a
+  different model.

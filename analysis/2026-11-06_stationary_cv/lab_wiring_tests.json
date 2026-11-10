@@ -1,0 +1,115 @@
+{
+ "all": {
+  "label": "normal wiring",
+  "seconds": 169.27879572365782,
+  "ewe_track_rms_mV": 0.06493141232537021,
+  "ewe_track_max_mV": 0.5361437797546387,
+  "I_mean_uA": 53.45367655518118,
+  "I_sd_uA": 44.50590784403849,
+  "I_max_abs_uA": 137.80225316683436,
+  "I_ranges": [
+   40,
+   41,
+   42,
+   43,
+   44
+  ],
+  "completed": true
+ },
+ "gnd_to_red": {
+  "label": "ground lead also on the WE",
+  "seconds": 58.00079853477655,
+  "ewe_track_rms_mV": 0.03294310727603767,
+  "ewe_track_max_mV": 0.5174948164494708,
+  "I_mean_uA": -0.0014976760226049829,
+  "I_sd_uA": 8.633950608614349e-06,
+  "I_max_abs_uA": 0.0015220891649292377,
+  "I_ranges": [
+   45
+  ],
+  "completed": true
+ },
+ "no_WE": {
+  "label": "WE power and sense disconnected",
+  "seconds": 41.783998944447376,
+  "ewe_track_rms_mV": 0.051930592700277084,
+  "ewe_track_max_mV": 1.0354965925216675,
+  "I_mean_uA": 9.18903564297395e-05,
+  "I_sd_uA": 0.0004883288146662905,
+  "I_max_abs_uA": 0.009113482683368703,
+  "I_ranges": [
+   43,
+   44,
+   45
+  ],
+  "completed": true
+ },
+ "no_p1": {
+  "label": "WE power (P1) off, sense on",
+  "seconds": 3.903799901381717,
+  "ewe_track_rms_mV": 0.2473307155807686,
+  "ewe_track_max_mV": 5.584766287938692,
+  "I_mean_uA": 0.00011640978790814493,
+  "I_sd_uA": 1.6767196456431852e-05,
+  "I_max_abs_uA": 0.0001272575645649976,
+  "I_ranges": [
+   45
+  ],
+  "completed": false
+ },
+ "no_p2": {
+  "label": "CE power (P2) off",
+  "seconds": 4.034999898067326,
+  "ewe_track_rms_mV": 59.13511195331211,
+  "ewe_track_max_mV": 201.97968590946402,
+  "I_mean_uA": 0.00012105781184042868,
+  "I_sd_uA": 8.580140026949419e-05,
+  "I_max_abs_uA": 0.0008604409913459676,
+  "I_ranges": [
+   45
+  ],
+  "completed": false
+ },
+ "no_s3": {
+  "label": "CE sense (S3) off",
+  "seconds": 27.94439929406508,
+  "ewe_track_rms_mV": 0.03330315807341868,
+  "ewe_track_max_mV": 0.6672143936157227,
+  "I_mean_uA": 69.09461568734568,
+  "I_sd_uA": 39.73342522799733,
+  "I_max_abs_uA": 137.7844512462616,
+  "I_ranges": [
+   40,
+   41,
+   42,
+   43
+  ],
+  "completed": true
+ },
+ "gnd_to_blue": {
+  "label": "ground lead on the CE",
+  "seconds": 3.9821998994011665,
+  "ewe_track_rms_mV": 58.476313435548505,
+  "ewe_track_max_mV": 202.0736291369758,
+  "I_mean_uA": 0.11750627686683617,
+  "I_sd_uA": 0.044313012614399544,
+  "I_max_abs_uA": 0.14259177260100842,
+  "I_ranges": [
+   43
+  ],
+  "completed": false
+ },
+ "beamline day 4 (CV 498)": {
+  "label": "4.1 nm, beamline",
+  "seconds": 730.1263815554557,
+  "ewe_track_rms_mV": 10.116726805924637,
+  "ewe_track_max_mV": 64.72898056381382,
+  "I_mean_uA": -0.0011138973377518187,
+  "I_sd_uA": 0.21866360682931738,
+  "I_max_abs_uA": 0.8853041350959838,
+  "I_ranges": [
+   14
+  ],
+  "completed": true
+ }
+}

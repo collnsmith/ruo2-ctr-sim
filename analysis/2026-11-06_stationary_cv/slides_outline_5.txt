@@ -58,7 +58,11 @@ SLIDE 2  A reversible surface switch on 3.3 and 7 nm, at the same potential
 -------------------------------------------------------------------------------------------------
 SLIDE 3  The CTRs see the same change (7 nm)
 -------------------------------------------------------------------------------------------------
-- Figures: slide08_ctr_rods.png (rod ratios); slide10_ctr_to_cv.png (prediction vs CV).
+- Figure: slide09_oh_fraction.png, panels a and b (the OH fraction on the CUS sites from the CTR fits vs potential, under
+  Rao's bridging O and with it at 0 Å). Panel c (4.1 minus 7 nm) can move to slide 4 or the backup.
+- What the figure shows: the 7 nm OH fraction rises from -0.1 V to 0.35 V under both assumptions (Rao: about 0.4 to 0.9;
+  0 Å: about 0 to 0.45), with wide ranges. The absolute values move with the assumption; the rise does not.
+  - The drop at 0.7 V under Rao comes from the imposed bridging-O change (0.35 to 0 Å); it is not measured.
 - No model:
   - Whole (0 1) rod at 0.7 V vs -0.1 V: rms of ln(ratio) 0.077 and 0.080, in both directions.
   - Repeats at the same potential, hours apart: 0.039-0.040.

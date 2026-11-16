@@ -83,32 +83,44 @@ SLIDE 4  4.1 nm: no switch under applied potential
 - Speaker notes:
   - bounds at 2.75 / 3.16: at most 3% / 12% of 3.3 nm and 1% / 8% of 7 nm (2 sigma); CTRs at six potentials agree to
     the repeat level;
-  - support for control: OCV stable at 0.37-0.40 V and beam-responsive; CE and RE in the same bubble-free reservoir; all
-    electrode pairs a few hundred ohms;
+  - the case for and against control is on the next slide;
   - if control is not accepted, 4.1 nm is a negative control, and slides 2-3 stand either way.
 
 
 -------------------------------------------------------------------------------------------------
-SLIDE 5  Why the current record is empty: bench wiring tests
+SLIDE 5  Was the 4.1 nm film under potential control? Evidence for and against
 -------------------------------------------------------------------------------------------------
-- Figure: ec_figures/ec06_lab_wiring_tests.png (rows A-D).
-- On the slide:
-  - Day 4 (D): Ewe follows the programme and the OCV is stable, but no current shows above the instrument noise.
-  - On the bench (BioLogic SP-300, dummy cell), two wirings give a normal potential record with no current:
-    - a WE also tied to ground (B): the cell stays polarized;
-    - a disconnected WE (C): nothing is polarized.
-  - Only B matches day 4: a disconnected WE's OCV drifts, while day 4's was stable.
-  - With the WE tied to ground, the current bypasses the ammeter, even through 100 Ohm.
-- Speaker notes:
-  - other wirings fail or record current normally: WE power off stops in 4 s; CE power off and ground on the CE stop;
-    CE sense off records normally;
-  - 100 Ohm to ground: 12 nA recorded against 0.13 mA normally (0.01%);
-  - the beamline potentiostat was a simpler model (lowest range about 1 uA, no filtering), hence the ±0.2 uA noise on
-    the zero current;
-  - with a grounded channel, any WE-side touch of earthed metal at the beamline would do the same; it cannot be checked
-    now;
+- Figure: ec_figures/ec06_lab_wiring_tests.png (rows A-D), beside two text columns.
+- On the slide, left column, SUPPORTS CONTROL:
+  - The potential record is normal (Ewe follows the programme, same noise as other days).
+  - The OCV was stable (0.37-0.40 V) and moved with the beam; a disconnected WE drifts (row C).
+  - The cell was continuous: CE and RE in the same bubble-free reservoir; every electrode pair read a few hundred ohms.
+  - On the bench, a WE also tied to ground reproduces day 4 with the cell polarized (row B); the current bypasses the
+    ammeter even through 100 Ohm.
+- On the slide, right column, AGAINST CONTROL OR UNRESOLVED:
+  - The current record, the most direct evidence, shows no current at all.
+  - No WE-to-ground contact was identified at the beamline, and the setup can no longer be checked.
+  - The X-ray shows no response, which is also what no control would give.
+  - Day 4 also differed in other ways (Kapton window, a rest potential 0.4 V higher, no argon logged).
+- Bottom line on the slide: control is the better-supported reading, not a proven one.
+- Speaker notes, supporting:
+  - the bench ground-to-WE case: the cell polarized as programmed (independent meter); 100 Ohm to ground still records
+    only 12 nA against 0.13 mA normally (0.01%);
+  - the beamline potentiostat was a simpler model (lowest range about 1 uA, no filtering), which explains the
+    ±0.2 uA noise on the zero current;
+  - the day-4 CVs carry a weak current trend (+1 to +4 nA over 0-0.7 V in all six), the size of a 0.02-0.05% leak of a
+    normal film current;
   - swapped WE / CE leads would also lose control, but are excluded by the absence of any capacitive current (under
     0.1 uF), unless almost none of the gold counter wire was wet.
+- Speaker notes, against or unresolved:
+  - charge at potential steps on day 4: 0.003 ± 0.026 uF/V, against 28.5 uF/V on 7 nm;
+  - a disconnected WE gives the same potential and current record; only the OCV separates it, and the day-4 OCVs are
+    logbook readings, not recorded files;
+  - the long holds show no leak (0.1 ± 0.5 nA between 0 and 0.7 V), where a 3.3 nm-like steady current would leak
+    2-4 nA; this is open, because the source of that steady current is unknown;
+  - the bench tests used an SP-300, not the beamline unit;
+  - the film behaviour is not monotonic in thickness (3.3 and 7 nm switch, 4.1 nm does not), which a reviewer will read
+    as a reason to doubt the 4.1 nm day.
 
 
 -------------------------------------------------------------------------------------------------

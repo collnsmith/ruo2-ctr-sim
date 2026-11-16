@@ -108,26 +108,21 @@ SLIDE 5  Was 4.1 nm under potential control?
 
 
 -------------------------------------------------------------------------------------------------
-SLIDE 6  Summary, limits, next steps
+SLIDE 6  What we can say, by confidence
 -------------------------------------------------------------------------------------------------
-- Summary:
-  1. 3.3 and 7 nm surfaces switch reversibly between two states at the same potential (about 0.22-0.25 V, 0.46-0.49 V
-     RHE), at the reflections the model marks as surface-sensitive.
-  2. The 7 nm CTRs change with potential and return. States fitted to them predict the sign and onset of the CV
-     changes.
-  3. The switch potential does not follow strain or work function between 3.3 and 7 nm.
-  4. 4.1 nm does not switch under applied potential (control supported; the lost current is reproduced on the bench).
-- Limits:
-  - one sample per thickness, so no thickness trend is claimed (3.3 and 7 switch, 4.1 does not);
-  - no absolute OH coverage, and no mechanism;
-  - the 3.3 nm strain is not measured in this dataset;
-  - the 3.25 sign difference is open;
-  - a steady anodic current on days 2-3, not driven by the beam at the moment, has an unknown source.
-- What would make it a paper:
-  - a theory estimate of how strain should shift OH adsorption, to turn the equal switch potentials into a constraint;
-  - lab CVs of all three films;
-  - a second 4.1 nm sample;
-  - a 7 nm-only CTR refit.
+- SOLID (no model):
+  - 3.3 and 7 nm surfaces switch reversibly near 0.47 V RHE, at the same potential in both.
+  - The change is surface-specific: control reflections stay flat.
+- SUPPORTED (model or assumption):
+  - The CTRs place the switch in the OH coverage of the CUS sites, and their states predict the CV changes.
+  - 4.1 nm does not switch, if its potential was controlled (likely).
+- OPEN:
+  - Why 4.1 nm differs (one sample, one day).
+  - Absolute coverage, mechanism, the 3.25 sign.
+- NEXT: a theory estimate of the strain effect on OH adsorption; a second 4.1 nm sample with its current recorded; lab
+  CVs of all three films.
+- Speaker note: the equal switch potential in a strained and a partly relaxed film is itself a result: strain and work
+  function do not set it, at least between 3.3 and 7 nm.
 
 
 BACKUP (optional, outside the six)

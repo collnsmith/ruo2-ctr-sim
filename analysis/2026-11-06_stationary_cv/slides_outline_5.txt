@@ -58,25 +58,18 @@ SLIDE 2  A reversible surface switch on 3.3 and 7 nm, at the same potential
 -------------------------------------------------------------------------------------------------
 SLIDE 3  The CTRs see the same change (7 nm)
 -------------------------------------------------------------------------------------------------
-- Figure: slide09_oh_fraction.png, panels a and b (the OH fraction on the CUS sites from the CTR fits vs potential, under
-  Rao's bridging O and with it at 0 Å). Panel c (4.1 minus 7 nm) can move to slide 4 or the backup.
-- What the figure shows: the 7 nm OH fraction rises from -0.1 V to 0.35 V under both assumptions (Rao: about 0.4 to 0.9;
-  0 Å: about 0 to 0.45), with wide ranges. The absolute values move with the assumption; the rise does not.
-  - The drop at 0.7 V under Rao comes from the imposed bridging-O change (0.35 to 0 Å); it is not measured.
-- No model:
-  - Whole (0 1) rod at 0.7 V vs -0.1 V: rms of ln(ratio) 0.077 and 0.080, in both directions.
-  - Repeats at the same potential, hours apart: 0.039-0.040.
-  - So the change follows the potential, not time.
-- With the model: surface states fitted to the CTRs predict the 7 nm CV changes with nothing adjusted. The fits use two
-  bridging-O assumptions, one from Rao et al. 2017.
-  - At 0.15 V: 2.75 predicted -7 to -11%, measured -9%; 3.16 predicted +7 to +10%, measured +6.5%.
-  - At 0.35 V: 3.16 matches (+10 to +15% vs +14%); 2.75 is underpredicted (-10 to -15% vs -25%).
-  - Not reproduced: 3.25, and the size at 0.7 V.
-- Say plainly: absolute OH coverage is not claimed. The OH fraction and the bridging-O height trade off; the relative
-  result is the same under both assumptions.
-- Speaker note: the CTR fits are joint fits of both films. Each film has its own structure, but they share the water
-  height, a Ru height and (in the structure step) the bridging-O height at each potential. A 7 nm-only refit is a
-  pending check.
+- Figure: slide09_oh_fraction.png, panels a and b.
+- On the slide:
+  - The 7 nm rods change with potential and come back (0.7 vs -0.1 V: twice the repeat difference).
+  - Fitted to the CTRs, the OH fraction rises from -0.1 to 0.35 V under both bridging-O assumptions, Rao's included.
+  - These fitted states predict the sign and onset of the 7 nm CV changes, with nothing adjusted.
+  - Absolute coverage is not claimed; the rise holds under both assumptions.
+- Speaker notes:
+  - rods: rms of ln(ratio) 0.077 / 0.080 against 0.039 / 0.040 for repeats;
+  - at 0.15 V: 2.75 predicted -7 to -11%, measured -9%; 3.16 predicted +7 to +10%, measured +6.5%. Not reproduced:
+    3.25, and the size at 0.7 V;
+  - the 0.7 V drop under Rao is the imposed bridging-O change, not a measurement;
+  - the fits share surface parameters with 4.1 nm; a 7 nm-only refit is pending.
 
 
 -------------------------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-FIVE-SLIDE OVERVIEW: in situ SXRD of RuO2(110) films (3.3 / 4.1 / 7 nm) under potential control
+SIX-SLIDE OVERVIEW: in situ SXRD of RuO2(110) films (3.3 / 4.1 / 7 nm) under potential control
 =================================================================================================
 Potentials vs Ag/AgCl; RHE = Ag/AgCl + 0.238 V (logbook). Figures named below are in analysis/2026-11-06_stationary_cv/
 (slide_figures/, ec_figures/, onepager_fig.png). Numbers come from the saved results of this analysis.
@@ -75,26 +75,44 @@ SLIDE 3  The CTRs see the same change (7 nm)
 -------------------------------------------------------------------------------------------------
 SLIDE 4  4.1 nm: no switch under applied potential
 -------------------------------------------------------------------------------------------------
-- Figures: slide06b_cv_response_synced.png (4.1 nm next to 3.3 and 7 nm); ec_figures/ec06_lab_wiring_tests.png.
+- Figure: slide06b_cv_response_synced.png (4.1 nm next to 3.3 and 7 nm).
 - On the slide:
   - 4.1 nm stays flat at every reflection and in the CTRs: at most 1-12% of the other films' response.
-  - The day-4 current record is empty, but the potential record and the rest potential were normal.
-  - On the bench, only a WE also tied to ground reproduces day 4. The cell stays polarized and the current bypasses the
-    ammeter, even through 100 Ohm.
-  - Caveat: the beamline contact itself cannot be checked.
+  - The potential record and the rest potential were normal; the current record is empty (next slide).
+  - Caveat: control rests on the potential record and a bench reproduction; the beamline contact cannot be checked.
 - Speaker notes:
   - bounds at 2.75 / 3.16: at most 3% / 12% of 3.3 nm and 1% / 8% of 7 nm (2 sigma); CTRs at six potentials agree to
     the repeat level;
   - support for control: OCV stable at 0.37-0.40 V and beam-responsive; CE and RE in the same bubble-free reservoir; all
     electrode pairs a few hundred ohms;
-  - a disconnected WE also runs with no current, but its OCV drifts;
-  - the beamline unit's ~1 uA lowest range explains the noise on the zero current;
-  - swapped WE / CE leads are excluded by the absence of any capacitive current;
   - if control is not accepted, 4.1 nm is a negative control, and slides 2-3 stand either way.
 
 
 -------------------------------------------------------------------------------------------------
-SLIDE 5  Summary, limits, next steps
+SLIDE 5  Why the current record is empty: bench wiring tests
+-------------------------------------------------------------------------------------------------
+- Figure: ec_figures/ec06_lab_wiring_tests.png (rows A-D).
+- On the slide:
+  - Day 4 (D): Ewe follows the programme and the OCV is stable, but no current shows above the instrument noise.
+  - On the bench (BioLogic SP-300, dummy cell), two wirings give a normal potential record with no current:
+    - a WE also tied to ground (B): the cell stays polarized;
+    - a disconnected WE (C): nothing is polarized.
+  - Only B matches day 4: a disconnected WE's OCV drifts, while day 4's was stable.
+  - With the WE tied to ground, the current bypasses the ammeter, even through 100 Ohm.
+- Speaker notes:
+  - other wirings fail or record current normally: WE power off stops in 4 s; CE power off and ground on the CE stop;
+    CE sense off records normally;
+  - 100 Ohm to ground: 12 nA recorded against 0.13 mA normally (0.01%);
+  - the beamline potentiostat was a simpler model (lowest range about 1 uA, no filtering), hence the ±0.2 uA noise on
+    the zero current;
+  - with a grounded channel, any WE-side touch of earthed metal at the beamline would do the same; it cannot be checked
+    now;
+  - swapped WE / CE leads would also lose control, but are excluded by the absence of any capacitive current (under
+    0.1 uF), unless almost none of the gold counter wire was wet.
+
+
+-------------------------------------------------------------------------------------------------
+SLIDE 6  Summary, limits, next steps
 -------------------------------------------------------------------------------------------------
 - Summary:
   1. 3.3 and 7 nm surfaces switch reversibly between two states at the same potential (about 0.22-0.25 V, 0.46-0.49 V
@@ -102,7 +120,7 @@ SLIDE 5  Summary, limits, next steps
   2. The 7 nm CTRs change with potential and return. States fitted to them predict the sign and onset of the CV
      changes.
   3. The switch potential does not follow strain or work function between 3.3 and 7 nm.
-  4. 4.1 nm does not switch under applied potential (control supported, current record lost).
+  4. 4.1 nm does not switch under applied potential (control supported; the lost current is reproduced on the bench).
 - Limits:
   - one sample per thickness, so no thickness trend is claimed (3.3 and 7 switch, 4.1 does not);
   - no absolute OH coverage, and no mechanism;
@@ -116,11 +134,11 @@ SLIDE 5  Summary, limits, next steps
   - a 7 nm-only CTR refit.
 
 
-BACKUP (optional, outside the five)
+BACKUP (optional, outside the six)
 - B1 Timing and statistics: clock sync, fixed-timing fits, noise-surrogate errors, the deep search calibrated against
   the beam monitors.
 - B2 Controls and the Ru / Ti spots.
 - B3 How Rao et al. 2017 is used.
 - B4 EC records: currents of 3.3 and 7 nm; the beam test (current unchanged at 3.6% transmission); Ewe / I explained.
-- B5 Bench wiring tests: full table, the 100 Ohm result, the swapped-lead check.
+- B5 Bench wiring tests: the full table of wirings (README), the swapped-lead check in detail.
 - B6 One-page summary: onepager_without_4p1nm_control.pdf. Its 4.1 nm framing is the fallback version.

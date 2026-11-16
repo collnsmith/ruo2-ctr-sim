@@ -1,0 +1,134 @@
+FIVE-SLIDE OVERVIEW: in situ SXRD of RuO2(110) films (3.3 / 4.1 / 7 nm) under potential control
+=================================================================================================
+Potentials vs Ag/AgCl; RHE = Ag/AgCl + 0.238 V (logbook). Figures named below are in analysis/2026-11-06_stationary_cv/
+(slide_figures/, ec_figures/, onepager_fig.png). Numbers come from the saved results of this analysis.
+
+Suggested title: "Potential-driven surface switching on epitaxial RuO2(110) films: two films switch alike, one does not"
+
+
+-------------------------------------------------------------------------------------------------
+SLIDE 1  Question, approach, answer
+-------------------------------------------------------------------------------------------------
+- Question: does the surface of epitaxial RuO2(110) on TiO2(110) respond to potential the same way in films of different
+  thickness and strain?
+- Samples: 3.3, 4.1 and 7 nm films, 0.1 M H2SO4, NSLS-II (Oct 2026).
+- Measurements:
+  - Stationary CVs: the X-ray intensity at a fixed reflection, recorded while the potential cycles 0 to 0.7 V at 5 mV/s.
+  - CTR rods at fixed potentials.
+- Why these reflections: on the (0 ±1) rods the metal scattering cancels, so the oxygen and adsorbate layers dominate.
+  A surface change has a fingerprint: L 2.75 falls while L 3.16 rises. Beam or absorption artefacts move all
+  reflections the same way.
+- Answer up front:
+  - 3.3 and 7 nm switch reversibly between two surface states, at the same potential: about 0.22-0.25 V (0.46-0.49 V
+    RHE).
+  - 4.1 nm does not switch anywhere from -0.24 to 0.7 V.
+- Figure: slide04_reflections.png (the model change along (0 1), with the CV reflections marked).
+
+
+-------------------------------------------------------------------------------------------------
+SLIDE 2  A reversible surface switch on 3.3 and 7 nm, at the same potential
+-------------------------------------------------------------------------------------------------
+- Figure: onepager_fig.png:
+  - (a) the change from 0 to 0.7 V, one point per CV scan;
+  - (b) the switch completed vs potential.
+  Relabel the 4.1 nm points to match slide 4.
+- Method: each X-ray point gets the potential EC-Lab applied at that moment (SPEC and EC-Lab clocks agree within 1-2 s).
+  Nothing is fitted to the timing.
+- Change from 0 to 0.7 V:
+
+  | Reflection  | 3.3 nm       | 7 nm          |
+  |-------------|--------------|---------------|
+  | (0 ±1 2.75) | -9.7 ± 1.3%  | -20.3 ± 0.7%  |
+  | (0 ±1 3.16) | +9.3 ± 0.5%  | +14.9 ± 0.9%  |
+  | (0 ±1 3.25) | -8.5 ± 0.8%  | +8.3 ± 0.8%   |
+
+- It is a real surface change:
+  - the fingerprint (2.75 down, 3.16 up) appears in both films;
+  - OH-blind control reflections stay at their noise (7 nm (2 0 1.75) 0.2%; 3.3 nm controls 1.1-3.5%, noise 2.4-4.0%);
+  - the sweeps overlap (no hysteresis at 5 mV/s), and the swing is the same at 25 mV/s;
+  - it reproduces: 7 nm (0 1 2.75) four times, 3.3 nm (0 -1 3.16) twice.
+- Same switch potential: half-way at 0.25 V (3.3 nm; scans 0.20-0.31) and 0.22 V (7 nm; scans 0.17-0.24).
+  - This holds although 7 nm is partly relaxed (out-of-plane strain about 0.5%) and 3.3 nm is expected to be fully
+    strained.
+  - On Jeong et al.'s films (different samples), the work function differs by 0.3-0.4 eV over this thickness range.
+- Speaker note: 3.3 and 7 nm move in opposite directions at 3.25. Not interpreted: CV 125 was measured off the rod
+  maximum, and 3.25 sits on the steepest part of the 3.3 nm rod.
+
+
+-------------------------------------------------------------------------------------------------
+SLIDE 3  The CTRs see the same change (7 nm)
+-------------------------------------------------------------------------------------------------
+- Figures: slide08_ctr_rods.png (rod ratios); slide10_ctr_to_cv.png (prediction vs CV).
+- No model:
+  - Whole (0 1) rod at 0.7 V vs -0.1 V: rms of ln(ratio) 0.077 and 0.080, in both directions.
+  - Repeats at the same potential, hours apart: 0.039-0.040.
+  - So the change follows the potential, not time.
+- With the model: surface states fitted to the CTRs predict the 7 nm CV changes with nothing adjusted. The fits use two
+  bridging-O assumptions, one from Rao et al. 2017.
+  - At 0.15 V: 2.75 predicted -7 to -11%, measured -9%; 3.16 predicted +7 to +10%, measured +6.5%.
+  - At 0.35 V: 3.16 matches (+10 to +15% vs +14%); 2.75 is underpredicted (-10 to -15% vs -25%).
+  - Not reproduced: 3.25, and the size at 0.7 V.
+- Say plainly: absolute OH coverage is not claimed. The OH fraction and the bridging-O height trade off; the relative
+  result is the same under both assumptions.
+- Speaker note: the CTR fits are joint fits of both films. Each film has its own structure, but they share the water
+  height, a Ru height and (in the structure step) the bridging-O height at each potential. A 7 nm-only refit is a
+  pending check.
+
+
+-------------------------------------------------------------------------------------------------
+SLIDE 4  4.1 nm: no switch under applied potential (and why we think the potential was applied)
+-------------------------------------------------------------------------------------------------
+- Figures:
+  - slide06b_cv_response_synced.png (the 4.1 nm points next to 3.3 and 7 nm);
+  - ec_figures/ec06_lab_wiring_tests.png (bench wiring tests vs day 4).
+- X-ray, 4.1 nm:
+  - CVs flat at 2.75, 2.84, 3.16 and 3.25: at most 3% / 12% of the 3.3 nm response and 1% / 8% of the 7 nm response at
+    2.75 / 3.16 (2 sigma).
+  - CTR rods at six potentials agree to the repeat level. The amplitude of a 7 nm-like switch in them is -0.02 to +0.20
+    (7 nm: 0.8-0.9).
+- Potential control: the day-4 current record shows no current. Why we still think the potential was applied:
+  - The potential record is normal (tracking, noise).
+  - The OCV was stable (0.37-0.40 V) and responded to the beam.
+  - CE and RE sat in the same bubble-free reservoir, and every electrode pair read a few hundred ohms.
+  - On the bench, the only wiring that reproduces all of day 4 is the WE also tied to ground. The cell stays polarized
+    exactly as programmed (independent meter), while the recorded current vanishes, even through 100 Ohm (0.01% leaks
+    through). A fully disconnected WE also runs with no current, but its OCV drifts.
+  - The beamline unit's lowest range (about 1 uA, no filtering) explains the 0.1-0.25 uA noise on the zero current.
+- Caveat on the slide: the beamline contact itself cannot be checked. Swapped WE/CE leads would also lose control, but
+  the absence of any capacitive current (under 0.1 uF) excludes that unless almost none of the gold counter wire was wet.
+- Speaker note: if the audience does not accept control, 4.1 nm becomes a negative control. Same cell, beam, protocol
+  and analysis with no potential-locked signal, so the 3.3 / 7 nm switch is not produced by the method. Slides 2-3
+  stand either way.
+
+
+-------------------------------------------------------------------------------------------------
+SLIDE 5  Summary, limits, next steps
+-------------------------------------------------------------------------------------------------
+- Summary:
+  1. 3.3 and 7 nm surfaces switch reversibly between two states at the same potential (about 0.22-0.25 V, 0.46-0.49 V
+     RHE), at the reflections the model marks as surface-sensitive.
+  2. The 7 nm CTRs change with potential and return. States fitted to them predict the sign and onset of the CV
+     changes.
+  3. The switch potential does not follow strain or work function between 3.3 and 7 nm.
+  4. 4.1 nm does not switch under applied potential (control supported, current record lost).
+- Limits:
+  - one sample per thickness, so no thickness trend is claimed (3.3 and 7 switch, 4.1 does not);
+  - no absolute OH coverage, and no mechanism;
+  - the 3.3 nm strain is not measured in this dataset;
+  - the 3.25 sign difference is open;
+  - a steady anodic current on days 2-3, not driven by the beam at the moment, has an unknown source.
+- What would make it a paper:
+  - a theory estimate of how strain should shift OH adsorption, to turn the equal switch potentials into a constraint;
+  - lab CVs of all three films;
+  - a second 4.1 nm sample;
+  - a 7 nm-only CTR refit.
+
+
+BACKUP (optional, outside the five)
+- B1 Timing and statistics: clock sync, fixed-timing fits, noise-surrogate errors, the deep search calibrated against
+  the beam monitors.
+- B2 Controls and the Ru / Ti spots.
+- B3 How Rao et al. 2017 is used.
+- B4 EC records: currents of 3.3 and 7 nm; the beam test (current unchanged at 3.6% transmission); Ewe / I explained.
+- B5 Bench wiring tests: full table, the 100 Ohm result, the swapped-lead check.
+- B6 One-page summary: onepager_without_4p1nm_control.pdf. Its 4.1 nm framing is the fallback version.

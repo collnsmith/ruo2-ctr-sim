@@ -73,29 +73,24 @@ SLIDE 3  The CTRs see the same change (7 nm)
 
 
 -------------------------------------------------------------------------------------------------
-SLIDE 4  4.1 nm: no switch under applied potential (and why we think the potential was applied)
+SLIDE 4  4.1 nm: no switch under applied potential
 -------------------------------------------------------------------------------------------------
-- Figures:
-  - slide06b_cv_response_synced.png (the 4.1 nm points next to 3.3 and 7 nm);
-  - ec_figures/ec06_lab_wiring_tests.png (bench wiring tests vs day 4).
-- X-ray, 4.1 nm:
-  - CVs flat at 2.75, 2.84, 3.16 and 3.25: at most 3% / 12% of the 3.3 nm response and 1% / 8% of the 7 nm response at
-    2.75 / 3.16 (2 sigma).
-  - CTR rods at six potentials agree to the repeat level. The amplitude of a 7 nm-like switch in them is -0.02 to +0.20
-    (7 nm: 0.8-0.9).
-- Potential control: the day-4 current record shows no current. Why we still think the potential was applied:
-  - The potential record is normal (tracking, noise).
-  - The OCV was stable (0.37-0.40 V) and responded to the beam.
-  - CE and RE sat in the same bubble-free reservoir, and every electrode pair read a few hundred ohms.
-  - On the bench, the only wiring that reproduces all of day 4 is the WE also tied to ground. The cell stays polarized
-    exactly as programmed (independent meter), while the recorded current vanishes, even through 100 Ohm (0.01% leaks
-    through). A fully disconnected WE also runs with no current, but its OCV drifts.
-  - The beamline unit's lowest range (about 1 uA, no filtering) explains the 0.1-0.25 uA noise on the zero current.
-- Caveat on the slide: the beamline contact itself cannot be checked. Swapped WE/CE leads would also lose control, but
-  the absence of any capacitive current (under 0.1 uF) excludes that unless almost none of the gold counter wire was wet.
-- Speaker note: if the audience does not accept control, 4.1 nm becomes a negative control. Same cell, beam, protocol
-  and analysis with no potential-locked signal, so the 3.3 / 7 nm switch is not produced by the method. Slides 2-3
-  stand either way.
+- Figures: slide06b_cv_response_synced.png (4.1 nm next to 3.3 and 7 nm); ec_figures/ec06_lab_wiring_tests.png.
+- On the slide:
+  - 4.1 nm stays flat at every reflection and in the CTRs: at most 1-12% of the other films' response.
+  - The day-4 current record is empty, but the potential record and the rest potential were normal.
+  - On the bench, only a WE also tied to ground reproduces day 4. The cell stays polarized and the current bypasses the
+    ammeter, even through 100 Ohm.
+  - Caveat: the beamline contact itself cannot be checked.
+- Speaker notes:
+  - bounds at 2.75 / 3.16: at most 3% / 12% of 3.3 nm and 1% / 8% of 7 nm (2 sigma); CTRs at six potentials agree to
+    the repeat level;
+  - support for control: OCV stable at 0.37-0.40 V and beam-responsive; CE and RE in the same bubble-free reservoir; all
+    electrode pairs a few hundred ohms;
+  - a disconnected WE also runs with no current, but its OCV drifts;
+  - the beamline unit's ~1 uA lowest range explains the noise on the zero current;
+  - swapped WE / CE leads are excluded by the absence of any capacitive current;
+  - if control is not accepted, 4.1 nm is a negative control, and slides 2-3 stand either way.
 
 
 -------------------------------------------------------------------------------------------------

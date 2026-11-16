@@ -49,6 +49,9 @@ So there is no second record of the cell beyond Ewe, I and the logbook.
 - how EC-Lab behaves with a disconnected lead;
 - "the potential ran".
 
+**User correction after the review (2026-11-16):** argon was used on every day. The logbook names it only on day 3.
+It is used below where marked "(user)".
+
 ## 1. Robust (no model needed)
 
 1. **3.3 and 7 nm: a reversible change of the X-ray intensity locked to the applied potential**, at the reflections
@@ -176,7 +179,8 @@ So there is no second record of the cell beyond Ewe, I and the logbook.
       - A leaked fraction under (b) can give it.
       - It sits at the resolution of an uncharacterised instrument, so it weighs little.
     - **Day 4 also differs:**
-      - a rest potential of 0.37-0.40 V, against -15 / -20 mV on days 2-3;
+      - a rest potential of 0.37-0.40 V, against -15 / -20 mV on days 2-3. With argon on every day (user), this is not
+        from different deaeration;
       - no EC problem logged;
       - the window material (Kapton) is named only on day 4. Whether it differs from days 1-3 is not recorded.
     - **Verdict: control not established. The recorded data lean weakly to no control.** The 4.1 nm null cannot carry a
@@ -201,6 +205,8 @@ So there is no second record of the cell beyond Ewe, I and the logbook.
       the data cannot say which.
     - Its size, its variability and the low rest potentials (-15 / -20 mV vs Ag/AgCl, about 0.22 V RHE) together suggest
       a parasitic process, for example an exposed contact. Its source is unknown.
+    - With argon on every day (user), the 0.4 V gap to day 4's rest potential is not from deaeration. It lies in the
+      electrodes themselves: a parasitic electrode pulling days 2-3 down, or a different surface or contact on day 4.
     - The cell resistance is not in the record, so its iR shift is not known. At 100 uA, each 100 Ohm shifts the film by
       10 mV, which is small against the +-0.15 V resolution of item 3.
 16. **Beam and cell history (logbook):**
@@ -231,7 +237,7 @@ So there is no second record of the cell beyond Ewe, I and the logbook.
   | 25 mV/s swing | "the same" | 81-86 % +- 9-11 % (the logbook's 17 % vs 15 % compared scans 222 and 223, not rates) |
   | 7 nm L 3.25 | +8 % response | seen only in the drawn ROI |
   | Kapton window | a day-4 difference | named only on day 4 |
-  | Argon | not logged on day 4 | not logged on days 1, 2 and 4 alike, so not a day-4 difference |
+  | Argon | not logged on day 4 | used every day (user); the logbook names it only on day 3. Not a day-4 difference |
 
   Each earlier wording appears in one or more of: the first-pass review, the slide outlines ("day 4 differed (window,
   rest potential, gas)"), the one-page PDF and the conversation.

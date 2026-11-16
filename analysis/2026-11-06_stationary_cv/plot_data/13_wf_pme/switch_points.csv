@@ -1,0 +1,4 @@
+# Half-way potential of the X-ray switch (V vs Ag/AgCl, clock-synced), mean and s.e. over scans; WF at that thickness from the table (7 nm interpolated between 6.5 and 7.4 nm).
+film_nm,switch_V,switch_se,WF_eV,scans_V
+3.3,0.241,0.037,4.841,0.205 0.204 0.314
+7,0.201,0.015,4.538,0.165 0.238 0.206 0.196

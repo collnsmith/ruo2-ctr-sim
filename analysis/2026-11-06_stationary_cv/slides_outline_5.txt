@@ -108,21 +108,25 @@ SLIDE 5  Was 4.1 nm under potential control?
 
 
 -------------------------------------------------------------------------------------------------
-SLIDE 6  What we can say, by confidence
+SLIDE 6  Take-home messages
 -------------------------------------------------------------------------------------------------
-- SOLID (no model):
-  - 3.3 and 7 nm surfaces switch reversibly near 0.47 V RHE, at the same potential in both.
-  - The change is surface-specific: control reflections stay flat.
-- SUPPORTED (model or assumption):
-  - The CTRs place the switch in the OH coverage of the CUS sites, and their states predict the CV changes.
-  - 4.1 nm does not switch, if its potential was controlled (likely).
-- OPEN:
-  - Why 4.1 nm differs (one sample, one day).
-  - Absolute coverage, mechanism, the 3.25 sign.
-- NEXT: a theory estimate of the strain effect on OH adsorption; a second 4.1 nm sample with its current recorded; lab
-  CVs of all three films.
-- Speaker note: the equal switch potential in a strained and a partly relaxed film is itself a result: strain and work
-  function do not set it, at least between 3.3 and 7 nm.
+- We watched the RuO2(110) film surface switch in operando: a reversible, surface-specific transition near 0.47 V RHE,
+  seen in both the stationary CVs and the CTRs.
+- The structure explains the signal: surface states fitted to the CTRs (OH on the CUS sites) predict the CV changes,
+  with nothing adjusted.
+- The switch potential is robust: the same in a strained (3.3 nm) and a partly relaxed (7 nm) film, although their work
+  functions differ by 0.3-0.4 eV (Jeong et al.). Strain does not set it.
+- The 4.1 nm film stands out: no switch under applied potential. It is a candidate film-specific effect worth
+  following up.
+- Built along the way: SXRD and electrochemistry on one clock, with calibrated statistics, ready for the next
+  beamtime.
+- Where this goes next:
+  - a theory estimate of how strain shifts OH adsorption, which turns the equal switch potentials into a quantitative
+    constraint;
+  - lab CVs of all three films;
+  - a second 4.1 nm sample with its current recorded.
+- Speaker note: keep the caveats one sentence long. One sample per thickness; coverage values depend on the
+  bridging-O assumption; 4.1 nm control is supported by the bench tests, not proven (slide 5).
 
 
 BACKUP (optional, outside the six)
